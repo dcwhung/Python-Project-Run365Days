@@ -1,0 +1,38 @@
+{
+  "id" : null,
+  "firstName" : "Donald",
+  "middleName" : null,
+  "lastName" : "Hung",
+  "fullName" : "Donald Hung",
+  "namePrefix" : null,
+  "nameSuffix" : null,
+  "gender" : null,
+  "displayName" : "DonaldDBoy",
+  "username" : "DONALD91103@GMAIL.COM",
+  "primaryAddress" : null,
+  "primaryEmailAddress" : {
+    "emailAddress" : "donald91103@gmail.com",
+    "type" : null,
+    "primary" : true,
+    "emailVerified" : true,
+    "emailVerificationTimestamp" : "2021-06-28T03:04:14Z",
+    "emailAddressId" : null
+  },
+  "primaryPhoneNumber" : null,
+  "locale" : "en_HK",
+  "type" : null,
+  "active" : true,
+  "version" : 87,
+  "lastUpdateDateTime" : "2021-10-17T07:29:19Z",
+  "createdDate" : "2017-01-22T01:47:01Z",
+  "customerLocation" : {
+    "countryCode" : "HK",
+    "verified" : true,
+    "verifiedTimestamp" : "2018-02-09T13:41:33Z"
+  },
+  "addresses" : [ ],
+  "emailAddresses" : [ ],
+  "phoneNumbers" : [ ],
+  "foreignIdentifiers" : [ ],
+  "loginInfo" : null
+}
