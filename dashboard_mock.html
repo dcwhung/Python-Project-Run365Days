@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Run365Days — Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  /* ── Reset & tokens ─────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg:        #0f1117;
+    --surface:   #1a1d27;
+    --surface2:  #22263a;
+    --border:    #2e3250;
+    --accent:    #4f8ef7;
+    --accent2:   #34d399;
+    --warn:      #f59e0b;
+    --danger:    #f87171;
+    --text:      #e2e8f0;
+    --muted:     #7c85a8;
+    --radius:    10px;
+    --sidebar-w: 220px;
+  }
+  body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; font-size: 14px; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+
+  /* ── Top nav ────────────────────────────────────────────── */
+  .topnav {
+    display: flex; align-items: center; gap: 16px;
+    padding: 0 24px; height: 56px;
+    background: var(--surface); border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .topnav .logo { font-weight: 700; font-size: 18px; color: var(--accent); letter-spacing: -.5px; }
+  .topnav .logo span { color: var(--accent2); }
+  .topnav .year-picker { margin-left: auto; display: flex; gap: 6px; }
+  .year-btn { background: var(--surface2); border: 1px solid var(--border); color: var(--muted); padding: 4px 14px; border-radius: 20px; cursor: pointer; font-size: 13px; }
+  .year-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .topnav .avatar { width: 32px; height: 32px; border-radius: 50%; background: var(--accent); display:flex; align-items:center; justify-content:center; font-weight:700; font-size:13px; margin-left:12px; }
+
+  /* ── Layout ─────────────────────────────────────────────── */
+  .layout { display: flex; flex: 1; overflow: hidden; }
+
+  /* ── Sidebar ────────────────────────────────────────────── */
+  .sidebar {
+    width: var(--sidebar-w); flex-shrink: 0;
+    background: var(--surface); border-right: 1px solid var(--border);
+    padding: 20px 12px; display: flex; flex-direction: column; gap: 4px; overflow-y: auto;
+  }
+  .nav-section { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; padding: 12px 8px 4px; }
+  .nav-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 10px; border-radius: var(--radius); cursor: pointer;
+    color: var(--muted); transition: background .15s, color .15s;
+  }
+  .nav-item:hover { background: var(--surface2); color: var(--text); }
+  .nav-item.active { background: rgba(79,142,247,.15); color: var(--accent); }
+  .nav-item .icon { font-size: 16px; width: 20px; text-align: center; }
+
+  /* ── Main ───────────────────────────────────────────────── */
+  .main { flex: 1; overflow-y: auto; padding: 24px; display: flex; flex-direction: column; gap: 20px; }
+
+  /* ── KPI cards ──────────────────────────────────────────── */
+  .kpi-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; }
+  .kpi-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 16px 18px; display: flex; flex-direction: column; gap: 6px;
+  }
+  .kpi-card .label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing:.06em; }
+  .kpi-card .value { font-size: 26px; font-weight: 700; color: var(--text); }
+  .kpi-card .sub { font-size: 12px; color: var(--muted); }
+  .kpi-card .badge { display:inline-block; font-size:11px; padding:2px 8px; border-radius:20px; font-weight:600; }
+  .badge.up   { background:rgba(52,211,153,.15); color:var(--accent2); }
+  .badge.down { background:rgba(248,113,113,.15); color:var(--danger); }
+  .kpi-card .accent-line { height:3px; border-radius:2px; background:var(--accent); margin-top:4px; width:40%; }
+
+  /* ── Section heading ─────────────────────────────────────── */
+  .section-head { display:flex; align-items:center; justify-content:space-between; }
+  .section-head h2 { font-size:15px; font-weight:600; }
+  .section-head .see-all { font-size:12px; color:var(--accent); cursor:pointer; }
+
+  /* ── Heatmap ────────────────────────────────────────────── */
+  .heatmap-card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:20px; }
+  .heatmap-months { display:flex; gap:0; margin-bottom:6px; padding-left:28px; }
+  .heatmap-months span { font-size:11px; color:var(--muted); }
+  .heatmap-grid { display:flex; gap:2px; }
+  .heatmap-days { display:flex; flex-direction:column; gap:2px; margin-right:6px; }
+  .heatmap-days span { font-size:10px; color:var(--muted); height:13px; display:flex; align-items:center; }
+  .heatmap-weeks { display:flex; gap:2px; flex:1; }
+  .heatmap-week { display:flex; flex-direction:column; gap:2px; }
+  .heatmap-cell {
+    width:13px; height:13px; border-radius:2px; background:var(--surface2);
+    cursor:pointer; transition:transform .1s;
+    position:relative;
+  }
+  .heatmap-cell:hover { transform:scale(1.3); z-index:10; }
+  .heatmap-cell.l1 { background:#1e3a5f; }
+  .heatmap-cell.l2 { background:#1d5ab5; }
+  .heatmap-cell.l3 { background:#3b82f6; }
+  .heatmap-cell.l4 { background:#60a5fa; }
+  .heatmap-cell.l5 { background:#93c5fd; }
+  .heatmap-legend { display:flex; align-items:center; gap:6px; margin-top:10px; justify-content:flex-end; }
+  .heatmap-legend span { font-size:11px; color:var(--muted); }
+  .heatmap-legend .cell { width:12px; height:12px; border-radius:2px; }
+
+  /* ── 2-col charts ────────────────────────────────────────── */
+  .charts-row { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  .chart-card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:18px; }
+  .chart-card h3 { font-size:13px; font-weight:600; color:var(--muted); margin-bottom:14px; }
+  .chart-wrap { position:relative; height:180px; }
+
+  /* ── 3-col row ───────────────────────────────────────────── */
+  .three-col { display:grid; grid-template-columns: 2fr 1fr; gap:14px; }
+
+  /* ── PB Table ────────────────────────────────────────────── */
+  .pb-card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:18px; }
+  .pb-card h3 { font-size:13px; font-weight:600; color:var(--muted); margin-bottom:14px; }
+  .pb-list { display:flex; flex-direction:column; gap:10px; }
+  .pb-row { display:flex; align-items:center; gap:12px; }
+  .pb-dist { width:60px; font-size:13px; color:var(--muted); }
+  .pb-bar-wrap { flex:1; height:8px; background:var(--surface2); border-radius:4px; overflow:hidden; }
+  .pb-bar { height:100%; border-radius:4px; background:var(--accent); }
+  .pb-val { width:70px; text-align:right; font-size:13px; font-weight:600; }
+  .pb-date { width:80px; text-align:right; font-size:11px; color:var(--muted); }
+
+  /* ── Recent activities ───────────────────────────────────── */
+  .table-card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); overflow:hidden; }
+  .table-card .table-head { display:flex; align-items:center; justify-content:space-between; padding:16px 18px 12px; }
+  .table-card h3 { font-size:13px; font-weight:600; color:var(--muted); }
+  table { width:100%; border-collapse:collapse; }
+  thead th { font-size:11px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; padding:8px 18px; text-align:left; border-bottom:1px solid var(--border); }
+  tbody tr { border-bottom:1px solid var(--border); transition:background .1s; cursor:pointer; }
+  tbody tr:last-child { border-bottom:none; }
+  tbody tr:hover { background:var(--surface2); }
+  tbody td { padding:10px 18px; font-size:13px; }
+  td.pace { font-variant-numeric:tabular-nums; }
+  .weather-tag { display:inline-flex; align-items:center; gap:4px; font-size:12px; padding:2px 8px; border-radius:12px; background:var(--surface2); }
+  .feeling { display:inline-block; width:8px; height:8px; border-radius:50%; }
+  .feeling.good  { background:var(--accent2); }
+  .feeling.ok    { background:var(--warn); }
+  .feeling.hard  { background:var(--danger); }
+
+  /* ── Weather strip ───────────────────────────────────────── */
+  .weather-row { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; }
+  .weather-mini { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:14px 16px; display:flex; flex-direction:column; gap:6px; }
+  .weather-mini .w-title { font-size:11px; color:var(--muted); text-transform:uppercase; }
+  .weather-mini .w-val { font-size:22px; font-weight:700; }
+  .weather-mini .w-sub { font-size:12px; color:var(--muted); }
+  .sparkline { height:40px; margin-top:4px; }
+
+  /* ── Tooltip hint ────────────────────────────────────────── */
+  .tooltip-hint {
+    position:fixed; background:#1e2540; border:1px solid var(--border);
+    border-radius:6px; padding:6px 10px; font-size:12px;
+    pointer-events:none; display:none; z-index:100; white-space:nowrap;
+  }
+</style>
+</head>
+<body>
+
+<!-- ── Top Nav ─────────────────────────────────────────────── -->
+<nav class="topnav">
+  <div class="logo">Run<span>365</span>Days</div>
+  <div class="year-picker">
+    <button class="year-btn">2020</button>
+    <button class="year-btn active">2021</button>
+    <button class="year-btn">2022</button>
+  </div>
+  <div class="avatar">DC</div>
+</nav>
+
+<!-- ── Layout ──────────────────────────────────────────────── -->
+<div class="layout">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="nav-section">Main</div>
+    <div class="nav-item active"><span class="icon">📊</span> Overview</div>
+    <div class="nav-item"><span class="icon">📅</span> Calendar</div>
+    <div class="nav-item"><span class="icon">🗺️</span> Route Map</div>
+
+    <div class="nav-section">Analytics</div>
+    <div class="nav-item"><span class="icon">📈</span> Performance</div>
+    <div class="nav-item"><span class="icon">⚖️</span> Weight</div>
+    <div class="nav-item"><span class="icon">🌤️</span> Weather Impact</div>
+    <div class="nav-item"><span class="icon">🔥</span> Training Load</div>
+    <div class="nav-item"><span class="icon">🏅</span> Personal Bests</div>
+
+    <div class="nav-section">Data</div>
+    <div class="nav-item"><span class="icon">📂</span> Activities</div>
+    <div class="nav-item"><span class="icon">⚙️</span> Settings</div>
+  </aside>
+
+  <!-- Main content -->
+  <main class="main">
+
+    <!-- KPI Cards -->
+    <div class="kpi-row">
+      <div class="kpi-card">
+        <div class="label">Total Distance</div>
+        <div class="value">2,847<span style="font-size:16px;color:var(--muted)"> km</span></div>
+        <div><span class="badge up">↑ 12%</span> <span class="sub">vs last year</span></div>
+        <div class="accent-line"></div>
+      </div>
+      <div class="kpi-card">
+        <div class="label">Total Time</div>
+        <div class="value">267<span style="font-size:16px;color:var(--muted)"> hrs</span></div>
+        <div><span class="badge up">↑ 8%</span> <span class="sub">vs last year</span></div>
+        <div class="accent-line" style="background:var(--accent2)"></div>
+      </div>
+      <div class="kpi-card">
+        <div class="label">Avg. Pace</div>
+        <div class="value">5:36<span style="font-size:16px;color:var(--muted)"> /km</span></div>
+        <div><span class="badge up">↑ 0:08</span> <span class="sub">faster</span></div>
+        <div class="accent-line" style="background:var(--warn)"></div>
+      </div>
+      <div class="kpi-card">
+        <div class="label">Total Calories</div>
+        <div class="value">198k<span style="font-size:16px;color:var(--muted)"> kcal</span></div>
+        <div><span class="sub" style="color:var(--muted)">avg 543/run</span></div>
+        <div class="accent-line" style="background:var(--danger)"></div>
+      </div>
+      <div class="kpi-card">
+        <div class="label">Running Streak</div>
+        <div class="value">365<span style="font-size:16px;color:var(--muted)"> days</span></div>
+        <div><span class="badge up">🔥 Full Year!</span></div>
+        <div class="accent-line" style="background:#a78bfa"></div>
+      </div>
+    </div>
+
+    <!-- Activity Heatmap -->
+    <div class="heatmap-card">
+      <div class="section-head" style="margin-bottom:14px">
+        <h2>Activity Heatmap — 2021</h2>
+        <span class="see-all">Distance per day</span>
+      </div>
+      <div id="heatmap-root"></div>
+      <div class="heatmap-legend">
+        <span>Less</span>
+        <div class="cell" style="background:var(--surface2)"></div>
+        <div class="cell l1"></div>
+        <div class="cell l2"></div>
+        <div class="cell l3"></div>
+        <div class="cell l4"></div>
+        <div class="cell l5"></div>
+        <span>More</span>
+      </div>
+    </div>
+
+    <!-- Charts row -->
+    <div class="charts-row">
+      <div class="chart-card">
+        <h3>Monthly Distance (km)</h3>
+        <div class="chart-wrap"><canvas id="distChart"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <h3>Pace Trend (min/km)</h3>
+        <div class="chart-wrap"><canvas id="paceChart"></canvas></div>
+      </div>
+    </div>
+
+    <!-- PBs + Weather -->
+    <div class="three-col">
+      <!-- Recent Activities -->
+      <div class="table-card">
+        <div class="table-head">
+          <h3>Recent Activities</h3>
+          <span class="see-all">View all →</span>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Dist.</th>
+              <th>Time</th>
+              <th>Pace</th>
+              <th>Temp</th>
+              <th>Feel</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Dec 31</td><td>7.82 km</td><td>44:12</td><td class="pace">5:39/km</td>
+              <td><span class="weather-tag">☀️ 18°C</span></td>
+              <td><span class="feeling good"></span></td>
+            </tr>
+            <tr>
+              <td>Dec 30</td><td>6.50 km</td><td>37:45</td><td class="pace">5:48/km</td>
+              <td><span class="weather-tag">🌤 20°C</span></td>
+              <td><span class="feeling good"></span></td>
+            </tr>
+            <tr>
+              <td>Dec 29</td><td>8.10 km</td><td>47:30</td><td class="pace">5:51/km</td>
+              <td><span class="weather-tag">🌧 17°C</span></td>
+              <td><span class="feeling ok"></span></td>
+            </tr>
+            <tr>
+              <td>Dec 28</td><td>5.20 km</td><td>29:10</td><td class="pace">5:36/km</td>
+              <td><span class="weather-tag">☀️ 22°C</span></td>
+              <td><span class="feeling good"></span></td>
+            </tr>
+            <tr>
+              <td>Dec 27</td><td>9.03 km</td><td>54:18</td><td class="pace">6:01/km</td>
+              <td><span class="weather-tag">🌫 15°C</span></td>
+              <td><span class="feeling hard"></span></td>
+            </tr>
+            <tr>
+              <td>Dec 26</td><td>7.15 km</td><td>40:05</td><td class="pace">5:36/km</td>
+              <td><span class="weather-tag">☀️ 21°C</span></td>
+              <td><span class="feeling good"></span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Personal Bests -->
+      <div class="pb-card">
+        <h3>Personal Bests</h3>
+        <div class="pb-list">
+          <div class="pb-row">
+            <div class="pb-dist">1 km</div>
+            <div class="pb-bar-wrap"><div class="pb-bar" style="width:55%;background:#a78bfa"></div></div>
+            <div class="pb-val">4:02</div>
+            <div class="pb-date">Mar 14</div>
+          </div>
+          <div class="pb-row">
+            <div class="pb-dist">5 km</div>
+            <div class="pb-bar-wrap"><div class="pb-bar" style="width:72%;background:var(--accent)"></div></div>
+            <div class="pb-val">22:18</div>
+            <div class="pb-date">Jun 05</div>
+          </div>
+          <div class="pb-row">
+            <div class="pb-dist">10 km</div>
+            <div class="pb-bar-wrap"><div class="pb-bar" style="width:88%;background:var(--accent2)"></div></div>
+            <div class="pb-val">48:34</div>
+            <div class="pb-date">Sep 19</div>
+          </div>
+          <div class="pb-row">
+            <div class="pb-dist">Half</div>
+            <div class="pb-bar-wrap"><div class="pb-bar" style="width:95%;background:var(--warn)"></div></div>
+            <div class="pb-val">1:52:10</div>
+            <div class="pb-date">Nov 07</div>
+          </div>
+          <div class="pb-row">
+            <div class="pb-dist">Longest</div>
+            <div class="pb-bar-wrap"><div class="pb-bar" style="width:100%;background:var(--danger)"></div></div>
+            <div class="pb-val">23.4 km</div>
+            <div class="pb-date">Oct 31</div>
+          </div>
+        </div>
+
+        <!-- Training Load mini card -->
+        <div style="margin-top:20px; padding-top:16px; border-top:1px solid var(--border)">
+          <div style="font-size:13px; font-weight:600; color:var(--muted); margin-bottom:10px">Training Load (CTL/ATL)</div>
+          <div class="chart-wrap" style="height:100px"><canvas id="loadChart"></canvas></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Weight + Weather row -->
+    <div class="charts-row">
+      <div class="chart-card">
+        <h3>Weight Trend (lbs) &amp; Distance (km)</h3>
+        <div class="chart-wrap"><canvas id="weightChart"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <h3>Temperature vs Pace Correlation</h3>
+        <div class="chart-wrap"><canvas id="tempPaceChart"></canvas></div>
+      </div>
+    </div>
+
+    <!-- Weather breakdown -->
+    <div class="weather-row">
+      <div class="weather-mini">
+        <div class="w-title">Avg. Run Temp</div>
+        <div class="w-val" style="color:var(--warn)">22.4°C</div>
+        <div class="w-sub">Range: 8°C – 34°C</div>
+      </div>
+      <div class="weather-mini">
+        <div class="w-title">Rainy Day Runs</div>
+        <div class="w-val" style="color:var(--accent)">47</div>
+        <div class="w-sub">13% of all runs</div>
+      </div>
+      <div class="weather-mini">
+        <div class="w-title">Typhoon Signal Runs</div>
+        <div class="w-val" style="color:var(--danger)">3</div>
+        <div class="w-sub">T3 or above</div>
+      </div>
+      <div class="weather-mini">
+        <div class="w-title">Best Pace Temp</div>
+        <div class="w-val" style="color:var(--accent2)">16–20°C</div>
+        <div class="w-sub">avg 5:21/km in this range</div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<div class="tooltip-hint" id="tooltip"></div>
+
+<script>
+// ── Helpers ───────────────────────────────────────────────
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+Chart.defaults.color = '#7c85a8';
+Chart.defaults.borderColor = '#2e3250';
+Chart.defaults.font.family = "'Segoe UI', system-ui, sans-serif";
+
+// ── Heatmap ───────────────────────────────────────────────
+(function buildHeatmap() {
+  const root = document.getElementById('heatmap-root');
+
+  // Generate mock data: random km per day for 2021
+  const rng = (seed => () => {
+    seed = (seed * 9301 + 49297) % 233280;
+    return seed / 233280;
+  })(42);
+  const dayData = [];
+  for (let d = 0; d < 365; d++) {
+    const km = 4 + rng() * 8;
+    dayData.push(km);
+  }
+  const level = km => km === 0 ? '' : km < 4 ? 'l1' : km < 6 ? 'l2' : km < 7 ? 'l3' : km < 9 ? 'l4' : 'l5';
+
+  // Jan 1 2021 = Friday (index 4)
+  const startOffset = 4;
+  const totalCells = startOffset + 365;
+  const numWeeks = Math.ceil(totalCells / 7);
+
+  // Month label positions
+  const monthStarts = [];
+  const mDays = [0,31,59,90,120,151,181,212,243,273,304,334];
+  mDays.forEach((d, i) => {
+    const week = Math.floor((d + startOffset) / 7);
+    monthStarts.push({ week, label: MONTHS[i] });
+  });
+
+  // Build month labels row
+  const monthRow = document.createElement('div');
+  monthRow.className = 'heatmap-months';
+  monthRow.style.cssText = 'gap:0; display:flex; padding-left:28px;';
+  let lastWeek = 0;
+  monthStarts.forEach(({ week, label }) => {
+    const spacer = document.createElement('span');
+    spacer.style.cssText = `width:${(week - lastWeek) * 15}px; display:inline-block;`;
+    spacer.textContent = label;
+    monthRow.appendChild(spacer);
+    lastWeek = week;
+  });
+  root.appendChild(monthRow);
+
+  // Grid
+  const grid = document.createElement('div');
+  grid.className = 'heatmap-grid';
+
+  // Day labels
+  const dayLabels = document.createElement('div');
+  dayLabels.className = 'heatmap-days';
+  ['','Mon','','Wed','','Fri',''].forEach(l => {
+    const s = document.createElement('span');
+    s.textContent = l;
+    dayLabels.appendChild(s);
+  });
+  grid.appendChild(dayLabels);
+
+  // Weeks
+  const weeksEl = document.createElement('div');
+  weeksEl.className = 'heatmap-weeks';
+  for (let w = 0; w < numWeeks; w++) {
+    const weekEl = document.createElement('div');
+    weekEl.className = 'heatmap-week';
+    for (let wd = 0; wd < 7; wd++) {
+      const cellIdx = w * 7 + wd;
+      const dayIdx = cellIdx - startOffset;
+      const cell = document.createElement('div');
+      cell.className = 'heatmap-cell';
+      if (dayIdx >= 0 && dayIdx < 365) {
+        const km = dayData[dayIdx];
+        cell.classList.add(level(km));
+        cell.dataset.km = km.toFixed(1);
+        cell.dataset.day = dayIdx;
+
+        // Tooltip
+        cell.addEventListener('mouseenter', e => {
+          const d = new Date(2021, 0, dayIdx + 1);
+          const tt = document.getElementById('tooltip');
+          tt.textContent = `${d.toDateString()} — ${km.toFixed(1)} km`;
+          tt.style.display = 'block';
+        });
+        cell.addEventListener('mousemove', e => {
+          const tt = document.getElementById('tooltip');
+          tt.style.left = (e.clientX + 12) + 'px';
+          tt.style.top  = (e.clientY - 28) + 'px';
+        });
+        cell.addEventListener('mouseleave', () => {
+          document.getElementById('tooltip').style.display = 'none';
+        });
+      }
+      weekEl.appendChild(cell);
+    }
+    weeksEl.appendChild(weekEl);
+  }
+  grid.appendChild(weeksEl);
+  root.appendChild(grid);
+})();
+
+// ── Monthly Distance Bar ──────────────────────────────────
+new Chart(document.getElementById('distChart'), {
+  type: 'bar',
+  data: {
+    labels: MONTHS,
+    datasets: [{
+      label: 'Distance (km)',
+      data: [218,196,245,231,252,278,289,261,243,257,194,183],
+      backgroundColor: 'rgba(79,142,247,0.7)',
+      borderRadius: 5,
+    }]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { grid: { display: false } },
+      y: { grid: { color: '#2e3250' }, ticks: { callback: v => v + ' km' } }
+    }
+  }
+});
+
+// ── Pace Trend Line ───────────────────────────────────────
+new Chart(document.getElementById('paceChart'), {
+  type: 'line',
+  data: {
+    labels: MONTHS,
+    datasets: [{
+      label: 'Avg Pace',
+      data: [5.92, 5.85, 5.71, 5.65, 5.60, 5.48, 5.42, 5.38, 5.35, 5.40, 5.55, 5.60],
+      borderColor: '#34d399',
+      backgroundColor: 'rgba(52,211,153,0.1)',
+      tension: 0.4, fill: true, pointRadius: 4, pointBackgroundColor: '#34d399',
+    }]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { grid: { display: false } },
+      y: {
+        grid: { color: '#2e3250' },
+        reverse: true,
+        ticks: {
+          callback: v => {
+            const m = Math.floor(v), s = Math.round((v - m) * 60);
+            return `${m}:${s.toString().padStart(2,'0')}`;
+          }
+        }
+      }
+    }
+  }
+});
+
+// ── Weight + Distance Dual Axis ───────────────────────────
+new Chart(document.getElementById('weightChart'), {
+  type: 'line',
+  data: {
+    labels: MONTHS,
+    datasets: [
+      {
+        label: 'Weight (lbs)',
+        data: [154.8,151.2,148.5,146.0,144.2,142.8,141.5,140.2,139.8,138.5,137.2,135.6],
+        borderColor: '#f59e0b', backgroundColor: 'rgba(245,158,11,0.08)',
+        tension: 0.4, fill: true, pointRadius: 4, pointBackgroundColor: '#f59e0b',
+        yAxisID: 'y',
+      },
+      {
+        label: 'Avg Daily km',
+        data: [7.0,7.0,7.9,7.7,8.1,9.3,9.3,8.4,8.1,8.3,6.5,5.9],
+        borderColor: '#4f8ef7', backgroundColor: 'transparent',
+        tension: 0.4, borderDash: [5,3], pointRadius: 3, pointBackgroundColor: '#4f8ef7',
+        yAxisID: 'y2',
+      }
+    ]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { position: 'top', labels: { boxWidth: 12, padding: 10 } } },
+    scales: {
+      x: { grid: { display: false } },
+      y:  { grid: { color: '#2e3250' }, position: 'left',  ticks: { callback: v => v + ' lbs' } },
+      y2: { grid: { display: false },   position: 'right', ticks: { callback: v => v + ' km' } },
+    }
+  }
+});
+
+// ── Temp vs Pace Scatter ──────────────────────────────────
+(function() {
+  const rng = (s => () => { s=(s*9301+49297)%233280; return s/233280; })(99);
+  const points = [];
+  for (let i = 0; i < 120; i++) {
+    const temp = 8 + rng() * 28;
+    // Best pace around 17°C, slower when very hot or cold
+    const base = 5.2 + Math.abs(temp - 17) * 0.04 + rng() * 0.4;
+    points.push({ x: temp.toFixed(1), y: +base.toFixed(2) });
+  }
+
+  new Chart(document.getElementById('tempPaceChart'), {
+    type: 'scatter',
+    data: {
+      datasets: [{
+        label: 'Runs',
+        data: points,
+        backgroundColor: 'rgba(79,142,247,0.5)',
+        pointRadius: 4,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { color: '#2e3250' }, title: { display: true, text: 'Temperature (°C)' } },
+        y: {
+          grid: { color: '#2e3250' },
+          reverse: true,
+          title: { display: true, text: 'Pace (min/km)' },
+          ticks: {
+            callback: v => {
+              const m = Math.floor(v), s = Math.round((v-m)*60);
+              return `${m}:${s.toString().padStart(2,'0')}`;
+            }
+          }
+        }
+      }
+    }
+  });
+})();
+
+// ── Training Load (CTL / ATL) ─────────────────────────────
+new Chart(document.getElementById('loadChart'), {
+  type: 'line',
+  data: {
+    labels: MONTHS,
+    datasets: [
+      {
+        label: 'Fitness (CTL)',
+        data: [42,45,52,58,63,70,75,72,68,65,55,48],
+        borderColor: '#4f8ef7', backgroundColor: 'rgba(79,142,247,0.1)',
+        tension: 0.4, fill: true, pointRadius: 2,
+      },
+      {
+        label: 'Fatigue (ATL)',
+        data: [50,48,60,55,70,75,80,68,65,72,60,52],
+        borderColor: '#f87171', backgroundColor: 'transparent',
+        tension: 0.4, borderDash: [4,2], pointRadius: 2,
+      }
+    ]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { position: 'top', labels: { boxWidth: 10, padding: 8, font: { size: 11 } } } },
+    scales: {
+      x: { grid: { display: false }, ticks: { font: { size: 10 } } },
+      y: { grid: { color: '#2e3250' }, ticks: { font: { size: 10 } } }
+    }
+  }
+});
+</script>
+</body>
+</html>
