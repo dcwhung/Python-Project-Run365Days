@@ -244,6 +244,43 @@
   .warn-tag.amber { background:rgba(245,158,11,.15); color:var(--warn); }
   .nogps { position:absolute; inset:0; display:none; place-items:center; color:var(--muted); font-size:13px; }
   .route-card.no-gps canvas, .route-card.no-gps .basemap-note { display:none; } .route-card.no-gps .nogps { display:grid; } .route-card.no-gps .scale, .route-card.no-gps .legend { display:none; }
+  /* ── Analytics / Data views ───────────────────────────── */
+  .kpi-row.k4 { grid-template-columns: repeat(4, 1fr); }
+  .kpi-row.k6 { grid-template-columns: repeat(6, 1fr); }
+  .kpi-card .value.sm { font-size: 22px; }
+  .charts-row.c3 { grid-template-columns: 1fr 1fr 1fr; }
+  .chart-wrap.tall { height: 260px; }
+  .chart-wrap.short { height: 150px; }
+  .tbl-wrap { overflow: auto; max-height: 68vh; }
+  .tbl-wrap td, .tbl-wrap th { white-space: nowrap; }
+  .tbl-wrap thead th { position: sticky; top: 0; background: var(--surface); z-index: 1; }
+  thead th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+  thead th.sortable:hover { color: var(--text); }
+  thead th.sorted { color: var(--accent); }
+  .filters { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; padding: 14px 18px; border-bottom: 1px solid var(--border); }
+  .filters input, .filters select, .form input, .form select {
+    background: var(--surface2); border: 1px solid var(--border); color: var(--text);
+    border-radius: 8px; padding: 6px 10px; font: inherit; font-size: 13px; }
+  .filters .count { margin-left: auto; font-size: 12px; color: var(--muted); }
+  .btn { background: var(--accent); color: #fff; padding: 8px 16px; border-radius: 8px; font-weight: 600; font-size: 13px; }
+  .btn:hover { filter: brightness(1.1); }
+  .btn.ghost { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+  .mini-table th, .mini-table td { padding: 7px 12px; font-size: 12px; }
+  .mini-table td.num { font-variant-numeric: tabular-nums; text-align: right; }
+  .mini-table th.num { text-align: right; }
+  .note { font-size: 12px; color: var(--muted); line-height: 1.5; }
+  .form { display: grid; grid-template-columns: 220px 1fr; gap: 16px 24px; align-items: center; max-width: 720px; }
+  .form label { font-size: 13px; color: var(--text); }
+  .form label small { display: block; color: var(--muted); font-size: 11px; margin-top: 2px; }
+  .form .actions { grid-column: 1 / -1; display: flex; gap: 10px; margin-top: 6px; }
+  .info-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+  .info-grid > div { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+  .info-grid .k { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+  .info-grid .v { font-size: 15px; font-weight: 600; margin-top: 4px; word-break: break-all; }
+  .pill { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 10px; background: var(--surface2); color: var(--muted); }
+  .pill.ok { background: rgba(52,211,153,.15); color: var(--accent2); }
+  .saved { color: var(--accent2); font-size: 13px; align-self: center; }
+  @media (max-width: 1100px) { .kpi-row.k6 { grid-template-columns: repeat(3, 1fr); } .charts-row.c3 { grid-template-columns: 1fr; } }
 </style>
 </head>
 <body>
@@ -262,13 +299,13 @@
     <div class="nav-item" data-view="year"><span class="icon">🏆</span> Year in Review</div>
     <div class="nav-item" data-view="activity"><span class="icon">🗺️</span> Activity</div>
     <div class="nav-section">Analytics</div>
-    <div class="nav-item" style="opacity:.5;cursor:default"><span class="icon">📈</span> Performance</div>
-    <div class="nav-item" style="opacity:.5;cursor:default"><span class="icon">⚖️</span> Weight</div>
-    <div class="nav-item" style="opacity:.5;cursor:default"><span class="icon">🌤️</span> Weather Impact</div>
-    <div class="nav-item" style="opacity:.5;cursor:default"><span class="icon">🔥</span> Training Load</div>
+    <div class="nav-item" data-view="perf"><span class="icon">📈</span> Performance</div>
+    <div class="nav-item" data-view="weight"><span class="icon">⚖️</span> Weight</div>
+    <div class="nav-item" data-view="weather"><span class="icon">🌤️</span> Weather Impact</div>
+    <div class="nav-item" data-view="load"><span class="icon">🔥</span> Training Load</div>
     <div class="nav-section">Data</div>
-    <div class="nav-item" style="opacity:.5;cursor:default"><span class="icon">📂</span> Activities</div>
-    <div class="nav-item" style="opacity:.5;cursor:default"><span class="icon">⚙️</span> Settings</div>
+    <div class="nav-item" data-view="activities"><span class="icon">📂</span> Activities</div>
+    <div class="nav-item" data-view="settings"><span class="icon">⚙️</span> Settings</div>
   </aside>
 
   <main class="main">
@@ -426,6 +463,104 @@
       </div>
     </section>
 
+    <!-- ══ Performance ═════════════════════════════════════════ -->
+    <section class="view" id="view-perf">
+      <div class="page-head"><div><h1>Performance</h1><div class="meta">Pace, cadence and distance patterns across all <b id="perf-n"></b> runs</div></div></div>
+      <div class="kpi-row k6" id="perf-kpis"></div>
+      <div class="chart-card"><h3>Pace per run &amp; 30-day trend (min/km) — dots are single runs, click to open</h3><div class="chart-wrap tall"><canvas id="perf-pace"></canvas></div></div>
+      <div class="charts-row c3">
+        <div class="chart-card"><h3>Run distance distribution</h3><div class="chart-wrap"><canvas id="perf-hist"></canvas></div></div>
+        <div class="chart-card"><h3>Avg pace by weekday</h3><div class="chart-wrap"><canvas id="perf-wd"></canvas></div></div>
+        <div class="chart-card"><h3>Avg pace by start time</h3><div class="chart-wrap"><canvas id="perf-tod"></canvas></div></div>
+      </div>
+      <div class="charts-row">
+        <div class="chart-card"><h3>Cadence vs pace — one dot per run</h3><div class="chart-wrap"><canvas id="perf-cad"></canvas></div></div>
+        <div class="table-card"><div class="table-head"><h3>Monthly summary</h3></div><div class="tbl-wrap"><table class="mini-table" id="perf-table"></table></div></div>
+      </div>
+    </section>
+
+    <!-- ══ Weight ══════════════════════════════════════════════ -->
+    <section class="view" id="view-weight">
+      <div class="page-head"><div><h1>Weight</h1><div class="meta">Daily morning weigh-ins · BMI uses height <b id="wt-height"></b></div></div></div>
+      <div class="kpi-row k6" id="wt-kpis"></div>
+      <div class="chart-card"><h3>Daily weight with 7-day average</h3><div class="chart-wrap tall"><canvas id="wt-daily"></canvas></div></div>
+      <div class="charts-row c3">
+        <div class="chart-card"><h3>Change per month</h3><div class="chart-wrap"><canvas id="wt-month"></canvas></div></div>
+        <div class="chart-card"><h3>Avg day-to-day change by weekday</h3><div class="chart-wrap"><canvas id="wt-wd"></canvas></div></div>
+        <div class="chart-card"><h3>Weekly distance vs weight change</h3><div class="chart-wrap"><canvas id="wt-week"></canvas></div></div>
+      </div>
+      <div class="table-card"><div class="table-head"><h3>Days up / down / unchanged per month</h3></div><div class="tbl-wrap"><table class="mini-table" id="wt-table"></table></div></div>
+    </section>
+
+    <!-- ══ Weather Impact ══════════════════════════════════════ -->
+    <section class="view" id="view-weather">
+      <div class="page-head"><div><h1>Weather Impact</h1><div class="meta">Garmin sensor temperature per run, joined with Hong Kong Observatory hourly weather, daily extremes and warning signals</div></div></div>
+      <div class="kpi-row k6" id="wx-kpis"></div>
+      <div class="chart-card"><h3>Daily temperature range (HKO) and temperature during the run (Garmin)</h3><div class="chart-wrap tall"><canvas id="wx-range"></canvas></div></div>
+      <div class="charts-row c3">
+        <div class="chart-card"><h3>Runs by sky condition at start time</h3><div class="chart-wrap"><canvas id="wx-cond"></canvas></div></div>
+        <div class="chart-card"><h3>Avg pace by temperature band</h3><div class="chart-wrap"><canvas id="wx-band"></canvas></div></div>
+        <div class="chart-card"><h3>Humidity vs pace</h3><div class="chart-wrap"><canvas id="wx-hum"></canvas></div></div>
+      </div>
+      <div class="charts-row">
+        <div class="table-card"><div class="table-head"><h3>Runs under HKO warning signals</h3></div><div class="tbl-wrap"><table class="mini-table" id="wx-warn"></table></div></div>
+        <div class="table-card"><div class="table-head"><h3>Hottest and coldest runs</h3></div><div class="tbl-wrap"><table class="mini-table" id="wx-extremes"></table></div></div>
+      </div>
+    </section>
+
+    <!-- ══ Training Load ═══════════════════════════════════════ -->
+    <section class="view" id="view-load">
+      <div class="page-head"><div><h1>Training Load</h1><div class="meta">Distance-based load model: fitness = 42-day average, fatigue = 7-day average, form = fitness − fatigue</div></div></div>
+      <div class="kpi-row k6" id="ld-kpis"></div>
+      <div class="chart-card"><h3>Fitness (CTL), Fatigue (ATL) and Form (TSB)</h3><div class="chart-wrap tall"><canvas id="ld-ctl"></canvas></div></div>
+      <div class="charts-row">
+        <div class="chart-card"><h3>Weekly distance with 4-week average — click a bar for that week's runs</h3><div class="chart-wrap"><canvas id="ld-week"></canvas></div></div>
+        <div class="chart-card"><h3>Avg distance by weekday</h3><div class="chart-wrap"><canvas id="ld-wd"></canvas></div></div>
+      </div>
+      <div class="table-card"><div class="table-head"><h3 id="ld-week-title">Biggest weeks</h3></div><div class="tbl-wrap"><table class="mini-table" id="ld-table"></table></div></div>
+    </section>
+
+    <!-- ══ Activities ══════════════════════════════════════════ -->
+    <section class="view" id="view-activities">
+      <div class="page-head"><div><h1>Activities</h1><div class="meta">Every run of the year · click a column to sort, a row to open it</div></div><button class="btn ghost" id="act-csv">Download CSV</button></div>
+      <div class="table-card">
+        <div class="filters">
+          <input type="search" id="f-q" placeholder="Search date, weather, warning…" aria-label="Search">
+          <select id="f-month" aria-label="Month"><option value="">All months</option></select>
+          <select id="f-gps" aria-label="GPS"><option value="">Outdoor + indoor</option><option value="1">Outdoor (GPS)</option><option value="0">Indoor (no GPS)</option></select>
+          <select id="f-km" aria-label="Minimum distance"><option value="0">Any distance</option><option value="5">≥ 5 km</option><option value="7">≥ 7 km</option><option value="10">≥ 10 km</option></select>
+          <span class="count" id="f-count"></span>
+        </div>
+        <div class="tbl-wrap"><table id="act-table"><thead id="act-thead"></thead><tbody id="act-tbody"></tbody></table></div>
+      </div>
+    </section>
+
+    <!-- ══ Settings ════════════════════════════════════════════ -->
+    <section class="view" id="view-settings">
+      <div class="page-head"><div><h1>Settings</h1><div class="meta">Preferences are stored in this browser only</div></div></div>
+      <div class="chart-card">
+        <h3>Preferences</h3>
+        <form class="form" id="prefs">
+          <label for="p-landing">Landing view<small>Shown when the dashboard opens</small></label>
+          <select id="p-landing"><option value="overview">Overview</option><option value="year">Year in Review</option><option value="activity">Activity</option><option value="perf">Performance</option><option value="weight">Weight</option><option value="weather">Weather Impact</option><option value="load">Training Load</option><option value="activities">Activities</option></select>
+          <label for="p-speed">Playback speed<small>Default for the Activity route animation</small></label>
+          <select id="p-speed"><option value="10">10×</option><option value="30">30×</option><option value="90">90×</option></select>
+          <label for="p-wu">Weight unit</label>
+          <select id="p-wu"><option value="lbs">Pounds (lbs)</option><option value="kg">Kilograms (kg)</option></select>
+          <label for="p-height">Height (cm)<small>Used for BMI on the Weight page</small></label>
+          <input id="p-height" type="number" min="120" max="230" step="0.5">
+          <label for="p-fast">Pace colour range (min/km)<small>Route colouring: green at or below the fast bound, red at or above the slow bound</small></label>
+          <div style="display:flex;gap:8px;align-items:center"><input id="p-fast" type="number" min="2" max="10" step="0.1" style="width:80px"> <span class="note">fast</span> <input id="p-slow" type="number" min="3" max="15" step="0.1" style="width:80px"> <span class="note">slow</span></div>
+          <div class="actions"><button type="submit" class="btn">Save &amp; reload</button><button type="button" class="btn ghost" id="p-reset">Reset to defaults</button><span class="saved" id="p-msg"></span></div>
+        </form>
+      </div>
+      <div class="chart-card">
+        <h3>Data</h3>
+        <div class="info-grid" id="data-info"></div>
+        <p class="note" style="margin-top:12px">Regenerate with <code>python scripts/build_dashboard.py</code>; GitHub Pages rebuilds automatically on push. Chart.js is loaded from cdnjs and needs a network connection; the route map and activity charts are plain Canvas.</p>
+      </div>
+    </section>
+
   </main>
 </div>
 
@@ -435,7 +570,12 @@
 <script>
 // ══ Data & helpers ════════════════════════════════════════
 const D = window.RUN365, A = D.activities, YEAR = D.year;
-const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+/* user preferences (Settings view) — stored in localStorage, applied on load */
+const PREFS = Object.assign({ landing: 'overview', speed: 30, weightUnit: 'lbs', heightCm: 170, paceFast: 4.0, paceSlow: 7.0 },
+  (() => { try { return JSON.parse(localStorage.getItem('run365.prefs') || '{}'); } catch (e) { return {}; } })());
+const W_UNIT = PREFS.weightUnit === 'kg' ? 'kg' : 'lbs';
+const wU = v => v == null ? null : +(W_UNIT === 'kg' ? v * 0.45359237 : v).toFixed(1);   // lbs → display unit
+const MONTHS =['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const LEAP = (YEAR % 4 === 0 && YEAR % 100 !== 0) || YEAR % 400 === 0;
 const DAYS = LEAP ? 366 : 365;
 const MDAYS = [31, LEAP ? 29 : 28, 31,30,31,30,31,31,30,31,30,31];
@@ -583,11 +723,11 @@ function openActivity(id) { showView('activity'); loadActivity(id); }
   const km7 = dayLabels.map((_, i) => { const lo = Math.max(0, i - 6); let s = 0; for (let j = lo; j <= i; j++) s += dayKm[j + 1]; return +(s / (i - lo + 1)).toFixed(2); });
   new Chart(document.getElementById('weightChart'), { type: 'line',
     data: { labels: dayLabels, datasets: [
-      { label: 'Weight (lbs)', data: wSeries, borderColor: '#f59e0b', backgroundColor: 'rgba(245,158,11,0.08)', tension: .3, fill: true, pointRadius: 0, borderWidth: 2, yAxisID: 'y', spanGaps: true },
+      { label: `Weight (${W_UNIT})`, data: wSeries.map(wU), borderColor: '#f59e0b', backgroundColor: 'rgba(245,158,11,0.08)', tension: .3, fill: true, pointRadius: 0, borderWidth: 2, yAxisID: 'y', spanGaps: true },
       { label: '7-day avg km', data: km7, borderColor: '#4f8ef7', backgroundColor: 'transparent', tension: .3, borderDash: [5, 3], pointRadius: 0, borderWidth: 1.5, yAxisID: 'y2' }] },
     options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
-      plugins: { legend: { position: 'top', labels: { boxWidth: 12, padding: 10 } } },
-      scales: { x: DAY_X, y: { grid: { color: '#2e3250' }, position: 'left', ticks: { callback: v => v + ' lbs' } }, y2: { grid: { display: false }, position: 'right', ticks: { callback: v => v + ' km' } } } } });
+      plugins: { legend: { position: 'top', labels: { boxWidth: 12, padding: 10 } }, tooltip: { callbacks: { title: c => shortDate(dayLabels[c[0].dataIndex]) } } },
+      scales: { x: DAY_X, y: { grid: { color: '#2e3250' }, position: 'left', ticks: { callback: v => v + ' ' + W_UNIT } }, y2: { grid: { display: false }, position: 'right', ticks: { callback: v => v + ' km' } } } } });
 
   // Temperature vs pace
   const pts = A.filter(a => actTemp(a) != null && a.pace).map(a => ({ x: actTemp(a), y: +(a.pace / 60).toFixed(2), id: a.id, d: a.date }));
@@ -644,16 +784,16 @@ VIEW_INIT.year = { init() {
   // weight
   const w = D.weight; if (w.length) {
     const first = w[0], last = w[w.length - 1], min = w.reduce((b, r) => r[1] < b[1] ? r : b);
-    set('yr-w0', first[1].toFixed(1)); set('yr-w0-d', 'lbs @ ' + shortDate(first[0]));
-    set('yr-w1', last[1].toFixed(1)); set('yr-w1-d', 'lbs @ ' + shortDate(last[0]));
-    set('yr-wmin', min[1].toFixed(1)); set('yr-wmin-d', '@ ' + shortDate(min[0]));
+    set('yr-w0', wU(first[1])); set('yr-w0-d', W_UNIT + ' @ ' + shortDate(first[0]));
+    set('yr-w1', wU(last[1])); set('yr-w1-d', W_UNIT + ' @ ' + shortDate(last[0]));
+    set('yr-wmin', wU(min[1])); set('yr-wmin-d', '@ ' + shortDate(min[0]));
     set('yr-loss', ((first[1] - last[1]) / first[1] * 100).toFixed(1));
     const wByDate = {}; w.forEach(([d, v]) => wByDate[d] = v);
     new Chart(document.getElementById('yr-wt'), { type: 'line',
-      data: { labels: dayLabels, datasets: [{ data: dayLabels.map(d => wByDate[d] ?? null), borderColor: '#f59e0b', backgroundColor: 'rgba(245,158,11,.08)', borderWidth: 2, tension: .3, fill: true, pointRadius: 0, spanGaps: true }] },
+      data: { labels: dayLabels, datasets: [{ data: dayLabels.map(d => wU(wByDate[d] ?? null)), borderColor: '#f59e0b', backgroundColor: 'rgba(245,158,11,.08)', borderWidth: 2, tension: .3, fill: true, pointRadius: 0, spanGaps: true }] },
       options: { responsive: true, maintainAspectRatio: false, animation: false, interaction: { mode: 'index', intersect: false },
-        plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => c.parsed.y.toFixed(1) + ' lbs' } } },
-        scales: { x: DAY_X, y: { grid: { color: '#2e3250' }, ticks: { callback: v => v + ' lbs' } } } } });
+        plugins: { legend: { display: false }, tooltip: { callbacks: { title: c => shortDate(dayLabels[c[0].dataIndex]), label: c => c.parsed.y.toFixed(1) + ' ' + W_UNIT } } },
+        scales: { x: DAY_X, y: { grid: { color: '#2e3250' }, ticks: { callback: v => v + ' ' + W_UNIT } } } } });
   }
 } };
 
@@ -670,7 +810,7 @@ const nn = v => v == null ? NaN : v;
 const C_SLOW = [248,113,113], C_MID = [245,158,11], C_FAST = [52,211,153];
 function paceColor(p) {
   if (!isFinite(p)) return '#2e3250';
-  const t = 1 - Math.max(0, Math.min(1, (p - 4.0) / 3.0));
+  const t = 1 - Math.max(0, Math.min(1, (p - PREFS.paceFast) / (PREFS.paceSlow - PREFS.paceFast)));
   const mix = (a, b, k) => `rgb(${a.map((v, i) => Math.round(v + (b[i] - v) * k)).join(',')})`;
   return t < .5 ? mix(C_SLOW, C_MID, t / .5) : mix(C_MID, C_FAST, (t - .5) / .5);
 }
@@ -762,7 +902,8 @@ function render() {
 }
 function goTo(i) { idx = Math.max(0, Math.min(N - 1, i)); render(); }
 
-let playing = false, speed = 30, raf = null, lastTs = 0, clock = 0;
+let playing = false, speed = [10, 30, 90].includes(PREFS.speed) ? PREFS.speed : 30, raf = null, lastTs = 0, clock = 0;
+document.querySelectorAll('.spd button').forEach(b => b.setAttribute('aria-pressed', +b.dataset.x === speed));
 const playBtn = document.getElementById('play'), ico = document.getElementById('play-ico');
 const ICO_PLAY = '<path d="M3 2l11 6-11 6z"/>', ICO_PAUSE = '<path d="M3 2h4v12H3zM9 2h4v12H9z"/>';
 function tick(ts) {
@@ -840,6 +981,303 @@ function initActivity() {
     if (e.key === 'PageUp') stepAct(-1); });
   window.addEventListener('resize', () => { layoutMap(); render(); });
 }
+
+// ══ Shared helpers for analytics views ═══════════════════
+const CH = (id, cfg) => new Chart(document.getElementById(id), cfg);
+const BASE = { responsive: true, maintainAspectRatio: false };
+const GRID = { color: '#2e3250' };
+const NOLEG = { legend: { display: false } };
+const WD = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const weekday = iso => (new Date(iso + 'T00:00').getDay() + 6) % 7;      // Mon = 0
+const TOD = ['Early (05–08)', 'Morning (08–12)', 'Afternoon (12–17)', 'Evening (17–21)', 'Night (21–05)'];
+const tod = t => { const h = +t.slice(0, 2); return h < 5 ? 4 : h < 8 ? 0 : h < 12 ? 1 : h < 17 ? 2 : h < 21 ? 3 : 4; };
+const startDow = (new Date(YEAR, 0, 1).getDay() + 6) % 7;
+const weekOf = doy => Math.floor((doy - 1 + startDow) / 7);
+const NWEEKS = weekOf(DAYS) + 1;
+const weekStart = w => { const d = doyDate(1 + w * 7 - startDow); return d < doyDate(1) ? doyDate(1) : d; };
+const WEEKS = Array.from({ length: NWEEKS }, (_, w) => ({ w, km: 0, sec: 0, runs: 0, start: isoDate(weekStart(w)), acts: [] }));
+A.forEach(a => { const wk = WEEKS[weekOf(a.doy)]; wk.km += a.km; wk.sec += a.sec; wk.runs++; wk.acts.push(a); });
+const paceOf = list => { const k = sum(list.map(a => a.km)), s = sum(list.map(a => a.sec)); return k ? s / k : NaN; };  // sec/km
+const kpi = (label, value, sub, color) => `<div class="kpi-card"><div class="label">${label}</div><div class="value sm">${value}</div><div class="sub">${sub || ''}</div><div class="accent-line" style="background:${color || 'var(--accent)'}"></div></div>`;
+const wMap = {}; D.weight.forEach(([d, w]) => wMap[d] = w);
+const kgOf = lbs => lbs * 0.45359237;
+const bmi = lbs => kgOf(lbs) / ((PREFS.heightCm / 100) ** 2);
+const tableHTML = (cols, rows) => `<thead><tr>${cols.map(c => `<th class="${c.num ? 'num' : ''}">${c.h}</th>`).join('')}</tr></thead><tbody>${rows.map(r => `<tr${r.id ? ` data-id="${r.id}" style="cursor:pointer"` : ''}>${r.c.map((v, i) => `<td class="${cols[i].num ? 'num' : ''}">${v}</td>`).join('')}</tr>`).join('')}</tbody>`;
+const bindRows = id => document.querySelectorAll(`#${id} tr[data-id]`).forEach(tr => tr.addEventListener('click', () => openActivity(tr.dataset.id)));
+
+// ══ Performance ═══════════════════════════════════════════
+VIEW_INIT.perf = { init() {
+  const runs = A.filter(a => a.pace);
+  const fastest = runs.filter(a => a.km >= 5).reduce((b, a) => a.pace < b.pace ? a : b);
+  const longest = A.reduce((b, a) => a.km > b.km ? a : b);
+  const cads = A.filter(a => a.cad);
+  set('perf-n', A.length);
+  set('perf-kpis', [
+    kpi('Avg pace', fmtPaceSec(totSec / totKm) + ' /km', 'distance-weighted', 'var(--accent)'),
+    kpi('Best pace (≥5 km)', fmtPaceSec(fastest.pace) + ' /km', shortDate(fastest.date), 'var(--accent2)'),
+    kpi('Avg run', (totKm / A.length).toFixed(2) + ' km', fmtT(totSec / A.length) + ' per run', 'var(--warn)'),
+    kpi('Longest run', longest.km.toFixed(2) + ' km', shortDate(longest.date), '#a78bfa'),
+    kpi('Avg cadence', Math.round(mean(cads.map(a => a.cad))) + ' spm', 'max ' + Math.max(...cads.map(a => a.cad)) + ' spm', 'var(--danger)'),
+    kpi('Runs ≥ 10 km', A.filter(a => a.km >= 10).length, A.filter(a => a.km >= 7).length + ' runs ≥ 7 km', 'var(--muted)'),
+  ].join(''));
+
+  // pace per run + 30-day trend
+  const pacePts = dayLabels.map((_, i) => dayAct[i + 1] && dayAct[i + 1].pace ? +(dayAct[i + 1].pace / 60).toFixed(2) : null);
+  const trend = dayLabels.map((_, i) => { let s = 0, k = 0; for (let d = Math.max(1, i - 28); d <= i + 1; d++) { const a = dayAct[d]; if (a && a.pace) { s += a.sec; k += a.km; } } return k ? +(s / 60 / k).toFixed(2) : null; });
+  CH('perf-pace', { type: 'line', data: { labels: dayLabels, datasets: [
+      { label: 'Run', data: pacePts, showLine: false, pointRadius: 3, pointBackgroundColor: 'rgba(79,142,247,.55)', pointBorderWidth: 0 },
+      { label: '30-day trend', data: trend, borderColor: '#34d399', borderWidth: 2, pointRadius: 0, tension: .3, spanGaps: true }] },
+    options: { ...BASE, interaction: { mode: 'nearest', intersect: true },
+      onClick: (e, els) => { const el = els.find(x => x.datasetIndex === 0); if (el) openActivity(dayAct[el.index + 1].id); },
+      plugins: { legend: { position: 'top', labels: { boxWidth: 10, padding: 10 } }, tooltip: { callbacks: { title: c => shortDate(dayLabels[c[0].dataIndex]), label: c => c.dataset.label + ': ' + fmtPace(c.parsed.y) + ' /km' } } },
+      scales: { x: DAY_X, y: { grid: GRID, reverse: true, ticks: { callback: v => fmtPace(v) } } } } });
+
+  // distance histogram
+  const bins = [[0, 4, '< 4'], [4, 5, '4–5'], [5, 6, '5–6'], [6, 7, '6–7'], [7, 8, '7–8'], [8, 10, '8–10'], [10, 99, '10+']];
+  CH('perf-hist', { type: 'bar', data: { labels: bins.map(b => b[2] + ' km'), datasets: [{ data: bins.map(([lo, hi]) => A.filter(a => a.km >= lo && a.km < hi).length), backgroundColor: 'rgba(167,139,250,.7)', borderRadius: 5 }] },
+    options: { ...BASE, plugins: NOLEG, scales: { x: { grid: { display: false } }, y: { grid: GRID, ticks: { callback: v => v + ' runs' } } } } });
+
+  // weekday & time of day
+  const wdPace = WD.map((_, i) => paceOf(A.filter(a => weekday(a.date) === i)) / 60);
+  const wdN = WD.map((_, i) => A.filter(a => weekday(a.date) === i).length);
+  CH('perf-wd', { type: 'bar', data: { labels: WD, datasets: [{ data: wdPace.map(v => +v.toFixed(2)), backgroundColor: 'rgba(79,142,247,.7)', borderRadius: 5 }] },
+    options: { ...BASE, plugins: { ...NOLEG, tooltip: { callbacks: { label: c => fmtPace(c.parsed.y) + ' /km · ' + wdN[c.dataIndex] + ' runs' } } },
+      scales: { x: { grid: { display: false } }, y: { grid: GRID, reverse: true, min: +(Math.min(...wdPace) - .2).toFixed(1), max: +(Math.max(...wdPace) + .2).toFixed(1), ticks: { callback: v => fmtPace(v) } } } } });
+  const todGroups = TOD.map((_, i) => A.filter(a => tod(a.time) === i));
+  CH('perf-tod', { type: 'bar', data: { labels: TOD.map(t => t.split(' ')[0]), datasets: [{ data: todGroups.map(g => g.length ? +(paceOf(g) / 60).toFixed(2) : null), backgroundColor: 'rgba(245,158,11,.7)', borderRadius: 5 }] },
+    options: { ...BASE, plugins: { ...NOLEG, tooltip: { callbacks: { title: c => TOD[c[0].dataIndex], label: c => fmtPace(c.parsed.y) + ' /km · ' + todGroups[c.dataIndex].length + ' runs' } } },
+      scales: { x: { grid: { display: false } }, y: { grid: GRID, reverse: true, ticks: { callback: v => fmtPace(v) } } } } });
+
+  // cadence vs pace
+  const cp = cads.filter(a => a.pace).map(a => ({ x: a.cad, y: +(a.pace / 60).toFixed(2), id: a.id, d: a.date }));
+  CH('perf-cad', { type: 'scatter', data: { datasets: [{ data: cp, backgroundColor: 'rgba(52,211,153,.5)', pointRadius: 4, pointHoverRadius: 6 }] },
+    options: { ...BASE, onClick: (e, els) => { if (els.length) openActivity(cp[els[0].index].id); },
+      plugins: { ...NOLEG, tooltip: { callbacks: { label: c => `${shortDate(c.raw.d)} · ${c.raw.x} spm · ${fmtPace(c.raw.y)}/km` } } },
+      scales: { x: { grid: GRID, title: { display: true, text: 'Cadence (spm)' } }, y: { grid: GRID, reverse: true, title: { display: true, text: 'Pace (min/km)' }, ticks: { callback: v => fmtPace(v) } } } } });
+
+  // monthly table
+  const rows = MONTHS.map((m, i) => { const g = A.filter(a => +a.date.slice(5, 7) === i + 1); if (!g.length) return null;
+    const km = sum(g.map(a => a.km)), sec = sum(g.map(a => a.sec)), best = g.filter(a => a.km >= 5 && a.pace).reduce((b, a) => !b || a.pace < b.pace ? a : b, null);
+    return { c: [m, g.length, km.toFixed(1), fmtT(sec), fmtPaceSec(sec / km), best ? fmtPaceSec(best.pace) : '–', Math.round(mean(g.map(a => a.cad))), sum(g.map(a => a.kcal)).toLocaleString()] }; }).filter(Boolean);
+  rows.push({ c: ['<b>Year</b>', A.length, totKm.toFixed(1), fmtT(totSec), fmtPaceSec(totSec / totKm), fmtPaceSec(fastest.pace), Math.round(mean(cads.map(a => a.cad))), totKcal.toLocaleString()] });
+  set('perf-table', tableHTML([{ h: 'Month' }, { h: 'Runs', num: 1 }, { h: 'km', num: 1 }, { h: 'Time', num: 1 }, { h: 'Avg pace', num: 1 }, { h: 'Best pace', num: 1 }, { h: 'Cadence', num: 1 }, { h: 'kcal', num: 1 }], rows));
+} };
+
+// ══ Weight ════════════════════════════════════════════════
+VIEW_INIT.weight = { init() {
+  const W = D.weight; if (!W.length) { set('wt-kpis', kpi('No weight data', '–')); return; }
+  const first = W[0], last = W[W.length - 1], min = W.reduce((b, r) => r[1] < b[1] ? r : b), max = W.reduce((b, r) => r[1] > b[1] ? r : b);
+  const loss = first[1] - last[1];
+  set('wt-height', PREFS.heightCm + ' cm');
+  set('wt-kpis', [
+    kpi('Start', wU(first[1]).toFixed(1) + ' ' + W_UNIT, shortDate(first[0]), 'var(--muted)'),
+    kpi('End', wU(last[1]).toFixed(1) + ' ' + W_UNIT, shortDate(last[0]), 'var(--warn)'),
+    kpi('Lowest', wU(min[1]).toFixed(1) + ' ' + W_UNIT, shortDate(min[0]), 'var(--accent2)'),
+    kpi('Total loss', wU(loss).toFixed(1) + ' ' + W_UNIT, `${(loss / first[1] * 100).toFixed(1)}% · ${(loss / 52).toFixed(2)} ${W_UNIT === 'kg' ? 'kg' : 'lbs'}/week`, 'var(--accent)'),
+    kpi('BMI', bmi(last[1]).toFixed(1), `from ${bmi(first[1]).toFixed(1)} at start`, '#a78bfa'),
+    kpi('Weigh-ins', W.length, `${W.length === DAYS ? 'every day' : (DAYS - W.length) + ' days missing'}`, 'var(--danger)'),
+  ].join(''));
+
+  const series = dayLabels.map(d => wMap[d] ?? null);
+  const ma7 = series.map((_, i) => { const v = series.slice(Math.max(0, i - 6), i + 1).filter(x => x != null); return v.length ? mean(v) : null; });
+  CH('wt-daily', { type: 'line', data: { labels: dayLabels, datasets: [
+      { label: `Daily (${W_UNIT})`, data: series.map(wU), borderColor: 'rgba(245,158,11,.45)', borderWidth: 1, pointRadius: 0, spanGaps: true },
+      { label: '7-day average', data: ma7.map(wU), borderColor: '#f59e0b', backgroundColor: 'rgba(245,158,11,.08)', fill: true, borderWidth: 2.5, pointRadius: 0, tension: .3, spanGaps: true }] },
+    options: { ...BASE, interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { position: 'top', labels: { boxWidth: 10, padding: 10 } }, tooltip: { callbacks: { title: c => shortDate(dayLabels[c[0].dataIndex]), label: c => `${c.dataset.label}: ${c.parsed.y} ${W_UNIT}` + (c.datasetIndex === 0 ? ` · BMI ${bmi(series[c.dataIndex]).toFixed(1)}` : '') } } },
+      scales: { x: DAY_X, y: { grid: GRID, ticks: { callback: v => v + ' ' + W_UNIT } } } } });
+
+  // monthly change: last weigh-in of month vs last of previous month (Jan: vs first record)
+  const lastOfMonth = MONTHS.map((_, m) => { const r = W.filter(([d]) => +d.slice(5, 7) === m + 1); return r.length ? r[r.length - 1][1] : null; });
+  const mChange = lastOfMonth.map((v, m) => v == null ? null : +wU(v - (m ? lastOfMonth[m - 1] : first[1])).toFixed(1));
+  CH('wt-month', { type: 'bar', data: { labels: MONTHS, datasets: [{ data: mChange, backgroundColor: mChange.map(v => v <= 0 ? 'rgba(52,211,153,.7)' : 'rgba(248,113,113,.7)'), borderRadius: 5 }] },
+    options: { ...BASE, plugins: { ...NOLEG, tooltip: { callbacks: { label: c => (c.parsed.y > 0 ? '+' : '') + c.parsed.y + ' ' + W_UNIT } } }, scales: { x: { grid: { display: false } }, y: { grid: GRID, ticks: { callback: v => v + ' ' + W_UNIT } } } } });
+
+  // day-to-day change by weekday
+  const deltas = []; for (let i = 1; i < W.length; i++) { const prev = new Date(W[i - 1][0] + 'T00:00'), cur = new Date(W[i][0] + 'T00:00'); if ((cur - prev) / 864e5 === 1) deltas.push({ d: W[i][0], v: W[i][1] - W[i - 1][1] }); }
+  const wdDelta = WD.map((_, i) => { const v = deltas.filter(x => weekday(x.d) === i).map(x => x.v); return v.length ? +wU(mean(v)).toFixed(2) : null; });
+  CH('wt-wd', { type: 'bar', data: { labels: WD, datasets: [{ data: wdDelta, backgroundColor: wdDelta.map(v => v <= 0 ? 'rgba(52,211,153,.7)' : 'rgba(248,113,113,.7)'), borderRadius: 5 }] },
+    options: { ...BASE, plugins: { ...NOLEG, tooltip: { callbacks: { label: c => (c.parsed.y > 0 ? '+' : '') + c.parsed.y + ' ' + W_UNIT + ' vs previous day' } } }, scales: { x: { grid: { display: false } }, y: { grid: GRID, ticks: { callback: v => v + ' ' + W_UNIT } } } } });
+
+  // weekly km vs weight change over the week
+  const wkPts = WEEKS.map(wk => { const ws = []; for (let doy = 1; doy <= DAYS; doy++) { const v = wMap[dayLabels[doy - 1]]; if (weekOf(doy) === wk.w && v != null) ws.push(v); }
+    if (ws.length < 2 || !wk.runs) return null;
+    return { x: +wk.km.toFixed(1), y: +wU(ws[ws.length - 1] - ws[0]).toFixed(1), s: wk.start }; }).filter(Boolean);
+  CH('wt-week', { type: 'scatter', data: { datasets: [{ data: wkPts, backgroundColor: 'rgba(79,142,247,.5)', pointRadius: 4, pointHoverRadius: 6 }] },
+    options: { ...BASE, plugins: { ...NOLEG, tooltip: { callbacks: { label: c => `week of ${shortDate(c.raw.s)} · ${c.raw.x} km · ${c.raw.y > 0 ? '+' : ''}${c.raw.y} ${W_UNIT}` } } },
+      scales: { x: { grid: GRID, title: { display: true, text: 'km that week' } }, y: { grid: GRID, title: { display: true, text: `weight change (${W_UNIT})` } } } } });
+
+  // up/down/same per month
+  const rows = MONTHS.map((m, i) => { const d = deltas.filter(x => +x.d.slice(5, 7) === i + 1); if (!d.length) return null;
+    const up = d.filter(x => x.v > 0).length, down = d.filter(x => x.v < 0).length, same = d.length - up - down;
+    return { c: [m, `<span style="color:var(--danger)">${up}</span>`, `<span style="color:var(--accent2)">${down}</span>`, same, (wU(sum(d.map(x => x.v))) > 0 ? '+' : '') + wU(sum(d.map(x => x.v))), lastOfMonth[i] != null ? wU(lastOfMonth[i]) : '–'] }; }).filter(Boolean);
+  set('wt-table', tableHTML([{ h: 'Month' }, { h: 'Up', num: 1 }, { h: 'Down', num: 1 }, { h: 'Same', num: 1 }, { h: 'Net (' + W_UNIT + ')', num: 1 }, { h: 'Month end', num: 1 }], rows));
+} };
+
+// ══ Weather Impact ════════════════════════════════════════
+VIEW_INIT.weather = { init() {
+  const withT = A.filter(a => actTemp(a) != null);
+  const hot = withT.reduce((b, a) => actTemp(a) > actTemp(b) ? a : b), cold = withT.reduce((b, a) => actTemp(a) < actTemp(b) ? a : b);
+  const rainy = A.filter(a => (wxByDate[a.date] || {}).rain > 0);
+  const severe = A.filter(a => (a.warn || []).some(s => SEVERE.test(s)));
+  const dawn = A.filter(a => { const w = wxByDate[a.date]; return w && w.sunrise && a.time < w.sunrise; });
+  const wet = A.filter(a => a.wx && /Rain|Thunder/.test(a.wx.desc));
+  set('wx-kpis', [
+    kpi('Avg run temp', mean(withT.map(actTemp)).toFixed(1) + ' °C', 'Garmin sensor', 'var(--warn)'),
+    kpi('Hottest run', actTemp(hot).toFixed(1) + ' °C', shortDate(hot.date) + ' · ' + fmtPaceSec(hot.pace) + '/km', 'var(--danger)'),
+    kpi('Coldest run', actTemp(cold).toFixed(1) + ' °C', shortDate(cold.date) + ' · ' + fmtPaceSec(cold.pace) + '/km', 'var(--accent)'),
+    kpi('Rain / thunder at start', wet.length, `${rainy.length} runs on days with rainfall`, '#60a5fa'),
+    kpi('Severe warnings', severe.length, 'T3+ or rainstorm signal that day', 'var(--danger)'),
+    kpi('Before sunrise', dawn.length, `${Math.round(dawn.length / A.length * 100)}% of runs started in the dark`, '#a78bfa'),
+  ].join(''));
+
+  // HKO range + run temp
+  const wxD = dayLabels.map(d => wxByDate[d] || {});
+  CH('wx-range', { type: 'line', data: { labels: dayLabels, datasets: [
+      { label: 'HKO max', data: wxD.map(w => w.max ?? null), borderColor: 'rgba(248,113,113,.5)', backgroundColor: 'rgba(248,113,113,.10)', borderWidth: 1, pointRadius: 0, fill: '+1', spanGaps: true },
+      { label: 'HKO min', data: wxD.map(w => w.min ?? null), borderColor: 'rgba(96,165,250,.5)', borderWidth: 1, pointRadius: 0, spanGaps: true },
+      { label: 'During run (Garmin)', data: dayLabels.map((_, i) => dayAct[i + 1] ? actTemp(dayAct[i + 1]) : null), borderColor: '#f59e0b', borderWidth: 2, pointRadius: 0, tension: .2, spanGaps: true }] },
+    options: { ...BASE, interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { position: 'top', labels: { boxWidth: 10, padding: 10 } }, tooltip: { callbacks: { title: c => shortDate(dayLabels[c[0].dataIndex]), label: c => `${c.dataset.label}: ${c.parsed.y} °C` } } },
+      scales: { x: DAY_X, y: { grid: GRID, ticks: { callback: v => v + ' °C' } } } } });
+
+  // conditions
+  const conds = Object.keys(WX_EMOJI).map(k => ({ k, g: A.filter(a => a.wx && a.wx.desc === k) })).filter(c => c.g.length);
+  CH('wx-cond', { type: 'bar', data: { labels: conds.map(c => wxEmoji(c.k) + ' ' + c.k), datasets: [{ data: conds.map(c => c.g.length), backgroundColor: ['#f59e0b', '#4f8ef7', '#a78bfa', '#60a5fa', '#f87171'], borderRadius: 5 }] },
+    options: { ...BASE, indexAxis: 'y', plugins: { ...NOLEG, tooltip: { callbacks: { label: c => `${c.parsed.x} runs · avg ${fmtPaceSec(paceOf(conds[c.dataIndex].g))}/km` } } }, scales: { x: { grid: GRID }, y: { grid: { display: false } } } } });
+
+  // temp bands
+  const bands = []; for (let t = 4; t < 36; t += 4) { const g = withT.filter(a => actTemp(a) >= t && actTemp(a) < t + 4 && a.pace); if (g.length) bands.push({ l: `${t}–${t + 4}°`, g }); }
+  CH('wx-band', { type: 'bar', data: { labels: bands.map(b => b.l), datasets: [{ data: bands.map(b => +(paceOf(b.g) / 60).toFixed(2)), backgroundColor: bands.map((_, i) => `hsl(${210 - i * 30},70%,60%)`), borderRadius: 5 }] },
+    options: { ...BASE, plugins: { ...NOLEG, tooltip: { callbacks: { label: c => `${fmtPace(c.parsed.y)} /km · ${bands[c.dataIndex].g.length} runs` } } },
+      scales: { x: { grid: { display: false } }, y: { grid: GRID, reverse: true, ticks: { callback: v => fmtPace(v) } } } } });
+
+  // humidity
+  const hp = A.filter(a => a.wx && a.wx.hum != null && a.pace).map(a => ({ x: a.wx.hum, y: +(a.pace / 60).toFixed(2), id: a.id, d: a.date }));
+  CH('wx-hum', { type: 'scatter', data: { datasets: [{ data: hp, backgroundColor: 'rgba(96,165,250,.5)', pointRadius: 4, pointHoverRadius: 6 }] },
+    options: { ...BASE, onClick: (e, els) => { if (els.length) openActivity(hp[els[0].index].id); },
+      plugins: { ...NOLEG, tooltip: { callbacks: { label: c => `${shortDate(c.raw.d)} · ${c.raw.x}% RH · ${fmtPace(c.raw.y)}/km` } } },
+      scales: { x: { grid: GRID, title: { display: true, text: 'Relative humidity (%)' } }, y: { grid: GRID, reverse: true, ticks: { callback: v => fmtPace(v) } } } } });
+
+  // warnings table
+  const sigs = {}; A.forEach(a => (a.warn || []).forEach(s => (sigs[s] = sigs[s] || []).push(a)));
+  const wrows = Object.entries(sigs).sort((x, y) => y[1].length - x[1].length).map(([s, g]) => ({ c: [warnTags([s]) || `<span class="pill">${s.toLowerCase()}</span>`, s.toLowerCase().replace(/\b\w/g, ch => ch.toUpperCase()), g.length, (sum(g.map(a => a.km)) / g.length).toFixed(2), fmtPaceSec(paceOf(g))] }));
+  set('wx-warn', tableHTML([{ h: '' }, { h: 'Signal' }, { h: 'Runs', num: 1 }, { h: 'Avg km', num: 1 }, { h: 'Avg pace', num: 1 }], wrows));
+
+  const ext = [...withT].sort((x, y) => actTemp(y) - actTemp(x));
+  const erow = a => ({ id: a.id, c: [shortDate(a.date) + ' ' + a.time, actTemp(a).toFixed(1) + ' °C', a.wx ? wxEmoji(a.wx.desc) + ' ' + a.wx.desc : '–', a.km.toFixed(2), fmtPaceSec(a.pace)] });
+  set('wx-extremes', tableHTML([{ h: 'Run' }, { h: 'Temp', num: 1 }, { h: 'Sky' }, { h: 'km', num: 1 }, { h: 'Pace', num: 1 }], [...ext.slice(0, 5).map(erow), { c: ['<span class="note">…</span>', '', '', '', ''] }, ...ext.slice(-5).map(erow)]));
+  bindRows('wx-extremes');
+} };
+
+// ══ Training Load ═════════════════════════════════════════
+VIEW_INIT.load = { init() {
+  const ctl = [], atl = [], tsb = []; let c = 0, t = 0;
+  for (let d = 1; d <= DAYS; d++) { c += (dayKm[d] - c) / 42; t += (dayKm[d] - t) / 7; ctl.push(+c.toFixed(2)); atl.push(+t.toFixed(2)); tsb.push(+(c - t).toFixed(2)); }
+  const peakI = ctl.indexOf(Math.max(...ctl)), big = WEEKS.reduce((b, w) => w.km > b.km ? w : b), full = WEEKS.filter(w => w.runs === 7);
+  set('ld-kpis', [
+    kpi('Fitness (CTL)', ctl[DAYS - 1] + ' km/d', 'year end · peak ' + ctl[peakI] + ' on ' + shortDate(dayLabels[peakI]), 'var(--accent)'),
+    kpi('Fatigue (ATL)', atl[DAYS - 1] + ' km/d', 'year end · 7-day average', 'var(--danger)'),
+    kpi('Form (TSB)', (tsb[DAYS - 1] > 0 ? '+' : '') + tsb[DAYS - 1], 'year end · ' + (tsb[DAYS - 1] >= 0 ? 'fresh' : 'fatigued'), 'var(--accent2)'),
+    kpi('Biggest week', big.km.toFixed(1) + ' km', 'week of ' + shortDate(big.start), 'var(--warn)'),
+    kpi('Avg week', (totKm / (DAYS / 7)).toFixed(1) + ' km', mean(full.map(w => w.km)).toFixed(1) + ' km over full weeks', '#a78bfa'),
+    kpi('Streak', activeDays + ' days', activeDays === DAYS ? 'no rest days' : 'active days', 'var(--muted)'),
+  ].join(''));
+  CH('ld-ctl', { type: 'line', data: { labels: dayLabels, datasets: [
+      { label: 'Fitness (CTL)', data: ctl, borderColor: '#4f8ef7', backgroundColor: 'rgba(79,142,247,.1)', fill: true, borderWidth: 2, pointRadius: 0, tension: .3, yAxisID: 'y' },
+      { label: 'Fatigue (ATL)', data: atl, borderColor: '#f87171', borderWidth: 1.5, borderDash: [4, 2], pointRadius: 0, tension: .3, yAxisID: 'y' },
+      { label: 'Form (TSB)', data: tsb, borderColor: '#34d399', borderWidth: 1.5, pointRadius: 0, tension: .3, yAxisID: 'y2' }] },
+    options: { ...BASE, interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { position: 'top', labels: { boxWidth: 10, padding: 10 } }, tooltip: { callbacks: { title: c => shortDate(dayLabels[c[0].dataIndex]) } } },
+      scales: { x: DAY_X, y: { grid: GRID, position: 'left', ticks: { callback: v => v + ' km' } }, y2: { grid: { display: false }, position: 'right', ticks: { callback: v => (v > 0 ? '+' : '') + v } } } } });
+
+  const wkKm = WEEKS.map(w => +w.km.toFixed(1)), avg4 = WEEKS.map((_, i) => +mean(wkKm.slice(Math.max(0, i - 3), i + 1)).toFixed(1));
+  const wkLabel = w => shortDate(w.start);
+  CH('ld-week', { type: 'bar', data: { labels: WEEKS.map(wkLabel), datasets: [
+      { type: 'line', label: '4-week avg', data: avg4, borderColor: '#f59e0b', borderWidth: 2, pointRadius: 0, tension: .3, order: 0 },
+      { label: 'Week km', data: wkKm, backgroundColor: 'rgba(79,142,247,.7)', borderRadius: 3, order: 1 }] },
+    options: { ...BASE, interaction: { mode: 'index', intersect: false },
+      onClick: (e, els) => { if (els.length) showWeek(WEEKS[els[0].index]); },
+      plugins: { legend: { position: 'top', labels: { boxWidth: 10, padding: 10 } }, tooltip: { callbacks: { title: c => 'week of ' + c[0].label, afterBody: c => { const i = c[0].dataIndex, p = i ? wkKm[i - 1] : 0; return p ? `${((wkKm[i] - p) / p * 100).toFixed(0)}% vs previous week · ${WEEKS[i].runs} runs` : `${WEEKS[i].runs} runs`; } } } },
+      scales: { x: { grid: { display: false }, ticks: { maxTicksLimit: 12, maxRotation: 0 } }, y: { grid: GRID, ticks: { callback: v => v + ' km' } } } } });
+
+  const wdKm = WD.map((_, i) => { const g = A.filter(a => weekday(a.date) === i); return +(sum(g.map(a => a.km)) / Math.max(1, g.length)).toFixed(2); });
+  CH('ld-wd', { type: 'bar', data: { labels: WD, datasets: [{ data: wdKm, backgroundColor: 'rgba(167,139,250,.7)', borderRadius: 5 }] },
+    options: { ...BASE, plugins: { ...NOLEG, tooltip: { callbacks: { label: c => c.parsed.y + ' km per run' } } }, scales: { x: { grid: { display: false } }, y: { grid: GRID, ticks: { callback: v => v + ' km' } } } } });
+
+  const wkRow = w => ({ c: [shortDate(w.start), w.runs, w.km.toFixed(1), fmtT(w.sec), fmtPaceSec(paceOf(w.acts)), Math.max(...w.acts.map(a => a.km)).toFixed(2)] });
+  const cols = [{ h: 'Week of' }, { h: 'Runs', num: 1 }, { h: 'km', num: 1 }, { h: 'Time', num: 1 }, { h: 'Avg pace', num: 1 }, { h: 'Longest', num: 1 }];
+  set('ld-table', tableHTML(cols, [...WEEKS].sort((x, y) => y.km - x.km).slice(0, 8).map(wkRow)));
+  function showWeek(w) {
+    set('ld-week-title', `Week of ${shortDate(w.start)} — ${w.km.toFixed(1)} km`);
+    set('ld-table', tableHTML([{ h: 'Date' }, { h: 'km', num: 1 }, { h: 'Time', num: 1 }, { h: 'Pace', num: 1 }, { h: 'Weather' }], w.acts.map(a => ({ id: a.id, c: [shortDate(a.date) + ' ' + a.time, a.km.toFixed(2), fmtT(a.sec), fmtPaceSec(a.pace), a.wx ? wxEmoji(a.wx.desc) + ' ' + (actTemp(a) ?? '').toString() + '°C' : '–'] }))));
+    bindRows('ld-table');
+  }
+} };
+
+// ══ Activities ════════════════════════════════════════════
+VIEW_INIT.activities = { init() {
+  const COLS = [
+    { k: 'date', h: 'Date', f: a => shortDate(a.date) + ' ' + a.time, s: a => a.date + a.time },
+    { k: 'km', h: 'Dist.', num: 1, f: a => a.km.toFixed(2) + ' km', s: a => a.km },
+    { k: 'sec', h: 'Time', num: 1, f: a => fmtT(a.sec), s: a => a.sec },
+    { k: 'pace', h: 'Pace', num: 1, f: a => fmtPaceSec(a.pace) + '/km', s: a => a.pace || 9e9 },
+    { k: 'cad', h: 'Cadence', num: 1, f: a => a.cad ? a.cad + ' spm' : '–', s: a => a.cad || 0 },
+    { k: 'ascent', h: 'Ascent', num: 1, f: a => a.ascent != null ? a.ascent + ' m' : '–', s: a => a.ascent || 0 },
+    { k: 'kcal', h: 'kcal', num: 1, f: a => a.kcal, s: a => a.kcal },
+    { k: 'temp', h: 'Temp', num: 1, f: a => actTemp(a) != null ? actTemp(a).toFixed(1) + ' °C' : '–', s: a => actTemp(a) ?? -99 },
+    { k: 'wx', h: 'Weather', f: a => a.wx ? `<span class="weather-tag">${wxEmoji(a.wx.desc)} ${a.wx.desc}</span>` : '–', s: a => a.wx ? a.wx.desc : '' },
+    { k: 'warn', h: 'Warnings', f: a => warnTags(a.warn) || '–', s: a => (a.warn || []).length },
+    { k: 'gps', h: 'GPS', f: a => a.gps ? '<span class="pill ok">outdoor</span>' : '<span class="pill">indoor</span>', s: a => a.gps ? 1 : 0 },
+  ];
+  const st = { sort: 'date', dir: -1 };
+  const q = document.getElementById('f-q'), fm = document.getElementById('f-month'), fg = document.getElementById('f-gps'), fk = document.getElementById('f-km');
+  MONTHS.forEach((m, i) => fm.insertAdjacentHTML('beforeend', `<option value="${i + 1}">${m}</option>`));
+  let current = [];
+  function render() {
+    const needle = q.value.trim().toLowerCase();
+    current = A.filter(a => (!fm.value || +a.date.slice(5, 7) === +fm.value) && (fg.value === '' || String(+a.gps) === fg.value) && a.km >= +fk.value
+      && (!needle || [a.date, a.time, a.wx && a.wx.desc, ...(a.warn || []), a.gps ? 'outdoor' : 'indoor'].filter(Boolean).join(' ').toLowerCase().includes(needle)));
+    const col = COLS.find(c => c.k === st.sort);
+    current.sort((x, y) => { const a = col.s(x), b = col.s(y); return (a > b ? 1 : a < b ? -1 : 0) * st.dir; });
+    set('act-thead', '<tr>' + COLS.map(c => `<th class="sortable ${c.k === st.sort ? 'sorted' : ''} ${c.num ? 'num' : ''}" data-k="${c.k}">${c.h}${c.k === st.sort ? (st.dir > 0 ? ' ↑' : ' ↓') : ''}</th>`).join('') + '</tr>');
+    set('act-tbody', current.map(a => `<tr data-id="${a.id}">${COLS.map(c => `<td class="${c.num ? 'pace' : ''}" ${c.num ? 'style="text-align:right"' : ''}>${c.f(a)}</td>`).join('')}</tr>`).join(''));
+    set('f-count', `${current.length} of ${A.length} runs · ${sum(current.map(a => a.km)).toFixed(1)} km`);
+    document.querySelectorAll('#act-thead th').forEach(th => th.addEventListener('click', () => { if (st.sort === th.dataset.k) st.dir *= -1; else { st.sort = th.dataset.k; st.dir = -1; } render(); }));
+    bindRows('act-tbody');
+  }
+  [q, fm, fg, fk].forEach(el => el.addEventListener('input', render));
+  render();
+  document.getElementById('act-csv').addEventListener('click', () => {
+    const head = ['date', 'time', 'activity_id', 'km', 'seconds', 'pace_sec_per_km', 'cadence_spm', 'ascent_m', 'kcal', 'temp_c', 'weather', 'humidity', 'warnings', 'gps'];
+    const esc = v => v == null ? '' : /[",\n]/.test(String(v)) ? '"' + String(v).replace(/"/g, '""') + '"' : v;
+    const lines = current.map(a => [a.date, a.time, a.id, a.km, a.sec, a.pace, a.cad, a.ascent, a.kcal, actTemp(a), a.wx && a.wx.desc, a.wx && a.wx.hum, (a.warn || []).join('; '), a.gps ? 1 : 0].map(esc).join(','));
+    const blob = new Blob([head.join(',') + '\n' + lines.join('\n')], { type: 'text/csv' });
+    const u = URL.createObjectURL(blob), l = Object.assign(document.createElement('a'), { href: u, download: `run365days_${YEAR}.csv` }); l.click(); setTimeout(() => URL.revokeObjectURL(u), 1000);
+  });
+} };
+
+// ══ Settings ══════════════════════════════════════════════
+VIEW_INIT.settings = { init() {
+  const f = id => document.getElementById(id);
+  f('p-landing').value = PREFS.landing; f('p-speed').value = PREFS.speed; f('p-wu').value = PREFS.weightUnit;
+  f('p-height').value = PREFS.heightCm; f('p-fast').value = PREFS.paceFast; f('p-slow').value = PREFS.paceSlow;
+  f('prefs').addEventListener('submit', e => { e.preventDefault();
+    const p = { landing: f('p-landing').value, speed: +f('p-speed').value, weightUnit: f('p-wu').value, heightCm: +f('p-height').value || 170,
+      paceFast: +f('p-fast').value || 4, paceSlow: +f('p-slow').value || 7 };
+    if (p.paceSlow <= p.paceFast) { set('p-msg', 'Slow bound must be greater than fast bound'); return; }
+    try { localStorage.setItem('run365.prefs', JSON.stringify(p)); } catch (err) { set('p-msg', 'Could not save: ' + err.message); return; }
+    set('p-msg', 'Saved — reloading…'); location.reload(); });
+  f('p-reset').addEventListener('click', () => { try { localStorage.removeItem('run365.prefs'); } catch (e) {} location.reload(); });
+  const tracks = Object.values(D.tracks), gpsRuns = A.filter(a => a.gps).length;
+  set('data-info', [['Year', YEAR], ['Generated', D.generated.replace('T', ' ')], ['Activities', A.length], ['With GPS', `${gpsRuns} (${A.length - gpsRuns} indoor)`],
+    ['Track points', sum(tracks.map(t => t.length)).toLocaleString() + ' kept of ' + sum(A.map(a => a.pts)).toLocaleString()], ['Weigh-ins', D.weight.length],
+    ['HKO daily rows', D.weather.length], ['Runs with hourly weather', A.filter(a => a.wx).length], ['Payload size', (JSON.stringify(D).length / 1048576).toFixed(1) + ' MB']]
+    .map(([k, v]) => `<div><div class="k">${k}</div><div class="v">${v}</div></div>`).join(''));
+} };
+
+// ══ Start on the preferred view ═══════════════════════════
+if (PREFS.landing && PREFS.landing !== 'overview' && document.getElementById('view-' + PREFS.landing)) showView(PREFS.landing);
 </script>
 </body>
 </html>
