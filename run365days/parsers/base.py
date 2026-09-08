@@ -1,3 +1,4 @@
+import xml.etree.ElementTree as ET
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import List
@@ -18,12 +19,19 @@ class BaseActivityParser(ABC):
         """Parse one file and return an Activity, or raise ValueError if skipped."""
 
     def parse_all(self, directory: Path) -> List[Activity]:
-        """Parse every file in *directory* and return a list of Activities."""
+        """Parse every ``*.<FORMAT>`` file in *directory* and return Activities.
+
+        Files that are skipped by the parser (wrong year, wrong sport) or that
+        are not well-formed XML are silently dropped. Non-matching files such
+        as ``.DS_Store`` are never opened.
+        """
+        pattern = f"*.{self.FORMAT}" if self.FORMAT else "*"
         activities = []
-        for fp in sorted(directory.glob("*")):
-            if fp.is_file():
-                try:
-                    activities.append(self.parse(fp))
-                except (ValueError, AttributeError):
-                    pass
+        for fp in sorted(directory.glob(pattern)):
+            if not fp.is_file():
+                continue
+            try:
+                activities.append(self.parse(fp))
+            except (ValueError, AttributeError, ET.ParseError):
+                pass
         return activities

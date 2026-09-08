@@ -1,7 +1,7 @@
 """Daily weight analysis: parsing, derived metrics, and summaries."""
 import re
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import List, Optional
 
@@ -28,23 +28,33 @@ def parse_weight_file(
     """Parse a weight text file and return a list of WeightRecords.
 
     Each line is expected to match: ``<weight> lbs (<day>/<month>)``
-    e.g. ``154.8 lbs (1/5)``
+    e.g. ``154.8 lbs (1/5)``. A line with a weight but no date (the file's
+    final entry is often written this way) is taken as the day after the
+    previous dated record.
     """
     if year is None:
         year = datetime.today().year
 
     pattern = re.compile(r"([\d.]+)\s*lbs\s*\((\d+)/(\d+)\)")
+    undated = re.compile(r"^\s*([\d.]+)\s*lbs\s*$")
     records: List[WeightRecord] = []
+    last_date: Optional[datetime] = None
 
     with open(file_path) as f:
         for day_number, line in enumerate(f, start=1):
             match = pattern.search(line)
-            if not match:
-                continue
-            weight_lbs = float(match.group(1))
-            day = int(match.group(2))
-            month = int(match.group(3))
-            date_obj = datetime(year, month, day)
+            if match:
+                weight_lbs = float(match.group(1))
+                day = int(match.group(2))
+                month = int(match.group(3))
+                date_obj = datetime(year, month, day)
+            else:
+                match = undated.match(line)
+                if not match or last_date is None:
+                    continue
+                weight_lbs = float(match.group(1))
+                date_obj = last_date + timedelta(days=1)
+            last_date = date_obj
             weight_kg = weight_lbs * 0.454
             bmi = weight_kg / ((height_cm / 100) ** 2)
             records.append(
