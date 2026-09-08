@@ -27,6 +27,16 @@ pytest
 
 ## Dashboard
 
+Live site: **https://dcwhung.github.io/Python-Project-Run365Days/**
+
+GitHub Pages is built by `.github/workflows/pages.yml`: every push that touches
+the data, the package or `dashboard/index.html` runs the tests, regenerates the
+data file and deploys the `dashboard/` folder. The generated files
+(`dashboard/data.js`, `dashboard/run365days.html`) are git-ignored — never
+commit them.
+
+Local build:
+
 ```bash
 python scripts/build_dashboard.py                # → dashboard/data.js
 python scripts/build_dashboard.py --single-file  # → dashboard/run365days.html (self-contained)

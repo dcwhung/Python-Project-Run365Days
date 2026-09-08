@@ -1,0 +1,64 @@
+name: Deploy dashboard to GitHub Pages
+
+on:
+  push:
+    branches: [master, "claude/**"]
+    paths:
+      - "dashboard/index.html"
+      - "run365days/**"
+      - "scripts/build_dashboard.py"
+      - "Garmin/**"
+      - "Weather/**"
+      - "*_DailyWeight.txt"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# one deploy at a time; a newer push cancels an in-flight one
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install build dependencies
+        run: pip install numpy pandas pytz python-dateutil requests beautifulsoup4 lxml pytest
+
+      - name: Run tests
+        run: pytest -q
+
+      - name: Build dashboard data
+        run: python scripts/build_dashboard.py --single-file
+
+      - name: Enable Pages if needed
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - name: Upload site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dashboard
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
