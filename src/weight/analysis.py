@@ -1,33 +1,24 @@
 """Daily weight analysis: parsing, derived metrics, and summaries."""
 
 import re
-from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
+from run365days.weight.models import WeightRecord
+
+__all__ = [
+    "WeightRecord",
+    "parse_weight_file",
+    "build_dataframe",
+    "monthly_summary",
+    "weekday_summary",
+    "describe_weight",
+]
+
 _HEIGHT_CM_DEFAULT = 170.0
-
-
-@dataclass
-class WeightRecord:
-    """One daily weigh-in.
-
-    Attributes:
-        day_number: 1-based line number in the source file.
-        date: Calendar date ``YYYY-MM-DD``.
-        weight_lbs: Weight in pounds as written in the file.
-        weight_kg: Weight converted to kilograms.
-        bmi: Body-mass index using the configured height.
-    """
-
-    day_number: int
-    date: str  # 'YYYY-MM-DD'
-    weight_lbs: float
-    weight_kg: float
-    bmi: float
 
 
 def parse_weight_file(

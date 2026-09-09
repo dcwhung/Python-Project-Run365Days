@@ -18,7 +18,7 @@ from run365days.dashboard.builder import (
     track_rows,
     warnings_by_date,
 )
-from run365days.weight.analysis import WeightRecord
+from run365days.weight.models import WeightRecord
 
 TRACK_COLUMNS = (
     "sec",
