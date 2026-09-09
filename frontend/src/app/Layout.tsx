@@ -2,12 +2,14 @@ import { NavLink, Outlet } from "react-router-dom";
 import { VIEWS } from "./views";
 import { useMeta } from "@/data/hooks";
 import { useDataSource } from "@/data/context";
+import { WarningSprite } from "@/components/WarningSprite";
 
 export function Layout() {
   const meta = useMeta();
   const source = useDataSource();
   return (
     <div className="flex h-full flex-col">
+      <WarningSprite />
       <header className="flex items-center gap-4 border-b border-border bg-surface px-5 py-3">
         <div className="text-base font-semibold tracking-wide">
           Run<span className="text-warn">365</span>Days

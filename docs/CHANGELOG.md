@@ -7,6 +7,13 @@ are named `release/vX` and tags `vX.Y.Z`.
 ## [Unreleased] - `develop`
 
 ### Added
+- React views: Overview (KPIs, daily-distance heatmap, monthly distance and
+  pace, recent runs, personal bests, training load, weight vs distance,
+  temperature vs pace, weather strip), Activity (pace-coloured Canvas route
+  with playback, scrubbing and hover, synced elevation / pace / cadence /
+  temperature charts, previous / next navigation, keyboard shortcuts) and
+  Activities (filter, sort, CSV export). HKO warning icons and the v2
+  preferences store (localStorage) are ported.
 - `frontend/`: Vite + React 19 + TypeScript scaffold for the v3 dashboard
   with a `DataSource` abstraction (GraphQL via graphql-request + Codegen,
   or static JSON), TanStack Query hooks, a TypeScript port of the year
