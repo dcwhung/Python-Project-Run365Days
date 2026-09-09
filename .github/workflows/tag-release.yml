@@ -59,11 +59,17 @@ jobs:
 
       - name: Extract release notes from docs/CHANGELOG.md
         if: inputs.release
+        env:
+          # The changelog lives on the branch this workflow ran from (usually develop),
+          # not necessarily on the tagged ref (older release branches predate docs/).
+          CHANGELOG_REF: ${{ github.ref }}
         run: |
+          git fetch --quiet origin "$CHANGELOG_REF"
+          git show FETCH_HEAD:docs/CHANGELOG.md > CHANGELOG.src.md
           python3 - "$TAG" <<'PY' > release-notes.md
           import re, sys
           version = sys.argv[1].lstrip("v")
-          text = open("docs/CHANGELOG.md", encoding="utf-8").read()
+          text = open("CHANGELOG.src.md", encoding="utf-8").read()
           match = re.search(rf"^## \[{re.escape(version)}\][^\n]*\n(.*?)(?=^## \[|\Z)", text, re.S | re.M)
           body = match.group(1).strip() if match else f"See docs/CHANGELOG.md for {version}."
           print(body)
