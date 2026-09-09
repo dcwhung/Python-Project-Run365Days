@@ -7,6 +7,11 @@ are named `release/vX` and tags `vX.Y.Z`.
 ## [Unreleased] - `develop`
 
 ### Added
+- Deployment: `vercel.json`, `requirements.txt` and `scripts/vercel-build.sh`
+  run the export at build time and serve the React app in API mode with
+  `api/graphql.py` as a Python serverless function; the GitHub Pages
+  workflow now builds the React app in static mode under `/<repo>/` with a
+  `404.html` fallback for deep links.
 - React views: Overview (KPIs, daily-distance heatmap, monthly distance and
   pace, recent runs, personal bests, training load, weight vs distance,
   temperature vs pace, weather strip), Activity (pace-coloured Canvas route
@@ -66,6 +71,10 @@ are named `release/vX` and tags `vX.Y.Z`.
 - README rewritten as a full engineering guide.
 
 ### Removed
+- The v2 static page (`src/dashboard/static/index.html`), the
+  `run365-dashboard` CLI and the `data.js` payload functions
+  (`build_payload`, `payload_to_js`, `write_data_js`, `inline_data`); the
+  React app has reached parity with all nine views.
 - The original Garmin account export folder (profile, consent history,
   social data, golf, Connect IQ, pre-2021 records, raw FIT bundle). Earlier
   tags still contain it; see the privacy note in the README.

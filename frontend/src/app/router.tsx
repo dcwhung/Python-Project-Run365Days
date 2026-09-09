@@ -18,6 +18,9 @@ export function landingPath(): string {
   return VIEWS.some((v) => v.path === landing) ? `/${landing}` : "/overview";
 }
 
+/** React Router needs the same base as Vite so deep links work under /<repo>/ on GitHub Pages. */
+const BASENAME = import.meta.env.BASE_URL.replace(/\/$/, "");
+
 export const router = createBrowserRouter([
   {
     path: "/",
@@ -36,4 +39,4 @@ export const router = createBrowserRouter([
       { path: "*", element: <Navigate to="/overview" replace /> },
     ],
   },
-]);
+], { basename: BASENAME });

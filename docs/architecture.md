@@ -22,7 +22,7 @@ models, its readers and its derived metrics:
 | `run365days.activities` | `Activity` / `TrackPoint` dataclasses, `parsers/` for TCX, GPX and KML, `metrics` (MET and kcal) | `common` |
 | `run365days.weather` | `HourlyWeather`, `WeatherWarning`, `DailyWeather`, `SunMoon` dataclasses and `collectors/` that scrape HKO and freemeteo | `common` |
 | `run365days.weight` | `WeightRecord` and the year table / summaries built from the text log | `common` |
-| `run365days.dashboard` | `builder` (pure functions that shape the payload) and `static/index.html` (the dashboard itself) | `activities`, `weight` |
+| `run365days.dashboard` | `builder` (pure per-run calculations shared by export and API) and `stats` (year aggregates) | `activities`, `weight` |
 | `run365days.export` | `records` (one intermediate structure), `models` (SQLAlchemy), `sqlite` and `static_json` writers | `dashboard.builder`, `activities`, `weight` |
 | `run365days.api` | `app` (Flask factory), `schema` (Strawberry types and `Query`), `service` (SQLAlchemy queries), `db` (engine and session helpers) | `export.models`, `dashboard.stats` |
 | `run365days.cli` | Three console scripts that wire the features together | everything above |
@@ -44,14 +44,17 @@ data/raw/weight/2021_daily_weight.txt ─► weight.analysis ─► WeightRecord
 data/raw/weather/*.json ────────────────────────── hourly / warnings / daily rows
                                                                   │
                                                                   ▼
-                                               dashboard.builder.build_payload()
-                                                                  │
-                                                                  ▼
-                                   src/dashboard/static/data.js
-                                   (window.RUN365 = {...}, ~2.7 MB)
-                                                                  │
-                                                                  ▼
-                                   static/index.html  (Chart.js + Canvas)
+                                          export.records.build_records()  (run365-export)
+                                                   │                  │
+                                                   ▼                  ▼
+                                   data/processed/run365.db    data/processed/static/*.json
+                                   (SQLite, ~11 MB)            (split JSON, ~7 MB)
+                                                   │                  │
+                                                   ▼                  ▼
+                                   api.app  Flask + Strawberry    frontend static mode
+                                   /api/graphql  (Vercel)         (GitHub Pages)
+                                                   │                  │
+                                                   └──────► frontend/ React ◄──────┘
 ```
 
 Two details are worth calling out:
@@ -101,14 +104,24 @@ plain Python values; file I/O is limited to `load_jsonl` and
 `write_data_js`. That is what makes the payload unit-testable without
 fixtures on disk (`tests/test_dashboard_builder.py`).
 
-### A static dashboard first
+### One front end, two data modes
 
-Version 2 deliberately ships as a single HTML file plus a generated
-`data.js`. It needs no server, deploys to GitHub Pages from CI, and can be
-handed over as one self-contained `run365days.html`. The trade-off is that
-every view has to ship the whole year's data (about 2.7 MB) and that
-interactions such as filtering are done client-side. The roadmap moves the
-data behind a Flask + GraphQL API for exactly that reason.
+Version 2 was a single HTML file plus a generated `data.js`: no server, but
+every visitor downloaded the whole year (about 2.7 MB, 94 % of it GPS
+tracks) before seeing anything. Version 3 keeps the zero-infrastructure
+demo and adds the API: the React app is built twice from the same source,
+once for GitHub Pages reading split JSON (a track is fetched only when its
+run is opened) and once for Vercel querying the GraphQL endpoint. The
+`DataSource` interface is the seam; the year statistics exist in Python and
+in TypeScript with shared test fixtures so both modes agree.
+
+### Build-time data, read-only runtime
+
+Parsing 730 Garmin files takes about 50 seconds, far too long for a
+serverless function. `run365-export` therefore runs at build time on both
+platforms and the API only reads the SQLite file it produced. Nothing at
+runtime writes to disk, which is exactly what Vercel's read-only filesystem
+requires.
 
 ### Paths live in one module
 

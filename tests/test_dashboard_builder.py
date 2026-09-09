@@ -1,15 +1,7 @@
-import json
-
-import pytest
-
 from run365days.activities.models import Activity, TrackPoint
 from run365days.dashboard.builder import (
-    activity_summary,
-    build_payload,
     downsample,
     hourly_at,
-    inline_data,
-    payload_to_js,
     total_ascent,
     track_rows,
     warnings_by_date,
@@ -85,21 +77,6 @@ class TestTrackRows:
         assert rows[0][1] is None and rows[0][2] is None
 
 
-class TestActivitySummary:
-    def test_basic_fields(self):
-        s = activity_summary(_activity(), None, None, ["THUNDERSTORM WARNING"])
-        assert s["id"] == "123"
-        assert s["date"] == "2021-01-08" and s["time"] == "12:04" and s["doy"] == 8
-        assert s["km"] == 6.35 and s["sec"] == 1804 and s["kcal"] == 341
-        assert s["pace"] == round(1804 / 6.35)
-        assert s["cad"] == 166
-        assert s["gps"] is True
-        assert s["warn"] == ["THUNDERSTORM WARNING"]
-
-    def test_no_gps_flag(self):
-        assert activity_summary(_activity(gps=False), None, None, [])["gps"] is False
-
-
 class TestWeather:
     ROWS = [
         {
@@ -144,27 +121,6 @@ class TestWeather:
         assert warnings_by_date(rows) == {
             "2021-07-01": ["THUNDERSTORM WARNING", "AMBER RAINSTORM WARNING SIGNAL"]
         }
-
-
-class TestPayload:
-    def test_build_and_serialise(self):
-        payload = build_payload(2021, [_activity(400)], [], [], [], [], [], point_limit=50)
-        assert payload["year"] == 2021
-        assert len(payload["activities"]) == 1
-        assert len(payload["tracks"]["123"]) == 50
-        js = payload_to_js(payload)
-        assert js.startswith("/* generated")
-        body = js.split("window.RUN365 = ", 1)[1].rstrip().rstrip(";")
-        assert json.loads(body)["activities"][0]["id"] == "123"
-
-    def test_inline_data_replaces_script_tag(self):
-        html = '<title>x</title><script src="data.js"></script><script>go()</script>'
-        out = inline_data(html, {"year": 2021})
-        assert 'src="data.js"' not in out and "window.RUN365" in out
-
-    def test_inline_data_requires_tag(self):
-        with pytest.raises(ValueError):
-            inline_data("<title>x</title>", {})
 
 
 class TestWeightUndatedLine:

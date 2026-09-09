@@ -3,24 +3,18 @@
 Items are listed in the order they are planned. Nothing here has a date;
 the project is developed in spare time.
 
-## Next: API-backed dashboard (v3)
+## In progress: API-backed dashboard (v3)
 
-The v2 dashboard is a static page that loads the whole year as one 2.7 MB
-`data.js`. The next version moves the data behind a Python service so the
-front end can query only what a view needs.
+Landed on `develop`: `run365-export` (SQLite + static JSON), the Flask +
+Strawberry GraphQL API, the React dashboard with all nine views in both
+data modes, and the Vercel / GitHub Pages deployment configuration.
 
-Planned shape:
+Remaining before tagging `v3.0.0`:
 
-- **Flask** application under `src/api/`, reusing the existing
-  feature packages unchanged; the builder functions become resolvers.
-- **GraphQL** schema (Strawberry or Ariadne) exposing `activities`,
-  `activity(id)`, `weight`, `weather(date)` and aggregate fields such as
-  monthly totals and training load, so the client asks for exactly the
-  fields a chart renders.
-- A build step that can still emit the static `data.js`, so GitHub Pages
-  keeps working as a zero-infrastructure demo.
+- First Vercel deployment and any fixes it needs.
+- Screenshots in the README.
 - Container image and a `docker compose` file for local development.
-- API tests with the Flask test client alongside the existing unit tests.
+- API tests through the deployed endpoint (smoke test in CI).
 
 ## Wellness data
 

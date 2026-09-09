@@ -71,9 +71,9 @@ src/                           Python package, imported as `run365days`, one sub
   activities/                  Activity / TrackPoint models, parsers/ (tcx, gpx, kml), metrics (MET)
   weather/                     weather models, collectors/ (hko_daily, hourly, warnings)
   weight/                      daily weight parsing, year table, summaries
-  dashboard/                   builder (payload functions), static/index.html (the page)
+  dashboard/                   builder (shared run calculations), stats (year aggregates)
   common/                      config (all paths and constants), geo, time
-  cli/                         process_activities, collect_weather, build_dashboard
+  cli/                         process_activities, collect_weather, export_data, export_schema
 tests/                         pytest suite, one file per feature module
 data/
   raw/garmin/{tcx,gpx,kml}/    365 Garmin activity exports for 2021
@@ -97,9 +97,11 @@ python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 pre-commit install                      # optional: ruff on every commit
 
-pytest tests                 # 93 tests, well under a second
-run365-dashboard --single-file          # build the dashboard from data/
-open src/dashboard/static/run365days.html
+pytest tests                            # backend tests
+run365-export                           # data/ -> data/processed/{run365.db, static/}
+flask --app run365days.api.app:create_app run   # GraphQL at http://127.0.0.1:5000/api/graphql
+
+cd frontend && npm install && npm run dev       # dashboard at http://localhost:5173
 ```
 
 The package finds its data relative to the repository. To point it
@@ -115,8 +117,8 @@ run as `python -m run365days.cli.<module>`.
 |---|---|---|---|
 | `run365-activities --format all --year 2021` | Parse every activity file into normalised records | `data/raw/garmin/{tcx,gpx,kml}/` | `data/processed/activities_<fmt>.jsonl` |
 | `run365-weather --source all --year 2021` | Scrape hourly weather, HKO warnings and the HKO daily extract | the web | `data/raw/weather/*.json` |
-| `run365-dashboard [--single-file]` | Parse activities, weight and weather and build the dashboard payload | `data/raw/**` | `src/dashboard/static/data.js` and optionally `run365days.html` |
-| `run365-export [--points 600]` | Parse everything once and write the processed data set for the API and the static build | `data/raw/**` | `data/processed/run365.db` and `data/processed/static/*.json` |
+| `run365-export [--points 600] [--skip-db] [--skip-static] [--static-dir DIR]` | Parse everything once and write the processed data set for the API and the static build | `data/raw/**` | `data/processed/run365.db` and `data/processed/static/*.json` |
+| `run365-schema [--check FILE]` | Print the GraphQL SDL, or verify a file matches it | the Strawberry schema | stdout |
 
 ### GraphQL API
 
@@ -131,65 +133,65 @@ The schema exposes `meta`, `activities(fromDate, toDate, minKm, hasGps)`,
 training load, personal bests). `api/graphql.py` exports the same app for
 Vercel; `RUN365_DB_PATH` points it at the bundled database.
 
-### React front end (v3)
+## Dashboard
+
+Live site: **https://dcwhung.github.io/Python-Project-Run365Days/** (static
+mode on GitHub Pages). The same app runs on Vercel in API mode; see
+[Deployment](#continuous-integration-and-deployment).
+
+`frontend/` is a Vite + React 19 + TypeScript app styled with Tailwind CSS 4.
+Charts use Chart.js; the route map and the per-run charts are drawn on
+Canvas. Views:
+
+- **Overview**: KPIs, distance heatmap (click a day to open it), monthly
+  distance and pace, recent runs with weather and HKO warning icons,
+  personal bests, 42-day / 7-day training load, weight against distance,
+  temperature against pace, weather strip.
+- **Year in Review**: the year-end infographic with days, distance, monthly
+  hours, calories and weight change.
+- **Activity**: any of the 365 runs with a pace-coloured route that draws
+  itself from start to finish (play, speed, scrub, hover) and synced
+  elevation, pace, cadence and temperature charts with a live readout.
+  Indoor runs show the charts without a map.
+- **Performance, Weight, Weather Impact, Training Load**: one analytics page
+  per topic, each with KPIs, charts and a table.
+- **Activities**: sortable, filterable table with CSV export.
+- **Settings**: landing view, playback speed, weight unit, height for BMI,
+  pace colour bounds; stored in the browser.
+
+### Data modes
+
+The app talks to one `DataSource` interface (`frontend/src/data/types.ts`).
+
+| `VITE_DATA_MODE` | Source | Aggregates |
+|---|---|---|
+| `api` (default) | GraphQL endpoint; documents are type-checked against `frontend/schema.graphql` (written by `run365-schema`, checked in CI) | computed by the API |
+| `static` | JSON written by `run365-export --static-dir frontend/public/data` | computed in the browser by a TypeScript port of `dashboard/stats.py`, pinned to the same test values |
+
+Views never know which mode is active.
 
 ```bash
-cd frontend && npm install
-npm run dev                       # http://localhost:5173, /api proxied to Flask on :5000
+cd frontend
+npm run dev                       # api mode, /api proxied to Flask on :5000
 npm test                          # vitest (runs codegen first)
 npm run build                     # api mode  -> dist/
 npm run build:static              # static mode -> dist/, reads /data/*.json
 ```
 
-The app talks to one `DataSource` interface. `VITE_DATA_MODE=api` (default)
-queries the GraphQL endpoint with documents type-checked against
-`frontend/schema.graphql` (written by `run365-schema`, checked in CI).
-`VITE_DATA_MODE=static` fetches the JSON written by
-`run365-export --static-dir frontend/public/data` and computes the year
-aggregates in the browser with a TypeScript port of `dashboard/stats.py`;
-both ports share the same test fixtures. Views never know which mode is
-active.
-
-`run365-dashboard` options: `--year`, `--tcx-dir`, `--gpx-dir`,
-`--weight-file`, `--points` (track points kept per run, default 150),
-`--out`, `--single-file`.
-
-## Dashboard
-
-`src/dashboard/static/index.html` is the whole front end. It
-reads one script, `data.js`, which assigns the payload to `window.RUN365`.
-Chart.js is loaded from cdnjs; the route map and per-run charts are plain
-Canvas and work offline. `--single-file` inlines the payload so the page can
-be shared as a single HTML file.
-
-Views:
-
-- **Overview**: KPIs, distance heatmap (click a day to open it), monthly
-  distance and pace, recent runs with weather and HKO warning icons,
-  personal bests, 42-day / 7-day training load, weight against distance,
-  temperature against pace.
-- **Year in Review**: the year-end infographic with days, distance, monthly
-  time, calories and weight change.
-- **Activity**: any of the 365 runs with a pace-coloured route that draws
-  itself from start to finish (play, speed, scrub, hover) and synced
-  elevation, pace, cadence and temperature charts with a live readout.
-  Indoor runs show the charts without a map.
-- **Performance, Weight, Weather Impact, Training Load, Activities,
-  Settings**: one page per topic.
-
 ## How the data flows
 
 ```
-raw Garmin files ──► activities.parsers ──► Activity[]        ─┐
-weight log       ──► weight.analysis    ──► WeightRecord[]    ─┼─► dashboard.builder ──► data.js ──► index.html
-weather JSONL    ──► (loaded as rows)                          ─┘
+raw Garmin files ──► activities.parsers ──► Activity[]     ─┐                  ┌─► run365.db ──► Flask + Strawberry ──► React (api mode)
+weight log       ──► weight.analysis    ──► WeightRecord[] ─┼─► export.records ─┤
+weather JSONL    ──► (loaded as rows)                       ─┘                  └─► static/*.json ──────────────────► React (static mode)
 ```
 
 TCX is the primary source for every run. GPX is joined by activity id for
-its per-point ambient temperature. For each run the builder attaches the
+its per-point ambient temperature. For each run the export attaches the
 hourly observation nearest to the start time and the HKO warning signals in
-force that day. Every builder function is pure, so the payload is covered
-by unit tests without files on disk. The full account, including the
+force that day, using the pure helpers in `dashboard/builder.py`. One
+intermediate structure, `ExportRecords`, is written both as SQLite (for the
+API) and as split JSON (for the static build), so the two modes always agree. The full account, including the
 quirks of each source, is in [docs/data-pipeline.md](docs/data-pipeline.md)
 and the reasoning behind the layout in
 [docs/architecture.md](docs/architecture.md).
@@ -226,13 +228,24 @@ ruff format --check src tests
    Strawberry schema.
 2. **Frontend**: `npm ci`, ESLint, codegen + `tsc`, Vitest, and a Vite
    build in both data modes.
-3. **Build dashboard** (push only): `run365-dashboard --single-file`, then
-   upload `src/dashboard/static/` as the Pages artifact.
-4. **Deploy to GitHub Pages** (push only). Until the React views reach
-   parity this still publishes the v2 page.
+3. **Build dashboard** (push only): `run365-export --skip-db` writes the
+   static JSON into `frontend/public/data`, then `npm run build:static` with
+   `VITE_BASE_PATH=/<repo>/` and `dist/index.html` copied to `404.html` so
+   deep links work on Pages.
+4. **Deploy to GitHub Pages** (push only).
 
-Generated files (`data.js`, `run365days.html`, `data/processed/`) are
-git-ignored and rebuilt on every deploy.
+### Vercel (API mode)
+
+`vercel.json` describes the second deployment: `scripts/vercel-build.sh`
+installs the package, runs `run365-export --skip-static` to produce
+`data/processed/run365.db`, and builds the React app in API mode.
+`api/graphql.py` is a Python serverless function that imports the Flask app;
+the database is bundled into it with `includeFiles`. Rewrites send
+`/api/*` to the function and everything else to the SPA. Set the Vercel
+project's production branch to `develop`.
+
+Generated files (`data/processed/`, `frontend/public/data/`, `frontend/dist/`)
+are git-ignored and rebuilt on every deploy.
 
 ## Versioning and branches
 

@@ -33,7 +33,6 @@ dev = [
 [project.scripts]
 run365-activities = "run365days.cli.process_activities:main"
 run365-weather = "run365days.cli.collect_weather:main"
-run365-dashboard = "run365days.cli.build_dashboard:main"
 run365-export = "run365days.cli.export_data:main"
 run365-schema = "run365days.cli.export_schema:main"
 
@@ -53,9 +52,6 @@ packages = [
     "run365days.weather.collectors",
     "run365days.weight",
 ]
-
-[tool.setuptools.package-data]
-"run365days.dashboard" = ["static/index.html"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
