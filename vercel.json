@@ -5,7 +5,7 @@
   "outputDirectory": "frontend/dist",
   "framework": null,
   "functions": {
-    "api/index.py": {
+    "api/graphql_api.py": {
       "includeFiles": "data/processed/run365.db",
       "excludeFiles": "{data/raw,frontend,legacy,docs,tests,scripts,.github,.venv-build}/**",
       "memory": 512,
@@ -15,7 +15,7 @@
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": "/api/index"
+      "destination": "/api/graphql_api"
     },
     {
       "source": "/((?!api/).*)",
