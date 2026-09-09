@@ -1,4 +1,4 @@
-import type { Activity, DataSource, YearSummary } from "@/data/types";
+import type { Activity, DailyWeather, DataSource, WeightEntry, YearSummary } from "@/data/types";
 import { yearSummary } from "@/data/stats";
 import type { StaticActivity } from "@/data/static/mappers";
 
@@ -51,6 +51,17 @@ export const STATIC_ACTIVITY: StaticActivity = {
   warnings: ["RED FIRE DANGER WARNING"],
 };
 
+export const WEIGHT: WeightEntry[] = [
+  { date: "2021-01-01", weightLbs: 154.8, weightKg: 70.21, bmi: 24.3 },
+  { date: "2021-01-02", weightLbs: 154.2, weightKg: 69.94, bmi: 24.2 },
+  { date: "2021-02-15", weightLbs: 150.0, weightKg: 68.04, bmi: 23.5 },
+];
+
+export const WEATHER: DailyWeather[] = [
+  { date: "2021-01-01", maxTempC: 15, avgTempC: 12, minTempC: 9, humidityPct: 60, rainfallMm: 0, windKmh: 12, sunrise: "07:03", sunset: "17:52" },
+  { date: "2021-01-02", maxTempC: 18, avgTempC: 14, minTempC: 10, humidityPct: 70, rainfallMm: 5, windKmh: 10, sunrise: "07:03", sunset: "17:53" },
+];
+
 export function fakeSource(activities: Activity[] = STATS_ACTS, year = 2021): DataSource {
   const summary: YearSummary = yearSummary(activities, year);
   return {
@@ -60,8 +71,8 @@ export function fakeSource(activities: Activity[] = STATS_ACTS, year = 2021): Da
     activities: async () => activities,
     activity: async (id) => activities.find((a) => a.id === id) ?? null,
     track: async () => [],
-    weight: async () => [],
-    weather: async () => [],
+    weight: async () => WEIGHT,
+    weather: async () => WEATHER,
     warnings: async () => [],
   };
 }

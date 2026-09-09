@@ -9,7 +9,7 @@ import type { DataSource, TrackPoint } from "@/data/types";
 
 vi.mock("react-chartjs-2", () => {
   const Stub = ({ data }: { data: unknown }) => <div data-testid="chart">{JSON.stringify(data).length}</div>;
-  return { Bar: Stub, Line: Stub, Scatter: Stub };
+  return { Bar: Stub, Line: Stub, Scatter: Stub, Chart: Stub };
 });
 
 const TRACK: TrackPoint[] = [0, 1, 2, 3].map((i) => ({
@@ -86,6 +86,64 @@ describe("Activity", () => {
     await screen.findByRole("heading", { name: /Outdoor Run/ });
     fireEvent.click(screen.getByLabelText("Next day"));
     expect(memory.state.location.pathname).toBe("/activity/b");
+  });
+});
+
+describe("Analytics views", () => {
+  it("Year in Review shows totals, stairs, diamonds and weight", async () => {
+    renderAt("/year");
+    expect(await screen.findByRole("heading", { name: "Year in Review" })).toBeInTheDocument();
+    expect(screen.getByTestId("stairs").querySelectorAll(".flex-1")).toHaveLength(12);
+    expect(screen.getByTestId("diamonds")).toBeInTheDocument();
+    expect(screen.getByTestId("year-weight")).toHaveTextContent("lost over the year");
+  });
+
+  it("Performance shows six KPIs and the monthly table with a Year row", async () => {
+    renderAt("/performance");
+    expect(await screen.findByTestId("perf-kpis")).toHaveTextContent("Best pace (≥5 km)");
+    expect(screen.getByTestId("perf-kpis").children).toHaveLength(6);
+    const rows = within(screen.getByTestId("perf-table")).getAllByRole("row");
+    expect(rows[rows.length - 1]).toHaveTextContent("Year");
+  });
+
+  it("Weight shows KPIs in the preferred unit and the up/down table", async () => {
+    renderAt("/weight");
+    expect(await screen.findByTestId("weight-kpis")).toHaveTextContent("154.8");
+    expect(screen.getByTestId("weight-kpis")).toHaveTextContent("Total loss");
+    expect(screen.getByTestId("weight-table")).toHaveTextContent("Jan");
+  });
+
+  it("Weather Impact shows KPIs, warning and extremes tables", async () => {
+    renderAt("/weather");
+    expect(await screen.findByTestId("weather-kpis")).toHaveTextContent("Severe warnings");
+    expect(screen.getByTestId("warning-table")).toHaveTextContent("Thunderstorm Warning");
+    expect(within(screen.getByTestId("extremes-table")).getAllByRole("row").length).toBeGreaterThan(1);
+  });
+
+  it("Training Load shows KPIs and the biggest weeks", async () => {
+    renderAt("/load");
+    expect(await screen.findByTestId("load-kpis")).toHaveTextContent("Fitness (CTL)");
+    expect(screen.getByTestId("top-weeks")).toHaveTextContent("Jan 04"); // week containing Jan 8-9 starts Monday Jan 4
+  });
+
+  it("Settings saves and resets preferences", async () => {
+    renderAt("/settings");
+    expect(await screen.findByTestId("data-info")).toHaveTextContent("static JSON");
+    expect(await screen.findByText("1 (1 indoor)")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Weight unit"), { target: { value: "kg" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(screen.getByRole("status")).toHaveTextContent("Saved");
+    expect(JSON.parse(localStorage.getItem("run365.prefs")!).weightUnit).toBe("kg");
+    fireEvent.click(screen.getByRole("button", { name: "Reset" }));
+    expect(localStorage.getItem("run365.prefs")).toBeNull();
+  });
+
+  it("rejects a slow bound below the fast bound", async () => {
+    renderAt("/settings");
+    await screen.findByTestId("data-info");
+    fireEvent.change(screen.getByLabelText("Slow pace bound (min/km)"), { target: { value: "3" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(screen.getByRole("status")).toHaveTextContent("Slow bound must be greater");
   });
 });
 

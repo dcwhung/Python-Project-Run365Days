@@ -34,9 +34,9 @@ describe("app shell", () => {
     expect(screen.getByText(/best 4:30/)).toBeInTheDocument();
   });
 
-  it("shows a placeholder for views not yet rebuilt", async () => {
+  it("routes every nav entry to a view", async () => {
     renderApp("/weight");
-    expect(await screen.findByRole("heading", { name: "Weight" })).toBeInTheDocument();
+    expect(await screen.findByTestId("weight-view")).toBeInTheDocument();
   });
 
   it("redirects unknown paths to the overview", async () => {
