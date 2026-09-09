@@ -65,6 +65,20 @@ Two details are worth calling out:
   the start time and `builder.warnings_by_date()` attaches the HKO signals
   active that day. The raw weather files stay untouched.
 
+## Front end (v3)
+
+`frontend/` is a Vite + React + TypeScript app. Everything a view renders
+comes through one interface, `DataSource` (`frontend/src/data/types.ts`):
+
+| Mode | Source | Aggregates |
+|---|---|---|
+| `api` (default) | `src/data/api/source.ts`: graphql-request against `/api/graphql`; documents in `src/data/api/queries.ts` are type-checked by GraphQL Codegen against `schema.graphql` | computed by the API (`dashboard.stats`) |
+| `static` | `src/data/static/source.ts`: fetches the JSON written by `run365-export --static-dir` and maps snake_case to the same types | computed in the browser by `src/data/stats.ts`, a port of `dashboard.stats` pinned to the same test values |
+
+TanStack Query hooks in `src/data/hooks.ts` key every query by mode.
+`DataProvider` picks the source from `VITE_DATA_MODE`, so the Vercel build
+and the GitHub Pages build differ only by an environment variable.
+
 ## Design decisions
 
 ### Feature-based packages instead of `models/ parsers/ analysis/`

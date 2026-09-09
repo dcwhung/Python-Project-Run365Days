@@ -1,0 +1,172 @@
+"""One run parsed from the Garmin TCX export."""
+type Activity {
+  id: ID!
+  date: String!
+  startTime: String!
+  dayOfYear: Int!
+  distanceKm: Float!
+  durationSec: Int!
+  paceSecPerKm: Int
+  calories: Int
+  avgCadence: Float
+  avgTempC: Float
+  elevationMinM: Float
+  elevationMaxM: Float
+  ascentM: Float
+  hasGps: Boolean!
+  numPoints: Int!
+  weather: RunWeather
+  warnings: [String!]!
+
+  """GPS track, evenly downsampled to at most `points` samples."""
+  track(points: Int! = 150): [TrackPoint!]!
+}
+
+"""One day of the Hong Kong Observatory daily extract."""
+type DailyWeather {
+  date: String!
+  maxTempC: Float
+  avgTempC: Float
+  minTempC: Float
+  humidityPct: Float
+  rainfallMm: Float
+  windKmh: Float
+  sunrise: String
+  sunset: String
+}
+
+"""Date (isoformat)"""
+scalar Date
+
+type DayDistance {
+  date: String!
+  distanceKm: Float!
+  activityId: ID
+}
+
+type Meta {
+  year: Int!
+  generatedAt: String!
+  trackColumns: [String!]!
+}
+
+type MonthSummary {
+  month: Int!
+  runs: Int!
+  distanceKm: Float!
+  durationSec: Int!
+  calories: Int!
+  avgPaceSecPerKm: Int
+  avgCadence: Float
+  bestPaceSecPerKm: Int
+  bestPaceActivityId: ID
+}
+
+type PersonalBests {
+  longest: Activity
+  fastest: Activity
+  longestTime: Activity
+  mostCalories: Activity
+  topCadence: Activity
+}
+
+type Query {
+  """Export metadata."""
+  meta: Meta!
+
+  """Runs in start order, optionally filtered (dates inclusive)."""
+  activities(fromDate: Date = null, toDate: Date = null, minKm: Float = null, hasGps: Boolean = null): [Activity!]!
+
+  """One run by Garmin activity id."""
+  activity(id: ID!): Activity
+
+  """Daily weigh-ins (dates inclusive)."""
+  weight(fromDate: Date = null, toDate: Date = null): [WeightEntry!]!
+
+  """HKO daily weather (dates inclusive)."""
+  weather(fromDate: Date = null, toDate: Date = null): [DailyWeather!]!
+
+  """HKO warnings and signals (dates inclusive)."""
+  warnings(fromDate: Date = null, toDate: Date = null): [WeatherWarning!]!
+
+  """Aggregates for the exported year (or a given year)."""
+  year(year: Int = null): YearSummary!
+}
+
+"""Hourly weather observation closest to the run's start time."""
+type RunWeather {
+  description: String
+  tempC: Float
+  humidityPct: Float
+  windKmh: Float
+}
+
+type Totals {
+  runs: Int!
+  days: Int!
+  activeDays: Int!
+  distanceKm: Float!
+  durationSec: Int!
+  calories: Int!
+  avgPaceSecPerKm: Int
+  avgCadence: Float
+  avgDistanceKm: Float!
+}
+
+"""One stored sample of a run's track."""
+type TrackPoint {
+  sec: Int!
+  lat: Float
+  lon: Float
+  elevationM: Float
+  distanceM: Float
+  speedMps: Float
+  cadence: Int
+  tempC: Float
+}
+
+"""Exponentially weighted load: fitness (CTL), fatigue (ATL), form (TSB)."""
+type TrainingLoadPoint {
+  date: String!
+  ctl: Float!
+  atl: Float!
+  tsb: Float!
+}
+
+"""One HKO warning or tropical cyclone signal."""
+type WeatherWarning {
+  date: String!
+  type: String
+  signal: String!
+  startTime: String
+  endTime: String
+}
+
+type WeekSummary {
+  week: Int!
+  weekStart: String!
+  runs: Int!
+  distanceKm: Float!
+  durationSec: Int!
+  avgPaceSecPerKm: Int
+  longestKm: Float!
+  activityIds: [ID!]!
+}
+
+type WeightEntry {
+  date: String!
+  weightLbs: Float!
+  weightKg: Float!
+  bmi: Float!
+}
+
+"""Everything the overview and analytics views need for one year."""
+type YearSummary {
+  year: Int!
+  totals: Totals!
+  monthly: [MonthSummary!]!
+  weekly: [WeekSummary!]!
+  dailyDistance: [DayDistance!]!
+  trainingLoad: [TrainingLoadPoint!]!
+  personalBests: PersonalBests!
+}

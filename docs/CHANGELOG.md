@@ -7,6 +7,14 @@ are named `release/vX` and tags `vX.Y.Z`.
 ## [Unreleased] - `develop`
 
 ### Added
+- `frontend/`: Vite + React 19 + TypeScript scaffold for the v3 dashboard
+  with a `DataSource` abstraction (GraphQL via graphql-request + Codegen,
+  or static JSON), TanStack Query hooks, a TypeScript port of the year
+  statistics, Tailwind CSS 4 theme tokens from v2, the nine-view shell and
+  the Overview KPI row; 35 Vitest tests; CI job for lint, typecheck, tests
+  and both builds.
+- `run365-schema`: prints the GraphQL SDL; CI checks
+  `frontend/schema.graphql` is current.
 - `run365days.api`: Flask application factory with a Strawberry GraphQL
   schema (`meta`, `activities`, `activity`, `weight`, `weather`,
   `warnings`, `year` aggregates) served at `/api/graphql`, reading the

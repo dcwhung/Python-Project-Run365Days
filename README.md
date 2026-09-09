@@ -56,6 +56,7 @@ pages.
 | Numerics | pandas and numpy for lap tables, descriptive statistics and date ranges |
 | Storage | SQLite via SQLAlchemy 2.0 (typed ORM models), generated at build time |
 | API | Flask 3 + Strawberry GraphQL (code-first schema), read-only over the SQLite export |
+| Front end (v3, in progress) | React 19 + TypeScript on Vite, TanStack Query + graphql-request with GraphQL Codegen, Tailwind CSS 4; runs in `api` or `static` data mode |
 | HTTP | requests |
 | Front end | Single HTML page, vanilla JS, Chart.js 4 from cdnjs, Canvas for the route map |
 | Packaging | setuptools with a src-layout, console scripts in `pyproject.toml` |
@@ -80,6 +81,7 @@ data/
   raw/weather/                 HKO daily extract, hourly history, warnings, sun and moon
   raw/weight/                  daily weight log, original tracking spreadsheet
   processed/                   run365.db, static/*.json, JSON Lines (git-ignored)
+frontend/                      React dashboard (v3): src/data (api + static sources), src/views, src/app
 docs/                          architecture, data pipeline, changelog, roadmap
 legacy/                        original 2022 scripts, reference only
 .github/workflows/pages.yml    CI and deployment
@@ -128,6 +130,25 @@ The schema exposes `meta`, `activities(fromDate, toDate, minKm, hasGps)`,
 `warnings` and a `year` aggregate (totals, monthly, weekly, daily distance,
 training load, personal bests). `api/graphql.py` exports the same app for
 Vercel; `RUN365_DB_PATH` points it at the bundled database.
+
+### React front end (v3)
+
+```bash
+cd frontend && npm install
+npm run dev                       # http://localhost:5173, /api proxied to Flask on :5000
+npm test                          # vitest (runs codegen first)
+npm run build                     # api mode  -> dist/
+npm run build:static              # static mode -> dist/, reads /data/*.json
+```
+
+The app talks to one `DataSource` interface. `VITE_DATA_MODE=api` (default)
+queries the GraphQL endpoint with documents type-checked against
+`frontend/schema.graphql` (written by `run365-schema`, checked in CI).
+`VITE_DATA_MODE=static` fetches the JSON written by
+`run365-export --static-dir frontend/public/data` and computes the year
+aggregates in the browser with a TypeScript port of `dashboard/stats.py`;
+both ports share the same test fixtures. Views never know which mode is
+active.
 
 `run365-dashboard` options: `--year`, `--tcx-dir`, `--gpx-dir`,
 `--weight-file`, `--points` (track points kept per run, default 150),
@@ -185,6 +206,9 @@ ruff format --check src tests
   parsing (including the undated-last-line quirk), every dashboard builder
   function, the export records, SQLite and JSON writers, and the CLI
   serialiser.
+- Front end: 35 Vitest tests cover the TypeScript stats port (pinned to the
+  Python numbers), the static JSON mappers and source, the API source,
+  data-mode resolution, formatting helpers and the app shell.
 - ruff enforces pycodestyle, pyflakes, isort, pyupgrade, bugbear,
   simplify, pep8-naming and Google-style docstrings on every public
   symbol. Line length is 100.
@@ -197,10 +221,14 @@ ruff format --check src tests
 `develop`:
 
 1. **Lint and test**: install the package, `ruff check`, `ruff format
-   --check`, `pytest`.
-2. **Build dashboard** (push only): `run365-dashboard --single-file`, then
+   --check`, `pytest`, and check `frontend/schema.graphql` matches the
+   Strawberry schema.
+2. **Frontend**: `npm ci`, ESLint, codegen + `tsc`, Vitest, and a Vite
+   build in both data modes.
+3. **Build dashboard** (push only): `run365-dashboard --single-file`, then
    upload `src/dashboard/static/` as the Pages artifact.
-3. **Deploy to GitHub Pages** (push only).
+4. **Deploy to GitHub Pages** (push only). Until the React views reach
+   parity this still publishes the v2 page.
 
 Generated files (`data.js`, `run365days.html`, `data/processed/`) are
 git-ignored and rebuilt on every deploy.
