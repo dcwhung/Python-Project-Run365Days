@@ -5,7 +5,7 @@
 #    image manages Python with uv (PEP 668), so a throw-away virtualenv is
 #    created with uv when present; plain pip is the fallback elsewhere.
 # 2. run365-export parses data/raw/ once and writes data/processed/run365.db,
-#    which vercel.json bundles into the api/graphql_api.py function via includeFiles.
+#    which vercel.json bundles into the api/graphql.py function via includeFiles.
 # 3. The static JSON output is skipped: on Vercel the app talks to the API.
 set -euo pipefail
 cd "$(dirname "$0")/.."

@@ -9,7 +9,7 @@ are named `release/vX` and tags `vX.Y.Z`.
 ### Added
 - Deployment: `vercel.json`, `requirements.txt` and `scripts/vercel-build.sh`
   run the export at build time and serve the React app in API mode with
-  `api/graphql_api.py` as a Python serverless function; the GitHub Pages
+  `api/graphql.py` as a Python serverless function; the GitHub Pages
   workflow now builds the React app in static mode under `/<repo>/` with a
   `404.html` fallback for deep links.
 - React views: Overview (KPIs, daily-distance heatmap, monthly distance and
@@ -39,7 +39,7 @@ are named `release/vX` and tags `vX.Y.Z`.
 - `run365days.api`: Flask application factory with a Strawberry GraphQL
   schema (`meta`, `activities`, `activity`, `weight`, `weather`,
   `warnings`, `year` aggregates) served at `/api/graphql`, reading the
-  exported SQLite database read-only; `api/graphql_api.py` is the Vercel entry.
+  exported SQLite database read-only; `api/graphql.py` is the Vercel entry.
 - `run365days.dashboard.stats`: pure year aggregations (totals, monthly,
   weekly, daily distance, training load, personal bests).
 - `run365days.export`: one intermediate record set written two ways by

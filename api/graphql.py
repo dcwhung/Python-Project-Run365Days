@@ -1,12 +1,12 @@
 """Vercel serverless entry point: exposes the Flask app as `app`.
 
 Vercel's Python runtime looks for a WSGI callable named `app` in files under
-api/; this one is served at /api/graphql_api and vercel.json rewrites every /api/*
-request to it (Flask then routes /api/graphql and /api/health). The file name
-avoids two traps: graphql.py would shadow the graphql-core package Strawberry
-imports, and index.py is treated by Vercel as a zero-config app entrypoint
-rather than a function, which breaks the `functions` configuration. Two more
-things differ from a normal install and are handled here:
+api/; this one is served at /api/graphql and vercel.json rewrites every /api/*
+request to it (Flask then routes /api/graphql and /api/health). Keep the file
+name: Vercel matched `api/graphql.py` in the `functions` configuration but
+rejected `api/index.py` and `api/graphql_api.py` ("doesn't match any
+Serverless Functions"). Two more things differ from a normal install and are
+handled here:
 
 - The runtime installs the project and its core dependencies from
   pyproject.toml (optional extras are ignored, which is why Flask and
