@@ -19,7 +19,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+api = [
+    "flask>=3",
+    "strawberry-graphql>=0.250",
+]
 dev = [
+    "run365days[api]",
     "pytest>=7",
     "ruff>=0.5",
     "pre-commit>=3",
@@ -38,6 +43,7 @@ packages = [
     "run365days",
     "run365days.activities",
     "run365days.activities.parsers",
+    "run365days.api",
     "run365days.cli",
     "run365days.common",
     "run365days.dashboard",
@@ -56,7 +62,7 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 100
 target-version = "py310"
-src = ["src", "tests"]
+src = ["src", "tests", "api"]
 
 [tool.ruff.lint]
 select = [
@@ -78,6 +84,8 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["D"]                  # test names are the documentation
 "src/cli/*" = ["D103"]             # main() is described by the module docstring
+"src/api/schema.py" = ["D101", "D102"]  # GraphQL types carry descriptions in the schema
+"api/*" = ["D"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"

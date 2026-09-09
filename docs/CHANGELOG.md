@@ -7,6 +7,12 @@ are named `release/vX` and tags `vX.Y.Z`.
 ## [Unreleased] - `develop`
 
 ### Added
+- `run365days.api`: Flask application factory with a Strawberry GraphQL
+  schema (`meta`, `activities`, `activity`, `weight`, `weather`,
+  `warnings`, `year` aggregates) served at `/api/graphql`, reading the
+  exported SQLite database read-only; `api/graphql.py` is the Vercel entry.
+- `run365days.dashboard.stats`: pure year aggregations (totals, monthly,
+  weekly, daily distance, training load, personal bests).
 - `run365days.export`: one intermediate record set written two ways by
   `run365-export`, a SQLite database (SQLAlchemy 2.0 models) for the API
   and split JSON files for the static dashboard build.
