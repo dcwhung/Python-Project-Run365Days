@@ -3,18 +3,20 @@
 Items are listed in the order they are planned. Nothing here has a date;
 the project is developed in spare time.
 
-## In progress: API-backed dashboard (v3)
+## Done: API-backed dashboard (v3)
 
-Landed on `develop`: `run365-export` (SQLite + static JSON), the Flask +
-Strawberry GraphQL API, the React dashboard with all nine views in both
-data modes, and the Vercel / GitHub Pages deployment configuration.
+`run365-export` (SQLite + static JSON), the Flask + Strawberry GraphQL
+API, the React dashboard with all nine views in both data modes, and the
+Vercel / GitHub Pages deployments are live. See `docs/deployment.md`.
 
-Remaining before tagging `v3.0.0`:
+## Next
 
-- First Vercel deployment and any fixes it needs.
-- Screenshots in the README.
 - Container image and a `docker compose` file for local development.
-- API tests through the deployed endpoint (smoke test in CI).
+- A smoke test in CI against the deployed API (`/api/health` and one
+  query) after each Vercel deployment.
+- Code-split the React bundle (Chart.js and the Activity view are the
+  bulk of the 650 kB main chunk).
+- Playwright end-to-end test for the Overview to Activity flow.
 
 ## Wellness data
 
@@ -35,4 +37,3 @@ views once the API exists:
 - Port the v1 sun / moon scraper into `run365days.weather.collectors` and
   then delete `legacy/`.
 - Type checking with mypy in CI.
-- Screenshots of the dashboard in the README once the v3 layout settles.

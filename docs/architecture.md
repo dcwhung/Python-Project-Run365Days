@@ -140,4 +140,5 @@ in a container or against a different year's exports.
 - **pre-commit** runs the same ruff checks locally.
 - **GitHub Actions** (`.github/workflows/pages.yml`) runs lint and tests on
   every push and pull request to `develop`, then builds and deploys the
-  dashboard on pushes only.
+  static dashboard on pushes only. Vercel builds the API-mode deployment
+  from the same commits; both are described in [deployment.md](deployment.md).

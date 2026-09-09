@@ -4,7 +4,10 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Release branches
 are named `release/vX` and tags `vX.Y.Z`.
 
-## [Unreleased] - `develop`
+## [3.0.0] - 2026-09-09 - `develop`
+
+API-backed React dashboard, deployed to Vercel (API mode) and GitHub Pages
+(static mode) from the same source.
 
 ### Added
 - Deployment: `vercel.json`, `requirements.txt` and `scripts/vercel-build.sh`
@@ -83,6 +86,12 @@ are named `release/vX` and tags `vX.Y.Z`.
 - The empty `run365days.viz` package.
 
 ### Fixed
+- Vercel deployment: invalid `runtime` key, PEP 668 pip refusal (uv venv),
+  export anchored to the checkout via `RUN365_DATA_DIR`, function bundle
+  size (venv under `/tmp`, `excludeFiles`), Flask missing at runtime
+  (extras are not installed, so Flask and Strawberry became core
+  dependencies) and the module-level `app` assignment Vercel's function
+  detection requires. See `docs/deployment.md`.
 - `run365-activities` failed with `TypeError: Object of type int64 is not
   JSON serializable` because the coordinate-distance helper returns a numpy
   integer segment count.
@@ -131,7 +140,7 @@ Original standalone scripts written during and after the 2021 challenge.
   estimates.
 - Raw Garmin exports and weather JSON.
 
-[Unreleased]: https://github.com/dcwhung/Python-Project-Run365Days/compare/v2.0.0...develop
+[3.0.0]: https://github.com/dcwhung/Python-Project-Run365Days/compare/v2.0.0...v3.0.0
 [2.0.0]: https://github.com/dcwhung/Python-Project-Run365Days/compare/v1.5.0...v2.0.0
 [1.5.0]: https://github.com/dcwhung/Python-Project-Run365Days/compare/v1.0.0...v1.5.0
 [1.0.0]: https://github.com/dcwhung/Python-Project-Run365Days/releases/tag/v1.0.0

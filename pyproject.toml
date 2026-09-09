@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "run365days"
-version = "2.0.0"
+version = "3.0.0"
 description = "Personal running analytics: Garmin activity parsing, weather correlation, weight tracking and a dashboard"
 requires-python = ">=3.10"
 dependencies = [
