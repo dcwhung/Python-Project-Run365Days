@@ -33,16 +33,16 @@ jobs:
           cache: pip
 
       - name: Install package with dev extras
-        run: pip install -e "./run365days[dev]"
+        run: pip install -e ".[dev]"
 
       - name: Ruff lint
-        run: ruff check run365days/src run365days/tests
+        run: ruff check src tests
 
       - name: Ruff format check
-        run: ruff format --check run365days/src run365days/tests
+        run: ruff format --check src tests
 
       - name: Pytest
-        run: pytest run365days/tests -q
+        run: pytest tests -q
 
   build:
     name: Build dashboard
@@ -58,7 +58,7 @@ jobs:
           cache: pip
 
       - name: Install package
-        run: pip install -e "./run365days"
+        run: pip install -e "."
 
       - name: Build dashboard data
         run: run365-dashboard --single-file
@@ -71,7 +71,7 @@ jobs:
       - name: Upload site
         uses: actions/upload-pages-artifact@v3
         with:
-          path: run365days/src/dashboard/static
+          path: src/dashboard/static
 
   deploy:
     name: Deploy to GitHub Pages

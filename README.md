@@ -2,7 +2,7 @@
 
 [![CI and GitHub Pages](https://github.com/dcwhung/Python-Project-Run365Days/actions/workflows/pages.yml/badge.svg?branch=develop)](https://github.com/dcwhung/Python-Project-Run365Days/actions/workflows/pages.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](run365days/pyproject.toml)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
 
 In 2021 I ran every single day. This repository is the analytics side of
 that challenge: a Python package that parses 365 Garmin exports, a daily
@@ -63,16 +63,15 @@ pages.
 ## Repository layout
 
 ```
-run365days/                    Python project
-  pyproject.toml               metadata, console scripts, ruff and pytest config
-  src/                         imported as `run365days`, one sub-package per feature
-    activities/                Activity / TrackPoint models, parsers/ (tcx, gpx, kml), metrics (MET)
-    weather/                   weather models, collectors/ (hko_daily, hourly, warnings)
-    weight/                    daily weight parsing, year table, summaries
-    dashboard/                 builder (payload functions), static/index.html (the page)
-    common/                    config (all paths and constants), geo, time
-    cli/                       process_activities, collect_weather, build_dashboard
-  tests/                       pytest suite, one file per feature module
+pyproject.toml                 package metadata, console scripts, ruff and pytest config
+src/                           Python package, imported as `run365days`, one sub-package per feature
+  activities/                  Activity / TrackPoint models, parsers/ (tcx, gpx, kml), metrics (MET)
+  weather/                     weather models, collectors/ (hko_daily, hourly, warnings)
+  weight/                      daily weight parsing, year table, summaries
+  dashboard/                   builder (payload functions), static/index.html (the page)
+  common/                      config (all paths and constants), geo, time
+  cli/                         process_activities, collect_weather, build_dashboard
+tests/                         pytest suite, one file per feature module
 data/
   raw/garmin/{tcx,gpx,kml}/    365 Garmin activity exports for 2021
   raw/garmin/*.json            activity summaries, daily wellness, sleep
@@ -91,12 +90,12 @@ LICENSE                        MIT, with a personal-data exclusion for data/
 git clone https://github.com/dcwhung/Python-Project-Run365Days.git
 cd Python-Project-Run365Days
 python -m venv .venv && source .venv/bin/activate
-pip install -e "./run365days[dev]"
+pip install -e ".[dev]"
 pre-commit install                      # optional: ruff on every commit
 
-pytest run365days/tests                 # 53 tests, well under a second
+pytest tests                 # 53 tests, well under a second
 run365-dashboard --single-file          # build the dashboard from data/
-open run365days/src/dashboard/static/run365days.html
+open src/dashboard/static/run365days.html
 ```
 
 The package finds its data relative to the repository. To point it
@@ -112,7 +111,7 @@ run as `python -m run365days.cli.<module>`.
 |---|---|---|---|
 | `run365-activities --format all --year 2021` | Parse every activity file into normalised records | `data/raw/garmin/{tcx,gpx,kml}/` | `data/processed/activities_<fmt>.jsonl` |
 | `run365-weather --source all --year 2021` | Scrape hourly weather, HKO warnings and the HKO daily extract | the web | `data/raw/weather/*.json` |
-| `run365-dashboard [--single-file]` | Parse activities, weight and weather and build the dashboard payload | `data/raw/**` | `run365days/src/dashboard/static/data.js` and optionally `run365days.html` |
+| `run365-dashboard [--single-file]` | Parse activities, weight and weather and build the dashboard payload | `data/raw/**` | `src/dashboard/static/data.js` and optionally `run365days.html` |
 
 `run365-dashboard` options: `--year`, `--tcx-dir`, `--gpx-dir`,
 `--weight-file`, `--points` (track points kept per run, default 150),
@@ -120,7 +119,7 @@ run as `python -m run365days.cli.<module>`.
 
 ## Dashboard
 
-`run365days/src/dashboard/static/index.html` is the whole front end. It
+`src/dashboard/static/index.html` is the whole front end. It
 reads one script, `data.js`, which assigns the payload to `window.RUN365`.
 Chart.js is loaded from cdnjs; the route map and per-run charts are plain
 Canvas and work offline. `--single-file` inlines the payload so the page can
@@ -161,9 +160,9 @@ and the reasoning behind the layout in
 ## Testing and code quality
 
 ```bash
-pytest run365days/tests
-ruff check run365days/src run365days/tests
-ruff format --check run365days/src run365days/tests
+pytest tests
+ruff check src tests
+ruff format --check src tests
 ```
 
 - 53 tests cover the geo and time helpers, MET and calorie maths, weight
@@ -183,7 +182,7 @@ ruff format --check run365days/src run365days/tests
 1. **Lint and test**: install the package, `ruff check`, `ruff format
    --check`, `pytest`.
 2. **Build dashboard** (push only): `run365-dashboard --single-file`, then
-   upload `run365days/src/dashboard/static/` as the Pages artifact.
+   upload `src/dashboard/static/` as the Pages artifact.
 3. **Deploy to GitHub Pages** (push only).
 
 Generated files (`data.js`, `run365days.html`, `data/processed/`) are

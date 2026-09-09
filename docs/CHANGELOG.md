@@ -21,12 +21,13 @@ are named `release/vX` and tags `vX.Y.Z`.
 - `docs/` with architecture, data-pipeline, changelog and roadmap pages.
 
 ### Changed
-- Package moved to `run365days/src/` and reorganised by feature
+- Package moved to `src/` at the repository root (with `tests/` and
+  `pyproject.toml` beside it) and reorganised by feature
   (`activities`, `weather`, `weight`, `dashboard`, `common`, `cli`) instead
   of by layer (`models`, `parsers`, `collectors`, `analysis`, `export`).
 - Raw data moved under `data/raw/{garmin,weather,weight}/` with snake_case
   file names; generated files go to git-ignored `data/processed/`.
-- The dashboard page now lives at `run365days/src/dashboard/static/index.html`
+- The dashboard page now lives at `src/dashboard/static/index.html`
   and GitHub Pages publishes that folder.
 - Code formatted with ruff (line length 100, modern typing syntax).
 - README rewritten as a full engineering guide.

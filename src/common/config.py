@@ -8,8 +8,8 @@ CI or when the package is installed outside the repository).
 import os
 from pathlib import Path
 
-# <repo>/run365days/src/common/config.py -> parents[3] == <repo>
-ROOT_DIR = Path(__file__).resolve().parents[3]
+# <repo>/src/common/config.py -> parents[2] == <repo>
+ROOT_DIR = Path(__file__).resolve().parents[2]
 DATA_DIR = Path(os.environ.get("RUN365_DATA_DIR", ROOT_DIR / "data"))
 
 RAW_DIR = DATA_DIR / "raw"

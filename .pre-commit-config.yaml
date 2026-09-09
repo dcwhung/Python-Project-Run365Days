@@ -1,4 +1,4 @@
-# Install once with:  pip install -e "./run365days[dev]" && pre-commit install
+# Install once with:  pip install -e ".[dev]" && pre-commit install
 # Legacy v1 scripts are excluded on purpose; they are reference-only.
 exclude: ^(legacy/|data/)
 
