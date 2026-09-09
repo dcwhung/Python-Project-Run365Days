@@ -14,10 +14,12 @@ cd "$(dirname "$0")/.."
 # point into site-packages; anchor the data directory to this checkout.
 export RUN365_DATA_DIR="$PWD/data"
 
+# The virtualenv lives outside the checkout so it is never bundled into the function.
+VENV="${TMPDIR:-/tmp}/run365-build-venv"
 if command -v uv >/dev/null 2>&1; then
-  uv venv --quiet .venv-build
+  uv venv --quiet "$VENV"
   # shellcheck disable=SC1091
-  source .venv-build/bin/activate
+  source "$VENV/bin/activate"
   uv pip install --quiet ".[api]"
 else
   python3 -m pip install --quiet --disable-pip-version-check --break-system-packages ".[api]"
