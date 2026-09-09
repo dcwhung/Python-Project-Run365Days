@@ -1,0 +1,74 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "run365days"
+version = "2.0.0"
+description = "Personal running analytics: Garmin activity parsing, weather correlation, weight tracking and a dashboard"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "pandas",
+    "python-dateutil",
+    "pytz",
+    "requests",
+    "beautifulsoup4",
+    "lxml",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7",
+    "ruff>=0.5",
+    "pre-commit>=3",
+]
+
+[project.scripts]
+run365-activities = "run365days.cli.process_activities:main"
+run365-weather = "run365days.cli.collect_weather:main"
+run365-dashboard = "run365days.cli.build_dashboard:main"
+
+# The package lives in src/ but is imported as `run365days`.
+[tool.setuptools]
+package-dir = { "run365days" = "src" }
+packages = [
+    "run365days",
+    "run365days.activities",
+    "run365days.activities.parsers",
+    "run365days.cli",
+    "run365days.common",
+    "run365days.dashboard",
+    "run365days.weather",
+    "run365days.weather.collectors",
+    "run365days.weight",
+]
+
+[tool.setuptools.package-data]
+"run365days.dashboard" = ["static/index.html"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "SIM", # flake8-simplify
+    "N",   # pep8-naming
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["run365days"]
+
+[tool.ruff.format]
+quote-style = "double"
