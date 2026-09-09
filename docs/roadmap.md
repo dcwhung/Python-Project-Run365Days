@@ -11,7 +11,7 @@ front end can query only what a view needs.
 
 Planned shape:
 
-- **Flask** application under `run365days/src/api/`, reusing the existing
+- **Flask** application under `src/api/`, reusing the existing
   feature packages unchanged; the builder functions become resolvers.
 - **GraphQL** schema (Strawberry or Ariadne) exposing `activities`,
   `activity(id)`, `weight`, `weather(date)` and aggregate fields such as

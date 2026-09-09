@@ -16,7 +16,7 @@ data/processed/*
 !data/processed/.gitkeep
 
 # Generated dashboard bundle (GitHub Pages builds these)
-run365days/src/dashboard/static/data.js
-run365days/src/dashboard/static/run365days.html
+src/dashboard/static/data.js
+src/dashboard/static/run365days.html
 dashboard/data.js
 dashboard/run365days.html

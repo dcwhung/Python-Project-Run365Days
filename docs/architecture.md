@@ -7,8 +7,8 @@ organised and why.
 
 ## Package layout
 
-The Python code lives in `run365days/src/` and is imported as `run365days`.
-`pyproject.toml` maps the package name onto the `src/` directory
+The Python code lives in `src/` at the repository root and is imported as
+`run365days`. `pyproject.toml` maps the package name onto the `src/` directory
 (`package-dir = { "run365days" = "src" }`), so the import path stays short
 while the project keeps a conventional src-layout that prevents tests from
 importing an uninstalled tree by accident.
@@ -45,7 +45,7 @@ data/raw/weather/*.json ──────────────────�
                                                dashboard.builder.build_payload()
                                                                   │
                                                                   ▼
-                                   run365days/src/dashboard/static/data.js
+                                   src/dashboard/static/data.js
                                    (window.RUN365 = {...}, ~2.7 MB)
                                                                   │
                                                                   ▼
@@ -77,7 +77,7 @@ the sub-resources a future API will expose.
 Everything in `dashboard.builder` takes plain Python values and returns
 plain Python values; file I/O is limited to `load_jsonl` and
 `write_data_js`. That is what makes the payload unit-testable without
-fixtures on disk (`run365days/tests/test_dashboard_builder.py`).
+fixtures on disk (`tests/test_dashboard_builder.py`).
 
 ### A static dashboard first
 
@@ -97,7 +97,7 @@ in a container or against a different year's exports.
 ## Quality gates
 
 - **ruff** with `E W F I UP B SIM N D` rule sets, line length 100, Google
-  docstring convention. Configuration is in `run365days/pyproject.toml`.
+  docstring convention. Configuration is in `pyproject.toml`.
 - **pytest** covering geo and time helpers, MET metrics, weight parsing,
   every builder function and the CLI serialiser (53 tests).
 - **pre-commit** runs the same ruff checks locally.
