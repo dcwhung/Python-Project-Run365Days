@@ -2,10 +2,10 @@
 
 Vercel's Python runtime looks for a WSGI callable named `app` in files under
 api/; this one is served at /api/graphql and vercel.json rewrites every /api/*
-request to it (Flask then routes /api/graphql and /api/health). Keep the file
-name: Vercel matched `api/graphql.py` in the `functions` configuration but
-rejected `api/index.py` and `api/graphql_api.py` ("doesn't match any
-Serverless Functions"). Two more things differ from a normal install and are
+request to it (Flask then routes /api/graphql and /api/health). Vercel only
+recognises the file as a function when a module-level ``app`` assignment is
+present; wrapping it in try/except made the build fail with "doesn't match
+any Serverless Functions". Two more things differ from a normal install and are
 handled here:
 
 - The runtime installs the project and its core dependencies from
@@ -73,10 +73,17 @@ def _error_app(exc: BaseException):
         return app
 
 
-try:
-    _load_package_from_source()
-    from run365days.api.app import create_app
+def _build_app():
+    """Create the real app, or the reporting fallback if start-up fails."""
+    try:
+        _load_package_from_source()
+        from run365days.api.app import create_app
 
-    app = create_app(os.environ.get("RUN365_DB_PATH", DEFAULT_DB), graphiql=True)
-except Exception as exc:  # noqa: BLE001 - surface any start-up failure
-    app = _error_app(exc)
+        return create_app(os.environ.get("RUN365_DB_PATH", DEFAULT_DB), graphiql=True)
+    except Exception as exc:  # noqa: BLE001 - surface any start-up failure
+        return _error_app(exc)
+
+
+# Vercel detects a Python function by a module-level `app` (or `handler`)
+# assignment, so this line must stay at the top level and unindented.
+app = _build_app()
