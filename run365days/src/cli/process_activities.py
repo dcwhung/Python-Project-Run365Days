@@ -15,6 +15,7 @@ or, without installing the package::
 import argparse
 import json
 from pathlib import Path
+from typing import Any
 
 from run365days.activities.parsers.gpx import GPXParser
 from run365days.activities.parsers.kml import KMLParser
@@ -28,12 +29,19 @@ _PARSERS = {
 }
 
 
+def _to_builtin(value: Any) -> Any:
+    """JSON fallback: numpy scalars (int64, float64) become Python numbers."""
+    if hasattr(value, "item"):
+        return value.item()
+    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
+
+
 def _activities_to_jsonl(activities, out_path: Path) -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, "w") as f:
         for activity in activities:
             record = {k: v for k, v in activity.__dict__.items() if k != "track_points"}
-            f.write(json.dumps(record) + "\n")
+            f.write(json.dumps(record, default=_to_builtin) + "\n")
     print(f"  Wrote {len(activities)} records to {out_path}")
 
 
