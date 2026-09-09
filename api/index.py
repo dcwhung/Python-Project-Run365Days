@@ -22,6 +22,7 @@ import importlib.util
 import json
 import os
 import sys
+import traceback
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -45,14 +46,29 @@ def _load_package_from_source() -> None:
 
 
 def _error_app(exc: BaseException):
-    """WSGI app that reports why the real app could not start."""
-    payload = json.dumps({"status": "error", "error": f"{type(exc).__name__}: {exc}"}).encode()
+    """App that reports why the real app could not start (Flask if available, else raw WSGI)."""
+    message = f"{type(exc).__name__}: {exc}"
+    print(f"[run365days] start-up failed: {message}", file=sys.stderr)
+    traceback.print_exception(exc, file=sys.stderr)
+    try:
+        from flask import Flask, jsonify
 
-    def app(environ, start_response):
-        start_response("500 Internal Server Error", [("Content-Type", "application/json")])
-        return [payload]
+        fallback = Flask(__name__)
 
-    return app
+        @fallback.route("/", defaults={"path": ""})
+        @fallback.route("/<path:path>")
+        def report(path):
+            return jsonify({"status": "error", "error": message}), 500
+
+        return fallback
+    except Exception:  # noqa: BLE001 - flask itself missing
+        payload = json.dumps({"status": "error", "error": message}).encode()
+
+        def app(environ, start_response):
+            start_response("500 Internal Server Error", [("Content-Type", "application/json")])
+            return [payload]
+
+        return app
 
 
 try:
