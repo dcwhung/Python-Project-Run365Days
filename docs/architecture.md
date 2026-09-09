@@ -75,6 +75,12 @@ comes through one interface, `DataSource` (`frontend/src/data/types.ts`):
 | `api` (default) | `src/data/api/source.ts`: graphql-request against `/api/graphql`; documents in `src/data/api/queries.ts` are type-checked by GraphQL Codegen against `schema.graphql` | computed by the API (`dashboard.stats`) |
 | `static` | `src/data/static/source.ts`: fetches the JSON written by `run365-export --static-dir` and maps snake_case to the same types | computed in the browser by `src/data/stats.ts`, a port of `dashboard.stats` pinned to the same test values |
 
+Views live in `src/views/<view>/` with a pure `model.ts` (filtering,
+sorting, derived numbers) beside the components, so the logic is tested
+without rendering. Charts use Chart.js through react-chartjs-2; the route
+map and the four per-run series charts are hand-drawn on Canvas because they
+redraw sixty times a second during playback.
+
 TanStack Query hooks in `src/data/hooks.ts` key every query by mode.
 `DataProvider` picks the source from `VITE_DATA_MODE`, so the Vercel build
 and the GitHub Pages build differ only by an environment variable.
