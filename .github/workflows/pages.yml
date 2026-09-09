@@ -19,6 +19,7 @@ concurrency:
 
 env:
   PYTHON_VERSION: "3.12"
+  NODE_VERSION: "22"
 
 jobs:
   lint-test:
@@ -44,9 +45,45 @@ jobs:
       - name: Pytest
         run: pytest tests -q
 
+      - name: GraphQL schema is in sync with frontend/schema.graphql
+        run: run365-schema --check frontend/schema.graphql
+
+  frontend:
+    name: Frontend lint, test and build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck (runs codegen first)
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npx vitest run
+
+      - name: Build (api mode)
+        run: npx vite build
+
+      - name: Build (static mode)
+        run: npx cross-env VITE_DATA_MODE=static vite build --outDir dist-static
+
   build:
     name: Build dashboard
-    needs: lint-test
+    needs: [lint-test, frontend]
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:

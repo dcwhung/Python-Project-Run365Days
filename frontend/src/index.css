@@ -1,0 +1,28 @@
+@import "tailwindcss";
+
+/* Design tokens carried over from the v2 dashboard so the two versions match. */
+@theme {
+  --color-bg: #0f1117;
+  --color-surface: #1a1d27;
+  --color-surface2: #22263a;
+  --color-border: #2e3250;
+  --color-accent: #4f8ef7;
+  --color-accent2: #34d399;
+  --color-warn: #f59e0b;
+  --color-danger: #f87171;
+  --color-text: #e2e8f0;
+  --color-muted: #7c85a8;
+  --color-violet: #a78bfa;
+  --font-sans: "Segoe UI", system-ui, sans-serif;
+  --radius-card: 10px;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  @apply bg-bg text-text font-sans text-sm antialiased;
+}
