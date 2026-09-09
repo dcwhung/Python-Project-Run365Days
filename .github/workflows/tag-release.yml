@@ -1,0 +1,75 @@
+name: Tag release
+
+# Manual release step: creates an annotated tag on a commit and, by default,
+# a GitHub Release whose notes are the matching section of docs/CHANGELOG.md.
+# Runs with the repository's GITHUB_TOKEN, so no secrets are needed.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag name, e.g. v3.0.0"
+        required: true
+        type: string
+      ref:
+        description: "Branch or commit SHA to tag"
+        required: true
+        default: develop
+        type: string
+      message:
+        description: "Annotated tag message"
+        required: true
+        type: string
+      release:
+        description: "Also create a GitHub Release with notes from docs/CHANGELOG.md"
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    name: Create ${{ inputs.tag }}
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ inputs.tag }}
+      TAG_MESSAGE: ${{ inputs.message }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+
+      - name: Validate tag name
+        run: |
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Tag must look like v1.2.3, got '$TAG'"; exit 1; }
+          if git ls-remote --tags origin "refs/tags/$TAG" | grep -q .; then
+            echo "Tag $TAG already exists on origin"; exit 1
+          fi
+
+      - name: Create and push annotated tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "$TAG_MESSAGE"
+          git push origin "refs/tags/$TAG"
+          echo "Tagged $(git rev-parse --short HEAD) as $TAG"
+
+      - name: Extract release notes from docs/CHANGELOG.md
+        if: inputs.release
+        run: |
+          python3 - "$TAG" <<'PY' > release-notes.md
+          import re, sys
+          version = sys.argv[1].lstrip("v")
+          text = open("docs/CHANGELOG.md", encoding="utf-8").read()
+          match = re.search(rf"^## \[{re.escape(version)}\][^\n]*\n(.*?)(?=^## \[|\Z)", text, re.S | re.M)
+          body = match.group(1).strip() if match else f"See docs/CHANGELOG.md for {version}."
+          print(body)
+          PY
+          echo "--- release notes ---"; cat release-notes.md
+
+      - name: Create GitHub Release
+        if: inputs.release
+        run: gh release create "$TAG" --title "$TAG" --notes-file release-notes.md --verify-tag

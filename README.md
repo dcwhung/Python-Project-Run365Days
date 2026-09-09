@@ -9,12 +9,16 @@ that challenge: a Python package that parses 365 Garmin exports, a daily
 weight log and a year of Hong Kong Observatory weather, and a dashboard that
 puts the results on one page.
 
-**Live dashboard:** https://dcwhung.github.io/Python-Project-Run365Days/
+**Live dashboard:** https://python-project-run365-days.vercel.app/ (React
+on a Flask + GraphQL API) · https://dcwhung.github.io/Python-Project-Run365Days/
+(the same React app in static mode)
 
-It started as a handful of scripts in 2022 and has been rebuilt twice since:
-first into a tested package, then into a feature-organised codebase with a
-static dashboard and CI. The next step, an API-backed dashboard, is in
-[docs/roadmap.md](docs/roadmap.md).
+![Overview](docs/images/overview.png)
+
+It started as a handful of scripts in 2022 and has been rebuilt three times
+since: into a tested package, into a feature-organised codebase with a
+static dashboard and CI, and now into a React dashboard served in two ways
+from one codebase, with a Python GraphQL API behind the Vercel deployment.
 
 ## Contents
 
@@ -26,6 +30,7 @@ static dashboard and CI. The next step, an API-backed dashboard, is in
 - [Dashboard](#dashboard)
 - [How the data flows](#how-the-data-flows)
 - [Testing and code quality](#testing-and-code-quality)
+- [Screenshots](#screenshots)
 - [Continuous integration and deployment](#continuous-integration-and-deployment)
 - [Versioning and branches](#versioning-and-branches)
 - [Privacy](#privacy)
@@ -135,9 +140,9 @@ Vercel; `RUN365_DB_PATH` points it at the bundled database.
 
 ## Dashboard
 
-Live site: **https://dcwhung.github.io/Python-Project-Run365Days/** (static
-mode on GitHub Pages). The same app runs on Vercel in API mode; see
-[Deployment](#continuous-integration-and-deployment).
+Live: **https://python-project-run365-days.vercel.app/** (API mode on
+Vercel) and **https://dcwhung.github.io/Python-Project-Run365Days/** (static
+mode on GitHub Pages). See [docs/deployment.md](docs/deployment.md).
 
 `frontend/` is a Vite + React 19 + TypeScript app styled with Tailwind CSS 4.
 Charts use Chart.js; the route map and the per-run charts are drawn on
@@ -218,6 +223,16 @@ ruff format --check src tests
 - `.pre-commit-config.yaml` runs the same checks locally; `legacy/` is
   excluded everywhere.
 
+## Screenshots
+
+| Activity: route playback with synced charts | Year in Review |
+|---|---|
+| ![Activity](docs/images/activity.png) | ![Year in Review](docs/images/year.png) |
+
+| Training Load | |
+|---|---|
+| ![Training Load](docs/images/load.png) | |
+
 ## Continuous integration and deployment
 
 `.github/workflows/pages.yml` runs on every push and pull request to
@@ -237,12 +252,13 @@ ruff format --check src tests
 ### Vercel (API mode)
 
 `vercel.json` describes the second deployment: `scripts/vercel-build.sh`
-installs the package, runs `run365-export --skip-static` to produce
+installs the package with uv, runs `run365-export --skip-static` to produce
 `data/processed/run365.db`, and builds the React app in API mode.
 `api/graphql.py` is a Python serverless function that imports the Flask app;
 the database is bundled into it with `includeFiles`. Rewrites send
-`/api/*` to the function and everything else to the SPA. Set the Vercel
-project's production branch to `develop`.
+`/api/*` to the function and everything else to the SPA. The production
+branch is `develop`. [docs/deployment.md](docs/deployment.md) has the full
+configuration and the list of things the first deployment taught.
 
 Generated files (`data/processed/`, `frontend/public/data/`, `frontend/dist/`)
 are git-ignored and rebuilt on every deploy.
@@ -254,10 +270,12 @@ are git-ignored and rebuilt on every deploy.
 | `master` | `v1.0.0` | Original 2022 scripts and raw data |
 | `release/v1.5` | `v1.5.0` | First modular package with tests |
 | `release/v2` | `v2.0.0` | Static dashboard mockup on top of v1.5 |
-| `develop` | unreleased | Feature-organised package, CI, docs; deploys the live dashboard |
+| `develop` | `v3.0.0` | Feature-organised package, SQLite + JSON export, Flask + Strawberry GraphQL API, React dashboard in two data modes, Vercel + GitHub Pages deployments |
 
 Release branches are frozen snapshots. New work lands on `develop`; the
-history is in [docs/CHANGELOG.md](docs/CHANGELOG.md).
+history is in [docs/CHANGELOG.md](docs/CHANGELOG.md). Tags and GitHub
+Releases are created by the manual "Tag release" workflow, which takes its
+notes from the changelog.
 
 ## Privacy
 
@@ -274,8 +292,9 @@ records) because the history has not been rewritten. Treat everything under
 |---|---|
 | [docs/architecture.md](docs/architecture.md) | Package layout, dependency rules, data flow, design decisions |
 | [docs/data-pipeline.md](docs/data-pipeline.md) | Every data source: origin, format, row counts, parser quirks |
+| [docs/deployment.md](docs/deployment.md) | Vercel and GitHub Pages configuration, and what the first deployment taught |
 | [docs/CHANGELOG.md](docs/CHANGELOG.md) | What changed in each version |
-| [docs/roadmap.md](docs/roadmap.md) | Flask + GraphQL API, wellness views, smaller items |
+| [docs/roadmap.md](docs/roadmap.md) | Wellness views, containers, smaller items |
 | [legacy/README.md](legacy/README.md) | Map from the 2022 scripts to their replacements |
 
 ## Licence
