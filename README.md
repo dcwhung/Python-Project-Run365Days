@@ -55,6 +55,7 @@ pages.
 | Parsing | `xml.etree.ElementTree` for TCX / GPX / KML, BeautifulSoup + lxml for HTML embedded in KML and for scraping |
 | Numerics | pandas and numpy for lap tables, descriptive statistics and date ranges |
 | Storage | SQLite via SQLAlchemy 2.0 (typed ORM models), generated at build time |
+| API | Flask 3 + Strawberry GraphQL (code-first schema), read-only over the SQLite export |
 | HTTP | requests |
 | Front end | Single HTML page, vanilla JS, Chart.js 4 from cdnjs, Canvas for the route map |
 | Packaging | setuptools with a src-layout, console scripts in `pyproject.toml` |
@@ -94,7 +95,7 @@ python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 pre-commit install                      # optional: ruff on every commit
 
-pytest tests                 # 71 tests, well under a second
+pytest tests                 # 93 tests, well under a second
 run365-dashboard --single-file          # build the dashboard from data/
 open src/dashboard/static/run365days.html
 ```
@@ -114,6 +115,19 @@ run as `python -m run365days.cli.<module>`.
 | `run365-weather --source all --year 2021` | Scrape hourly weather, HKO warnings and the HKO daily extract | the web | `data/raw/weather/*.json` |
 | `run365-dashboard [--single-file]` | Parse activities, weight and weather and build the dashboard payload | `data/raw/**` | `src/dashboard/static/data.js` and optionally `run365days.html` |
 | `run365-export [--points 600]` | Parse everything once and write the processed data set for the API and the static build | `data/raw/**` | `data/processed/run365.db` and `data/processed/static/*.json` |
+
+### GraphQL API
+
+```bash
+run365-export                                   # build data/processed/run365.db once
+flask --app run365days.api.app:create_app run   # GraphiQL at http://127.0.0.1:5000/api/graphql
+```
+
+The schema exposes `meta`, `activities(fromDate, toDate, minKm, hasGps)`,
+`activity(id)` with a downsampled `track(points)`, `weight`, `weather`,
+`warnings` and a `year` aggregate (totals, monthly, weekly, daily distance,
+training load, personal bests). `api/graphql.py` exports the same app for
+Vercel; `RUN365_DB_PATH` points it at the bundled database.
 
 `run365-dashboard` options: `--year`, `--tcx-dir`, `--gpx-dir`,
 `--weight-file`, `--points` (track points kept per run, default 150),
@@ -167,7 +181,7 @@ ruff check src tests
 ruff format --check src tests
 ```
 
-- 71 tests cover the geo and time helpers, MET and calorie maths, weight
+- 93 tests cover the geo and time helpers, MET and calorie maths, weight
   parsing (including the undated-last-line quirk), every dashboard builder
   function, the export records, SQLite and JSON writers, and the CLI
   serialiser.
