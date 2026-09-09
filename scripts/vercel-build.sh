@@ -20,9 +20,9 @@ if command -v uv >/dev/null 2>&1; then
   uv venv --quiet "$VENV"
   # shellcheck disable=SC1091
   source "$VENV/bin/activate"
-  uv pip install --quiet ".[api]"
+  uv pip install --quiet "."
 else
-  python3 -m pip install --quiet --disable-pip-version-check --break-system-packages ".[api]"
+  python3 -m pip install --quiet --disable-pip-version-check --break-system-packages "."
 fi
 
 run365-export --skip-static

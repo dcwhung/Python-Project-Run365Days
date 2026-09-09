@@ -16,15 +16,12 @@ dependencies = [
     "beautifulsoup4",
     "lxml",
     "sqlalchemy>=2.0",
-]
-
-[project.optional-dependencies]
-api = [
     "flask>=3",
     "strawberry-graphql>=0.250",
 ]
+
+[project.optional-dependencies]
 dev = [
-    "run365days[api]",
     "pytest>=7",
     "ruff>=0.5",
     "pre-commit>=3",

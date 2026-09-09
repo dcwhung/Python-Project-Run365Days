@@ -5,12 +5,13 @@ api/; this one is served at /api/graphql_api and vercel.json rewrites every /api
 request to it (Flask then routes /api/graphql and /api/health). The file name
 avoids two traps: graphql.py would shadow the graphql-core package Strawberry
 imports, and index.py is treated by Vercel as a zero-config app entrypoint
-rather than a function, which breaks the `functions` configuration. Two more things differ from a normal
-install and are handled here:
+rather than a function, which breaks the `functions` configuration. Two more
+things differ from a normal install and are handled here:
 
-- The runtime installs the *dependencies* from pyproject.toml but not the
-  project itself, so ``run365days`` is loaded straight from ``src/`` when
-  it is not importable (pyproject maps the package name onto that folder).
+- The runtime installs the project and its core dependencies from
+  pyproject.toml (optional extras are ignored, which is why Flask and
+  Strawberry are core dependencies). As a safety net, ``run365days`` is
+  loaded straight from ``src/`` if it is ever not importable.
 - The SQLite file is bundled via ``includeFiles`` in vercel.json and sits at
   ``data/processed/run365.db`` relative to the repository root;
   ``RUN365_DB_PATH`` overrides that.
