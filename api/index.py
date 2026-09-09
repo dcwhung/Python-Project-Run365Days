@@ -4,7 +4,8 @@ Vercel's Python runtime looks for a WSGI callable named `app` in files under
 api/; this one is served at /api/index and vercel.json rewrites every /api/*
 request to it (Flask then routes /api/graphql and /api/health). The file is
 deliberately not called graphql.py: that module name would shadow the
-graphql-core package Strawberry imports. Two more things differ from a normal install and are handled here:
+graphql-core package Strawberry imports. Two more things differ from a normal
+install and are handled here:
 
 - The runtime installs the *dependencies* from pyproject.toml but not the
   project itself, so ``run365days`` is loaded straight from ``src/`` when
