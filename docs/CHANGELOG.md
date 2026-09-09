@@ -59,7 +59,10 @@ API-backed React dashboard, deployed to Vercel (API mode) and GitHub Pages
 - Garmin activity summaries, daily wellness summaries and sleep data for the
   challenge period under `data/raw/garmin/`.
 - MIT licence with a personal-data exclusion for `data/`.
-- `docs/` with architecture, data-pipeline, changelog and roadmap pages.
+- `docs/` with architecture, data-pipeline, deployment, changelog and
+  roadmap pages.
+- "Tag release" workflow (`workflow_dispatch`) that creates an annotated
+  tag and a GitHub Release with notes taken from this changelog.
 
 ### Changed
 - Package moved to `src/` at the repository root (with `tests/` and

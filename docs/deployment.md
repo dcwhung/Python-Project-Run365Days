@@ -70,6 +70,15 @@ request to `develop`; the last two only on pushes.
 The repository's `github-pages` environment must allow deployments from
 `develop` (Settings, Environments, Deployment branches).
 
+## Tagging a release
+
+`.github/workflows/tag-release.yml` is a manual workflow (Actions, "Tag
+release", Run workflow). Given a tag name, a branch or commit and a message
+it creates the annotated tag and, by default, a GitHub Release whose notes
+are the matching `## [x.y.z]` section of `docs/CHANGELOG.md`. It runs with
+the repository token, so no secrets are involved, and it refuses to
+overwrite an existing tag.
+
 ## Running it yourself
 
 ```bash

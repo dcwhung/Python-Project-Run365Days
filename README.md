@@ -273,7 +273,9 @@ are git-ignored and rebuilt on every deploy.
 | `develop` | `v3.0.0` | Feature-organised package, SQLite + JSON export, Flask + Strawberry GraphQL API, React dashboard in two data modes, Vercel + GitHub Pages deployments |
 
 Release branches are frozen snapshots. New work lands on `develop`; the
-history is in [docs/CHANGELOG.md](docs/CHANGELOG.md).
+history is in [docs/CHANGELOG.md](docs/CHANGELOG.md). Tags and GitHub
+Releases are created by the manual "Tag release" workflow, which takes its
+notes from the changelog.
 
 ## Privacy
 
