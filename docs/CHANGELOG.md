@@ -7,8 +7,11 @@ are named `release/vX` and tags `vX.Y.Z`.
 ## [Unreleased] - `develop`
 
 ### Added
+- `run365days.export`: one intermediate record set written two ways by
+  `run365-export`, a SQLite database (SQLAlchemy 2.0 models) for the API
+  and split JSON files for the static dashboard build.
 - `run365days.cli` console scripts: `run365-activities`, `run365-weather`,
-  `run365-dashboard`.
+  `run365-dashboard`, `run365-export`.
 - `RUN365_DATA_DIR` environment variable to relocate the data directory.
 - Google-style docstrings on every public module, class and function,
   enforced by ruff's pydocstyle rules.

@@ -108,7 +108,15 @@ of the source data and is not read by the package.
 
 ## Processed output
 
-`run365-activities` writes one JSON Lines file per format under
-`data/processed/`, containing every `Activity` field except the track
-points. These files are git-ignored; the dashboard build does not depend on
-them and re-parses the raw exports directly.
+`data/processed/` is git-ignored and rebuilt by the CLI.
+
+| Command | Output | Consumer |
+|---|---|---|
+| `run365-export` | `run365.db` (SQLite, about 11 MB) and `static/` (split JSON, about 7 MB: `meta.json`, `activities.json`, `weight.json`, `weather.json`, `warnings.json`, `tracks/<id>.json`) | the GraphQL API reads the database; the static dashboard build fetches the JSON |
+| `run365-activities` | `activities_<fmt>.jsonl`, every `Activity` field except the track points | ad-hoc analysis |
+
+Both export writers consume one intermediate structure,
+`run365days.export.records.ExportRecords`, so the database and the JSON
+files always agree. Tracks are downsampled to 600 points per run at export
+time (four times the v2 dashboard's 150); the API can downsample further
+per request.
