@@ -15,6 +15,7 @@ dependencies = [
     "requests",
     "beautifulsoup4",
     "lxml",
+    "sqlalchemy>=2.0",
 ]
 
 [project.optional-dependencies]
@@ -28,6 +29,7 @@ dev = [
 run365-activities = "run365days.cli.process_activities:main"
 run365-weather = "run365days.cli.collect_weather:main"
 run365-dashboard = "run365days.cli.build_dashboard:main"
+run365-export = "run365days.cli.export_data:main"
 
 # The package lives in src/ but is imported as `run365days`.
 [tool.setuptools]
@@ -39,6 +41,7 @@ packages = [
     "run365days.cli",
     "run365days.common",
     "run365days.dashboard",
+    "run365days.export",
     "run365days.weather",
     "run365days.weather.collectors",
     "run365days.weight",

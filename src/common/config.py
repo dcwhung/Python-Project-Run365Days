@@ -38,6 +38,10 @@ HKO_DAILY_JSON = WEATHER_DIR / "hko_daily_weather_extract.json"
 WEIGHT_DIR = RAW_DIR / "weight"
 DAILY_WEIGHT_JSON = PROCESSED_DIR / "daily_weight.jsonl"
 
+# Processed data set (run365-export)
+PROCESSED_DB = PROCESSED_DIR / "run365.db"
+STATIC_JSON_DIR = PROCESSED_DIR / "static"
+
 # Dashboard
 DASHBOARD_STATIC_DIR = Path(__file__).resolve().parents[1] / "dashboard" / "static"
 DASHBOARD_INDEX_HTML = DASHBOARD_STATIC_DIR / "index.html"

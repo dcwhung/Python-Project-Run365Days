@@ -23,6 +23,7 @@ models, its readers and its derived metrics:
 | `run365days.weather` | `HourlyWeather`, `WeatherWarning`, `DailyWeather`, `SunMoon` dataclasses and `collectors/` that scrape HKO and freemeteo | `common` |
 | `run365days.weight` | `WeightRecord` and the year table / summaries built from the text log | `common` |
 | `run365days.dashboard` | `builder` (pure functions that shape the payload) and `static/index.html` (the dashboard itself) | `activities`, `weight` |
+| `run365days.export` | `records` (one intermediate structure), `models` (SQLAlchemy), `sqlite` and `static_json` writers | `dashboard.builder`, `activities`, `weight` |
 | `run365days.cli` | Three console scripts that wire the features together | everything above |
 
 Dependencies only point downwards in that table. Nothing under `activities`,
@@ -99,7 +100,7 @@ in a container or against a different year's exports.
 - **ruff** with `E W F I UP B SIM N D` rule sets, line length 100, Google
   docstring convention. Configuration is in `pyproject.toml`.
 - **pytest** covering geo and time helpers, MET metrics, weight parsing,
-  every builder function and the CLI serialiser (53 tests).
+  every builder function, the export writers and the CLI serialiser (71 tests).
 - **pre-commit** runs the same ruff checks locally.
 - **GitHub Actions** (`.github/workflows/pages.yml`) runs lint and tests on
   every push and pull request to `develop`, then builds and deploys the
