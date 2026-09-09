@@ -27,7 +27,15 @@ _PARAMS_BASE = {
 
 
 def fetch_day(date_str: str) -> list[HourlyWeather]:
-    """Fetch all hourly records for *date_str* ('YYYY-MM-DD')."""
+    """Fetch the hourly observations for one day.
+
+    Args:
+        date_str: The day to query, ``YYYY-MM-DD``.
+
+    Returns:
+        Hourly records in time order, or an empty list if the page has no
+        history table.
+    """
     html = requests.get(_URL, params={**_PARAMS_BASE, "date": date_str}).text
     soup = BeautifulSoup(html, "html.parser")
     tables = soup.find_all("table", {"class": "daily-history"})
@@ -63,7 +71,15 @@ def fetch_day(date_str: str) -> list[HourlyWeather]:
 
 
 def fetch_range(start_date: str, end_date: str) -> list[HourlyWeather]:
-    """Fetch all hourly records between *start_date* and *end_date* inclusive."""
+    """Fetch hourly observations for every day between two dates, inclusive.
+
+    Args:
+        start_date: First day, ``YYYY-MM-DD``.
+        end_date: Last day, ``YYYY-MM-DD``.
+
+    Returns:
+        All hourly records in date and time order.
+    """
     all_records: list[HourlyWeather] = []
     for d in pd.date_range(start_date, end_date):
         all_records.extend(fetch_day(d.strftime("%Y-%m-%d")))

@@ -1,3 +1,10 @@
+"""Parse Garmin TCX (Training Center XML) exports.
+
+TCX is the richest of the three formats: per-lap distance, time and
+calories plus per-point speed, cadence, altitude and cumulative distance.
+It is the primary source for the dashboard.
+"""
+
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -15,9 +22,24 @@ _NS = {
 
 
 class TCXParser(BaseActivityParser):
+    """Parser for Garmin ``*.tcx`` files."""
+
     FORMAT = "tcx"
 
     def parse(self, file_path: Path) -> Activity:
+        """Parse one TCX file.
+
+        Args:
+            file_path: Path to a ``*.tcx`` file exported from Garmin Connect.
+
+        Returns:
+            The parsed activity with device distance, calories and the full
+            track (speed, cadence, altitude per point).
+
+        Raises:
+            ValueError: If the activity is older than ``current_year`` or the
+                sport is not running.
+        """
         tree = ET.parse(file_path)
         root = tree.getroot()
 

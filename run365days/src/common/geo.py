@@ -1,12 +1,20 @@
+"""Great-circle distance helpers."""
+
 import numpy as np
 
 Coord = tuple[float | None, float | None]
 
 
 def haversine_distance(origin: Coord, destination: Coord) -> float:
-    """Return great-circle distance in km between two (lat, lon) pairs.
+    """Return the great-circle distance between two coordinates.
 
-    Returns np.nan if either coordinate contains None.
+    Args:
+        origin: ``(lat, lon)`` in degrees.
+        destination: ``(lat, lon)`` in degrees.
+
+    Returns:
+        Distance in kilometres, or ``numpy.nan`` if either coordinate has a
+        ``None`` component (indoor runs).
     """
     lat1, lon1 = origin
     lat2, lon2 = destination
@@ -25,7 +33,15 @@ def haversine_distance(origin: Coord, destination: Coord) -> float:
 
 
 def total_track_distance(coords: list) -> tuple[float, int]:
-    """Return (total_km, num_segments) for a list of (lat, lon) coords."""
+    """Sum the haversine distance along a list of coordinates.
+
+    Args:
+        coords: Ordered ``(lat, lon)`` pairs; ``None`` components are dropped.
+
+    Returns:
+        A ``(total_km, num_segments)`` tuple. ``num_segments`` is a numpy
+        integer; convert with ``int()`` before JSON serialisation.
+    """
     import pandas as pd
 
     if len(coords) < 2:

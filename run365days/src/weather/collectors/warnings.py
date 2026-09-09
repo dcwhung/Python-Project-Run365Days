@@ -29,7 +29,15 @@ def _load_signal_metadata() -> dict[str, dict]:
 
 
 def fetch_day(date_str: str, signal_meta: dict[str, dict]) -> list[WeatherWarning]:
-    """Fetch all warning records for *date_str* ('YYYY-MM-DD')."""
+    """Fetch all warning records issued on one day.
+
+    Args:
+        date_str: The day to query, ``YYYY-MM-DD``.
+        signal_meta: Signal legend from :func:`_load_signal_metadata`.
+
+    Returns:
+        One record per warning or tropical cyclone signal.
+    """
     html = requests.get(
         _HISTORY_URL,
         params={"start_ym": datetime.strptime(date_str, "%Y-%m-%d").strftime("%Y%m%d")},
@@ -69,6 +77,17 @@ def fetch_day(date_str: str, signal_meta: dict[str, dict]) -> list[WeatherWarnin
 
 
 def fetch_range(start_date: str, end_date: str) -> list[WeatherWarning]:
+    """Fetch warnings for every day between two dates, inclusive.
+
+    The HKO signal legend is downloaded once and reused for every day.
+
+    Args:
+        start_date: First day, ``YYYY-MM-DD``.
+        end_date: Last day, ``YYYY-MM-DD``.
+
+    Returns:
+        All warnings in date order; days without warnings contribute nothing.
+    """
     signal_meta = _load_signal_metadata()
     all_records: list[WeatherWarning] = []
     for d in pd.date_range(start_date, end_date):

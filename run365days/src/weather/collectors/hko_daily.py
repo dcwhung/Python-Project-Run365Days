@@ -17,7 +17,17 @@ def _safe(value: str):
 
 
 def fetch_year(year: str) -> list[DailyWeather]:
-    """Fetch all daily records for *year* (e.g. '2021')."""
+    """Fetch the HKO daily extract for a whole year.
+
+    Months missing from the yearly endpoint are fetched one by one from the
+    per-month endpoint; a month that still fails is skipped.
+
+    Args:
+        year: Four-digit year as a string, e.g. ``"2021"``.
+
+    Returns:
+        One record per day, in calendar order.
+    """
     records: list[DailyWeather] = []
     content = requests.get(f"{_BASE_URL}{year}.xml").text
     res = json.loads(content)

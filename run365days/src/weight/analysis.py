@@ -13,6 +13,16 @@ _HEIGHT_CM_DEFAULT = 170.0
 
 @dataclass
 class WeightRecord:
+    """One daily weigh-in.
+
+    Attributes:
+        day_number: 1-based line number in the source file.
+        date: Calendar date ``YYYY-MM-DD``.
+        weight_lbs: Weight in pounds as written in the file.
+        weight_kg: Weight converted to kilograms.
+        bmi: Body-mass index using the configured height.
+    """
+
     day_number: int
     date: str  # 'YYYY-MM-DD'
     weight_lbs: float
@@ -25,12 +35,20 @@ def parse_weight_file(
     year: int | None = None,
     height_cm: float = _HEIGHT_CM_DEFAULT,
 ) -> list[WeightRecord]:
-    """Parse a weight text file and return a list of WeightRecords.
+    """Parse a daily weight text file.
 
-    Each line is expected to match: ``<weight> lbs (<day>/<month>)``
-    e.g. ``154.8 lbs (1/5)``. A line with a weight but no date (the file's
+    Each line is expected to match ``<weight> lbs (<day>/<month>)``, for
+    example ``154.8 lbs (1/5)``. A line with a weight but no date (the file's
     final entry is often written this way) is taken as the day after the
-    previous dated record.
+    previous dated record. Lines that match neither form are skipped.
+
+    Args:
+        file_path: Path to the text file.
+        year: Calendar year for the day/month values (default: current year).
+        height_cm: Height used for the BMI column.
+
+    Returns:
+        Records in file order.
     """
     if year is None:
         year = datetime.today().year
@@ -73,9 +91,17 @@ def build_dataframe(
     records: list[WeightRecord],
     year: int | None = None,
 ) -> pd.DataFrame:
-    """Return a full-year DataFrame with one row per day.
+    """Expand weigh-ins into a full-year table with one row per day.
 
-    Missing days are filled with NaN. Derived columns (+/-, %) are added.
+    Args:
+        records: Parsed weigh-ins.
+        year: Calendar year to cover (default: current year).
+
+    Returns:
+        A DataFrame with ``Day``, ``Date``, ``Weight_(lbs)``, ``Month``,
+        ``Weekday``, ``Weight_(kg)``, ``BMI``, ``+/-`` (direction versus the
+        previous day) and ``%`` (percentage change). Missing days are filled
+        with ``"/"``.
     """
     if year is None:
         year = datetime.today().year
@@ -112,7 +138,14 @@ def build_dataframe(
 
 
 def monthly_summary(df: pd.DataFrame) -> pd.DataFrame:
-    """Return pivot of +/-/no-change counts by month."""
+    """Count up / down / unchanged days per month.
+
+    Args:
+        df: Output of :func:`build_dataframe`.
+
+    Returns:
+        A pivot table indexed by ``+/-`` with one column per month.
+    """
     grp = (
         df.groupby(["Month", "+/-"])[["Weight_(lbs)"]]
         .count()
@@ -123,7 +156,14 @@ def monthly_summary(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def weekday_summary(df: pd.DataFrame) -> pd.DataFrame:
-    """Return pivot of +/-/no-change counts by weekday."""
+    """Count up / down / unchanged days per weekday.
+
+    Args:
+        df: Output of :func:`build_dataframe`.
+
+    Returns:
+        A pivot table indexed by ``+/-`` with one column per weekday.
+    """
     grp = (
         df.groupby(["Weekday", "+/-"])[["Weight_(lbs)"]]
         .count()
@@ -134,7 +174,15 @@ def weekday_summary(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def describe_weight(df: pd.DataFrame) -> dict:
-    """Return {min, max, mean, drop_max_pct, drop_cur_pct} statistics."""
+    """Summarise the year's weight trend.
+
+    Args:
+        df: Output of :func:`build_dataframe`.
+
+    Returns:
+        A dict with ``min``, ``max`` and ``mean`` weight in pounds,
+        ``drop_max_pct`` (max to min) and ``drop_cur_pct`` (max to latest).
+    """
     series = df["Weight_(lbs)"].apply(lambda x: np.nan if x == "/" else x).dropna()
     stats = series.describe()
     last_valid = series.iloc[-1] if not series.empty else np.nan

@@ -1,3 +1,10 @@
+"""Parse Garmin GPX 1.1 exports.
+
+GPX carries the per-point ambient temperature and cadence that TCX lacks,
+but no device distance or calories, so ``distance_km`` is always ``0.0``
+and callers rely on ``distance_by_coord_km``.
+"""
+
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -16,9 +23,24 @@ _NS = {
 
 
 class GPXParser(BaseActivityParser):
+    """Parser for Garmin ``*.gpx`` files."""
+
     FORMAT = "gpx"
 
     def parse(self, file_path: Path) -> Activity:
+        """Parse one GPX file.
+
+        Args:
+            file_path: Path to a ``*.gpx`` file exported from Garmin Connect.
+
+        Returns:
+            The parsed activity with temperature, cadence and elevation
+            statistics computed from the track.
+
+        Raises:
+            ValueError: If the activity is older than ``current_year`` or is
+                not a running activity.
+        """
         tree = ET.parse(file_path)
         root = tree.getroot()
 

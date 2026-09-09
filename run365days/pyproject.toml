@@ -65,7 +65,19 @@ select = [
     "B",   # flake8-bugbear
     "SIM", # flake8-simplify
     "N",   # pep8-naming
+    "D",   # pydocstyle (Google convention)
 ]
+ignore = [
+    "D105", # magic methods need no docstring
+    "D107", # __init__ is documented in the class docstring
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["D"]                  # test names are the documentation
+"src/cli/*" = ["D103"]             # main() is described by the module docstring
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
 
 [tool.ruff.lint.isort]
 known-first-party = ["run365days"]

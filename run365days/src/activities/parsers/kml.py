@@ -1,3 +1,10 @@
+"""Parse Garmin KML 2.1 exports.
+
+The KML export embeds lap statistics as an HTML table inside each lap
+placemark, which is parsed with BeautifulSoup. Track points carry
+coordinates and timestamps only.
+"""
+
 import xml.etree.ElementTree as ET
 from datetime import datetime
 from pathlib import Path
@@ -14,9 +21,23 @@ _NS = {"ns": "http://earth.google.com/kml/2.1"}
 
 
 class KMLParser(BaseActivityParser):
+    """Parser for Garmin ``*.kml`` files."""
+
     FORMAT = "kml"
 
     def parse(self, file_path: Path) -> Activity:
+        """Parse one KML file.
+
+        Args:
+            file_path: Path to a ``*.kml`` file exported from Garmin Connect.
+
+        Returns:
+            The parsed activity with lap totals and the coordinate track.
+
+        Raises:
+            ValueError: If the file is not a running activity or is older
+                than ``current_year``.
+        """
         tree = ET.parse(file_path)
         root = tree.getroot()
 
