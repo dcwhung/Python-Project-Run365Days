@@ -206,11 +206,10 @@ ruff format --check src tests
   parsing (including the undated-last-line quirk), every dashboard builder
   function, the export records, SQLite and JSON writers, and the CLI
   serialiser.
-- Front end: 59 Vitest tests cover the TypeScript stats port (pinned to the
+- Front end: 87 Vitest tests cover the TypeScript stats port (pinned to the
   Python numbers), the static JSON mappers and source, the API source,
-  data-mode resolution, formatting and weather helpers, the Overview,
-  Activity and Activities view models, and the views themselves rendered
-  against a fake data source.
+  data-mode resolution, formatting and weather helpers, every view's model
+  module, and all nine views rendered against a fake data source.
 - ruff enforces pycodestyle, pyflakes, isort, pyupgrade, bugbear,
   simplify, pep8-naming and Google-style docstrings on every public
   symbol. Line length is 100.
