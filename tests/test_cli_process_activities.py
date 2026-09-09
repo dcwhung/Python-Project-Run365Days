@@ -35,3 +35,14 @@ def test_one_line_per_activity(tmp_path):
     _activities_to_jsonl([_activity(activity_id="a"), _activity(activity_id="b")], out)
     ids = [json.loads(line)["activity_id"] for line in out.read_text().splitlines()]
     assert ids == ["a", "b"]
+
+
+def test_export_fails_loudly_without_tcx_dir(tmp_path, monkeypatch, capsys):
+    import pytest
+
+    from run365days.cli import export_data
+
+    monkeypatch.setattr("sys.argv", ["run365-export", "--tcx-dir", str(tmp_path / "missing")])
+    with pytest.raises(SystemExit) as exc:
+        export_data.main()
+    assert "TCX directory not found" in str(exc.value)

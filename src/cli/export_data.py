@@ -12,6 +12,7 @@ or, without installing the package::
 """
 
 import argparse
+import sys
 from pathlib import Path
 
 from run365days.activities.parsers.gpx import GPXParser
@@ -44,6 +45,8 @@ def _parse_args() -> argparse.Namespace:
 def main() -> None:
     args = _parse_args()
     weight_file = args.weight_file or config.daily_weight_file(args.year)
+    if not args.tcx_dir.is_dir():
+        sys.exit(f"TCX directory not found: {args.tcx_dir} (set RUN365_DATA_DIR or --tcx-dir)")
 
     print(f"Parsing TCX from {args.tcx_dir} ...")
     tcx = TCXParser(args.year).parse_all(args.tcx_dir)

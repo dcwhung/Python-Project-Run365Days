@@ -10,6 +10,10 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# The package is installed non-editable below, so config.ROOT_DIR would
+# point into site-packages; anchor the data directory to this checkout.
+export RUN365_DATA_DIR="$PWD/data"
+
 if command -v uv >/dev/null 2>&1; then
   uv venv --quiet .venv-build
   # shellcheck disable=SC1091
