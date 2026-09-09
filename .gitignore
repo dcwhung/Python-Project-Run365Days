@@ -14,9 +14,3 @@ dist/
 # Generated data (rebuild with the run365days CLI)
 data/processed/*
 !data/processed/.gitkeep
-
-# Generated dashboard bundle (GitHub Pages builds these)
-src/dashboard/static/data.js
-src/dashboard/static/run365days.html
-dashboard/data.js
-dashboard/run365days.html

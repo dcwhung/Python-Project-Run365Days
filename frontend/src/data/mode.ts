@@ -15,10 +15,16 @@ export interface DataConfig {
   staticBase: string;
 }
 
+/** Vite's BASE_URL ("/" or "/<repo>/") prefixes the default static path. */
+function withBase(env: Record<string, string | undefined>, path: string): string {
+  const base = (env.BASE_URL || "/").replace(/\/$/, "");
+  return `${base}${path}`;
+}
+
 export function resolveConfig(env: Record<string, string | undefined>): DataConfig {
   return {
     mode: resolveMode(env),
     apiUrl: env.VITE_API_URL || DEFAULT_API_URL,
-    staticBase: (env.VITE_STATIC_BASE || DEFAULT_STATIC_BASE).replace(/\/$/, ""),
+    staticBase: (env.VITE_STATIC_BASE || withBase(env, DEFAULT_STATIC_BASE)).replace(/\/$/, ""),
   };
 }

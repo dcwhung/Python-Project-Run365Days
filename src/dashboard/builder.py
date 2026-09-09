@@ -1,23 +1,9 @@
-"""Build the JSON payload consumed by the web dashboard.
+"""Pure helpers shared by the export pipeline and the API.
 
-The dashboard is a static HTML page. It reads one JavaScript file,
-``data.js``, which assigns the payload to ``window.RUN365``. This module
-turns parsed activities, weight records and weather history into that
-payload. All functions here are pure so they can be unit tested.
-
-Payload shape (all numbers rounded to keep the file small)::
-
-    {
-      "year": 2021,
-      "generated": "2026-09-08T12:00:00",
-      "activities": [ {id, date, time, doy, km, sec, pace, kcal, cad,
-                       temp, eleMin, eleMax, ascent, gps, pts,
-                       wx: {desc, temp, hum, wind} | null,
-                       warn: [signal, ...]} ],
-      "tracks": { id: [[sec, lat, lon, ele, dist_m, speed, cad, temp], ...] },
-      "weight": [[date, lbs], ...],
-      "weather": [ {date, max, avg, min, hum, rain, wind, sunrise, sunset} ]
-    }
+These started life as the payload builder for the v2 static dashboard. The
+payload itself is gone (the React dashboard reads the API or the exported
+JSON), but the calculations that shape a run are still done here so that
+:mod:`run365days.export.records` and the GraphQL resolvers agree.
 """
 
 import json
@@ -29,6 +15,7 @@ from pathlib import Path
 from run365days.activities.models import Activity, TrackPoint
 
 TRACK_POINT_LIMIT = 150
+"""Default number of track points kept per run when downsampling."""
 
 
 # ── helpers ────────────────────────────────────────────────────────────────
@@ -129,51 +116,6 @@ def track_rows(activity: Activity, temps: dict[str, float]) -> list[list]:
     return rows
 
 
-# ── activity summary ───────────────────────────────────────────────────────
-def activity_summary(
-    activity: Activity,
-    gpx: Activity | None,
-    hourly: dict | None,
-    warnings: list[str],
-) -> dict:
-    """Build the per-run summary shown in lists, heatmaps and charts.
-
-    Args:
-        activity: The TCX activity (distance, calories, track).
-        gpx: The matching GPX activity for temperature, if any.
-        hourly: Nearest hourly weather from :func:`hourly_at`, if any.
-        warnings: HKO warning signals active that day.
-
-    Returns:
-        A JSON-ready dict; see the module docstring for the key list.
-    """
-    start = datetime.strptime(activity.date, "%Y-%m-%d %H:%M:%S")
-    pts = activity.track_points
-    eles = [p.elevation for p in pts if p.elevation is not None]
-    cads = [p.cadence * 2 for p in pts if p.cadence is not None and p.cadence >= 50]
-    has_gps = any(p.lat is not None for p in pts)
-    km = activity.distance_km or activity.distance_by_coord_km or 0.0
-    return {
-        "id": activity.activity_id,
-        "date": start.strftime("%Y-%m-%d"),
-        "time": start.strftime("%H:%M"),
-        "doy": start.timetuple().tm_yday,
-        "km": _num(km, 2),
-        "sec": int(round(activity.total_sec)),
-        "pace": int(round(activity.total_sec / km)) if km else None,
-        "kcal": activity.calories,
-        "cad": _num(sum(cads) / len(cads), 0) if cads else None,
-        "temp": _num(gpx.avg_temp, 1) if gpx else None,
-        "eleMin": _num(min(eles), 0) if eles else None,
-        "eleMax": _num(max(eles), 0) if eles else None,
-        "ascent": _num(total_ascent(eles), 0),
-        "gps": has_gps,
-        "pts": len(pts),
-        "wx": hourly,
-        "warn": warnings,
-    }
-
-
 # ── weather ────────────────────────────────────────────────────────────────
 def load_jsonl(path: Path) -> list[dict]:
     """Read a JSON Lines file, returning ``[]`` if it does not exist."""
@@ -224,104 +166,3 @@ def warnings_by_date(rows: list[dict]) -> dict[str, list[str]]:
             if sig not in out[r["Date"]]:
                 out[r["Date"]].append(sig)
     return out
-
-
-def daily_weather(rows: list[dict]) -> list[dict]:
-    """Convert HKO daily-extract rows to the compact dashboard shape."""
-    return [
-        {
-            "date": r["Date"],
-            "max": _to_float(r.get("Max. Temp")),
-            "avg": _to_float(r.get("Avg. Temp")),
-            "min": _to_float(r.get("Min. Temp")),
-            "hum": _to_float(r.get("Humidity (%)")),
-            "rain": _to_float(r.get("Total Rainfall (mm)")),
-            "wind": _to_float(r.get("Avg. Wind Speed (km/h)")),
-            "sunrise": r.get("Sunrise"),
-            "sunset": r.get("Sunset"),
-        }
-        for r in rows
-    ]
-
-
-# ── payload ────────────────────────────────────────────────────────────────
-def build_payload(
-    year: int,
-    tcx_activities: list[Activity],
-    gpx_activities: list[Activity],
-    weight_records,
-    hko_rows: list[dict],
-    hourly_rows: list[dict],
-    warning_rows: list[dict],
-    point_limit: int = TRACK_POINT_LIMIT,
-) -> dict:
-    """Assemble the complete dashboard payload.
-
-    Args:
-        year: Challenge year, echoed into the payload.
-        tcx_activities: Primary activities (distance, calories, track).
-        gpx_activities: Matching GPX activities, joined by ``activity_id``
-            for per-point temperature.
-        weight_records: Daily weigh-ins.
-        hko_rows: HKO daily extract rows.
-        hourly_rows: Hourly weather rows.
-        warning_rows: HKO warning rows.
-        point_limit: Maximum track points kept per activity.
-
-    Returns:
-        The payload described in the module docstring.
-    """
-    gpx_by_id = {a.activity_id: a for a in gpx_activities}
-    warn_map = warnings_by_date(warning_rows)
-
-    activities, tracks = [], {}
-    for act in sorted(tcx_activities, key=lambda a: a.date):
-        gpx = gpx_by_id.get(act.activity_id)
-        date, hhmm = act.date[:10], act.date[11:16]
-        summary = activity_summary(
-            act, gpx, hourly_at(hourly_rows, date, hhmm), warn_map.get(date, [])
-        )
-        activities.append(summary)
-        temps = merge_temperature(act.track_points, gpx.track_points if gpx else None)
-        tracks[act.activity_id] = downsample(track_rows(act, temps), point_limit)
-
-    return {
-        "year": year,
-        "generated": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
-        "activities": activities,
-        "tracks": tracks,
-        "weight": [[r.date, r.weight_lbs] for r in weight_records],
-        "weather": daily_weather(hko_rows),
-    }
-
-
-def payload_to_js(payload: dict) -> str:
-    """Serialise the payload as a ``window.RUN365 = {...}`` script body."""
-    body = json.dumps(payload, separators=(",", ":"), allow_nan=False)
-    return f"/* generated by run365-dashboard - do not edit */\nwindow.RUN365 = {body};\n"
-
-
-def write_data_js(payload: dict, out_path: Path) -> None:
-    """Write :func:`payload_to_js` output to *out_path*, creating parents."""
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(payload_to_js(payload))
-
-
-def inline_data(html: str, payload: dict, data_src: str = "data.js") -> str:
-    """Inline the payload into the dashboard HTML for a single-file build.
-
-    Args:
-        html: Contents of ``static/index.html``.
-        payload: Output of :func:`build_payload`.
-        data_src: The script ``src`` to replace.
-
-    Returns:
-        The HTML with the external script tag replaced by an inline script.
-
-    Raises:
-        ValueError: If the expected script tag is not present.
-    """
-    tag = f'<script src="{data_src}"></script>'
-    if tag not in html:
-        raise ValueError(f"{tag!r} not found in dashboard HTML")
-    return html.replace(tag, "<script>\n" + payload_to_js(payload) + "</script>")
