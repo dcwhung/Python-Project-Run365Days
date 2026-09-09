@@ -1,0 +1,21 @@
+# Install once with:  pip install -e ".[dev]" && pre-commit install
+# Legacy v1 scripts are excluded on purpose; they are reference-only.
+exclude: ^(legacy/|data/|frontend/(src/gql|node_modules|dist)/|frontend/package-lock\.json)
+
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.12.0
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-yaml
+      - id: check-toml
+      - id: check-added-large-files
+        args: [--maxkb=2048]

@@ -1,0 +1,8 @@
+node_modules
+dist
+dist-*
+*.tsbuildinfo
+src/gql/
+public/data/
+coverage
+*.local

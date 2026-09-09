@@ -1,0 +1,89 @@
+"""Vercel serverless entry point: exposes the Flask app as `app`.
+
+Vercel's Python runtime looks for a WSGI callable named `app` in files under
+api/; this one is served at /api/graphql and vercel.json rewrites every /api/*
+request to it (Flask then routes /api/graphql and /api/health). Vercel only
+recognises the file as a function when a module-level ``app`` assignment is
+present; wrapping it in try/except made the build fail with "doesn't match
+any Serverless Functions". Two more things differ from a normal install and are
+handled here:
+
+- The runtime installs the project and its core dependencies from
+  pyproject.toml (optional extras are ignored, which is why Flask and
+  Strawberry are core dependencies). As a safety net, ``run365days`` is
+  loaded straight from ``src/`` if it is ever not importable.
+- The SQLite file is bundled via ``includeFiles`` in vercel.json and sits at
+  ``data/processed/run365.db`` relative to the repository root;
+  ``RUN365_DB_PATH`` overrides that.
+
+If start-up fails, a minimal app still answers ``/api/health`` with the
+error so the cause is visible without digging through function logs.
+"""
+
+import importlib.util
+import json
+import os
+import sys
+import traceback
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+PACKAGE_NAME = "run365days"
+PACKAGE_DIR = REPO_ROOT / "src"
+DEFAULT_DB = REPO_ROOT / "data" / "processed" / "run365.db"
+
+
+def _load_package_from_source() -> None:
+    """Register src/ as the `run365days` package when it is not installed."""
+    if importlib.util.find_spec(PACKAGE_NAME) is not None:
+        return
+    spec = importlib.util.spec_from_file_location(
+        PACKAGE_NAME,
+        PACKAGE_DIR / "__init__.py",
+        submodule_search_locations=[str(PACKAGE_DIR)],
+    )
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[PACKAGE_NAME] = module
+    spec.loader.exec_module(module)
+
+
+def _error_app(exc: BaseException):
+    """App that reports why the real app could not start (Flask if available, else raw WSGI)."""
+    message = f"{type(exc).__name__}: {exc}"
+    print(f"[run365days] start-up failed: {message}", file=sys.stderr)
+    traceback.print_exception(exc, file=sys.stderr)
+    try:
+        from flask import Flask, jsonify
+
+        fallback = Flask(__name__)
+
+        @fallback.route("/", defaults={"path": ""})
+        @fallback.route("/<path:path>")
+        def report(path):
+            return jsonify({"status": "error", "error": message}), 500
+
+        return fallback
+    except Exception:  # noqa: BLE001 - flask itself missing
+        payload = json.dumps({"status": "error", "error": message}).encode()
+
+        def app(environ, start_response):
+            start_response("500 Internal Server Error", [("Content-Type", "application/json")])
+            return [payload]
+
+        return app
+
+
+def _build_app():
+    """Create the real app, or the reporting fallback if start-up fails."""
+    try:
+        _load_package_from_source()
+        from run365days.api.app import create_app
+
+        return create_app(os.environ.get("RUN365_DB_PATH", DEFAULT_DB), graphiql=True)
+    except Exception as exc:  # noqa: BLE001 - surface any start-up failure
+        return _error_app(exc)
+
+
+# Vercel detects a Python function by a module-level `app` (or `handler`)
+# assignment, so this line must stay at the top level and unindented.
+app = _build_app()

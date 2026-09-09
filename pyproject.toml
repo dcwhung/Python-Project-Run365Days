@@ -1,0 +1,91 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "run365days"
+version = "3.0.0"
+description = "Personal running analytics: Garmin activity parsing, weather correlation, weight tracking and a dashboard"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "pandas",
+    "python-dateutil",
+    "pytz",
+    "requests",
+    "beautifulsoup4",
+    "lxml",
+    "sqlalchemy>=2.0",
+    "flask>=3",
+    "strawberry-graphql>=0.250",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7",
+    "ruff>=0.5",
+    "pre-commit>=3",
+]
+
+[project.scripts]
+run365-activities = "run365days.cli.process_activities:main"
+run365-weather = "run365days.cli.collect_weather:main"
+run365-export = "run365days.cli.export_data:main"
+run365-schema = "run365days.cli.export_schema:main"
+
+# The package lives in src/ but is imported as `run365days`.
+[tool.setuptools]
+package-dir = { "run365days" = "src" }
+packages = [
+    "run365days",
+    "run365days.activities",
+    "run365days.activities.parsers",
+    "run365days.api",
+    "run365days.cli",
+    "run365days.common",
+    "run365days.dashboard",
+    "run365days.export",
+    "run365days.weather",
+    "run365days.weather.collectors",
+    "run365days.weight",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src", "tests", "api"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "SIM", # flake8-simplify
+    "N",   # pep8-naming
+    "D",   # pydocstyle (Google convention)
+]
+ignore = [
+    "D105", # magic methods need no docstring
+    "D107", # __init__ is documented in the class docstring
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["D"]                  # test names are the documentation
+"src/cli/*" = ["D103"]             # main() is described by the module docstring
+"src/api/schema.py" = ["D101", "D102"]  # GraphQL types carry descriptions in the schema
+"api/*" = ["D"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.isort]
+known-first-party = ["run365days"]
+
+[tool.ruff.format]
+quote-style = "double"

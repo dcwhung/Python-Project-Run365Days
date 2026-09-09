@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+.venv/
+
+
+# OS
+.DS_Store
+
+# Generated data (rebuild with the run365days CLI)
+data/processed/*
+!data/processed/.gitkeep
