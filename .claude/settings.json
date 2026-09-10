@@ -1,0 +1,11 @@
+{
+  "extraKnownMarketplaces": {
+    "claude-teams": {
+      "source": { "source": "github", "repo": "dcwhung/claude-teams" }
+    }
+  },
+  "enabledPlugins": {
+    "ai-dev-team@claude-teams": true
+  },
+  "model": "fable"
+}
