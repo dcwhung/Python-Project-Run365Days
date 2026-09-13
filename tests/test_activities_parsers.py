@@ -1,0 +1,150 @@
+import logging
+import xml.etree.ElementTree as ET
+
+import pytest
+
+from run365days.activities.parsers.gpx import GPXParser
+from run365days.activities.parsers.kml import KMLParser
+from run365days.activities.parsers.tcx import TCXParser
+
+CHALLENGE_YEAR = 2021
+
+
+class TestTCXParser:
+    def test_golden_file_yields_device_totals(self, fixtures_dir):
+        act = TCXParser(CHALLENGE_YEAR).parse(fixtures_dir / "activity_1001.tcx")
+        assert act.activity_id == "1001"
+        assert act.date == "2021-01-08 12:04:52"
+        assert act.total_sec == 600.0
+        assert act.total_time == "0:10:00"
+        assert act.distance_km == 2.0
+        assert act.pacing == "0:05:00"
+        assert act.calories == 150
+
+    def test_golden_file_yields_full_track_points(self, fixtures_dir):
+        act = TCXParser(CHALLENGE_YEAR).parse(fixtures_dir / "activity_1001.tcx")
+        assert len(act.track_points) == 2
+        first = act.track_points[0]
+        assert (first.lat, first.lon) == (22.3278, 114.2019)
+        assert first.time == "2021-01-08 12:04:52"
+        assert first.elevation == 329.8
+        assert first.speed == 2.87
+        assert first.cadence == 85
+
+    def test_should_keep_activity_when_altitude_meters_missing(self, fixtures_dir):
+        act = TCXParser(CHALLENGE_YEAR).parse(fixtures_dir / "activity_1002.tcx")
+        assert act.activity_id == "1002"
+        assert act.distance_km == 1.0
+        assert len(act.track_points) == 2
+        assert all(tp.elevation is None for tp in act.track_points)
+
+    def test_should_keep_activity_when_position_missing(self, fixtures_dir):
+        act = TCXParser(CHALLENGE_YEAR).parse(fixtures_dir / "activity_1002.tcx")
+        assert all(tp.lat is None and tp.lon is None for tp in act.track_points)
+        assert act.distance_by_coord_km == 0.0
+
+    def test_should_raise_parse_error_when_xml_malformed(self, fixtures_dir):
+        with pytest.raises(ET.ParseError):
+            TCXParser(CHALLENGE_YEAR).parse(fixtures_dir / "activity_1003.tcx")
+
+    def test_should_raise_value_error_when_activity_predates_challenge_year(self, fixtures_dir):
+        with pytest.raises(ValueError, match="old activity"):
+            TCXParser(CHALLENGE_YEAR + 1).parse(fixtures_dir / "activity_1001.tcx")
+
+
+class TestGPXParser:
+    def test_golden_file_yields_track_statistics(self, fixtures_dir):
+        act = GPXParser(CHALLENGE_YEAR).parse(fixtures_dir / "activity_2001.gpx")
+        assert act.activity_id == "2001"
+        assert act.date == "2021-01-08 12:04:52"
+        assert act.total_sec == 600.0
+        assert act.distance_km == 0.0
+        assert act.distance_by_coord_km > 0
+        assert act.avg_temp == 22.0
+        assert act.min_elevation == 329.8
+        assert act.max_elevation == 331.0
+        assert act.avg_cadence == 148.0
+
+    def test_should_keep_activity_when_elevation_and_extensions_missing(self, fixtures_dir):
+        act = GPXParser(CHALLENGE_YEAR).parse(fixtures_dir / "activity_2002.gpx")
+        assert act.activity_id == "2002"
+        assert len(act.track_points) == 2
+        second = act.track_points[1]
+        assert second.elevation is None
+        assert second.temperature is None
+        assert second.cadence is None
+        assert act.avg_temp == 21.0
+
+    def test_should_raise_parse_error_when_xml_malformed(self, fixtures_dir):
+        with pytest.raises(ET.ParseError):
+            GPXParser(CHALLENGE_YEAR).parse(fixtures_dir / "activity_2003.gpx")
+
+
+class TestKMLParser:
+    def test_golden_file_yields_lap_totals_and_track(self, fixtures_dir):
+        act = KMLParser(CHALLENGE_YEAR).parse(fixtures_dir / "activity_3001.kml")
+        assert act.activity_id == "3001"
+        assert act.date == "2021-01-08 12:04:52"
+        assert act.total_sec == 600.0
+        assert act.distance_km == 2.0
+        assert len(act.track_points) == 2
+        assert act.track_points[0].lat == 22.3278
+        assert act.track_points[0].lon == 114.2019
+
+    def test_should_keep_activity_when_lap_table_and_point_incomplete(self, fixtures_dir):
+        act = KMLParser(CHALLENGE_YEAR).parse(fixtures_dir / "activity_3002.kml")
+        assert act.activity_id == "3002"
+        assert act.total_sec == 600.0
+        assert act.distance_km == 2.0
+        assert len(act.track_points) == 1
+
+    def test_should_raise_parse_error_when_xml_malformed(self, fixtures_dir):
+        with pytest.raises(ET.ParseError):
+            KMLParser(CHALLENGE_YEAR).parse(fixtures_dir / "activity_3003.kml")
+
+
+class TestParseAllDoesNotSilentlyDrop:
+    def test_should_keep_activity_missing_optional_tag(self, fixtures_dir):
+        ids = [a.activity_id for a in TCXParser(CHALLENGE_YEAR).parse_all(fixtures_dir)]
+        assert ids == ["1001", "1002"]
+
+    def test_should_keep_gpx_activity_missing_optional_tag(self, fixtures_dir):
+        ids = [a.activity_id for a in GPXParser(CHALLENGE_YEAR).parse_all(fixtures_dir)]
+        assert ids == ["2001", "2002"]
+
+    def test_should_keep_kml_activity_missing_optional_tag(self, fixtures_dir):
+        ids = [a.activity_id for a in KMLParser(CHALLENGE_YEAR).parse_all(fixtures_dir)]
+        assert ids == ["3001", "3002"]
+
+    def test_should_log_warning_naming_the_skipped_file(self, fixtures_dir, caplog):
+        with caplog.at_level(logging.WARNING, logger="run365days.activities.parsers.base"):
+            TCXParser(CHALLENGE_YEAR).parse_all(fixtures_dir)
+        assert any("activity_1003.tcx" in record.getMessage() for record in caplog.records)
+
+
+class TestExportDataZeroRecordGuard:
+    def test_should_exit_non_zero_when_no_activity_parsed(self, tmp_path, monkeypatch):
+        from run365days.cli import export_data
+
+        empty_tcx = tmp_path / "tcx"
+        empty_tcx.mkdir()
+        monkeypatch.setattr(
+            "sys.argv",
+            [
+                "run365-export",
+                "--tcx-dir",
+                str(empty_tcx),
+                "--gpx-dir",
+                str(tmp_path / "gpx"),
+                "--db",
+                str(tmp_path / "run365.db"),
+                "--static-dir",
+                str(tmp_path / "static"),
+            ],
+        )
+
+        with pytest.raises(SystemExit) as exc:
+            export_data.main()
+
+        assert exc.value.code != 0
+        assert not (tmp_path / "static").exists()

@@ -52,6 +52,16 @@ def main() -> None:
     tcx = TCXParser(args.year).parse_all(args.tcx_dir)
     print(f"Parsing GPX from {args.gpx_dir} ...")
     gpx = GPXParser(args.year).parse_all(args.gpx_dir) if args.gpx_dir.exists() else []
+
+    if not tcx and not gpx:
+        # Writing the dashboard from an empty parse would publish a blank site
+        # with a green exit code; fail loudly instead. Re-run with logging at
+        # WARNING to see which files the parsers skipped and why.
+        sys.exit(
+            f"No activities parsed from {args.tcx_dir} or {args.gpx_dir} "
+            f"for year {args.year}; refusing to write an empty export"
+        )
+
     weight = parse_weight_file(weight_file, year=args.year) if weight_file.exists() else []
 
     records = build_records(
