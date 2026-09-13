@@ -1,11 +1,13 @@
 """Timestamp parsing and formatting helpers (Hong Kong local time)."""
 
 from datetime import datetime, timedelta
+from datetime import timezone as dt_timezone
+from zoneinfo import ZoneInfo
 
 import dateutil.parser
-import pytz
 
-_HK_TZ = pytz.timezone("Asia/Hong_Kong")
+_UNIX_MS_DIGITS = 13
+_MS_PER_SECOND = 1000
 
 
 def parse_datetime(rec_time: str, timezone: str = "Asia/Hong_Kong") -> datetime:
@@ -25,16 +27,20 @@ def parse_datetime(rec_time: str, timezone: str = "Asia/Hong_Kong") -> datetime:
     Returns:
         A timezone-aware ``datetime`` in ``timezone``.
     """
-    tz = pytz.timezone(timezone)
+    tz = ZoneInfo(timezone)
     rec_time = rec_time.strip()
 
     if "T" in rec_time:
         if "." in rec_time and rec_time.endswith("Z"):
-            return dateutil.parser.parse(rec_time).replace(tzinfo=pytz.UTC).astimezone(tz)
+            return dateutil.parser.parse(rec_time).replace(tzinfo=dt_timezone.utc).astimezone(tz)
         elif "+" in rec_time:
             return dateutil.parser.parse(rec_time)
-    elif rec_time.isdigit() and len(rec_time) == 13:
-        return datetime.utcfromtimestamp(round(int(rec_time) / 1000, 1)).replace(tzinfo=tz)
+    elif rec_time.isdigit() and len(rec_time) == _UNIX_MS_DIGITS:
+        epoch_seconds = round(int(rec_time) / _MS_PER_SECOND, 1)
+        # AU-003 keeps the existing wall clock: the epoch is read as UTC, then relabelled
+        # (not converted) to *timezone*. The 8-hour semantic question is tracked separately.
+        naive_utc = datetime.fromtimestamp(epoch_seconds, tz=dt_timezone.utc).replace(tzinfo=None)
+        return naive_utc.replace(tzinfo=tz)
 
     return datetime.strptime(rec_time, "%Y-%m-%d %H:%M:%S").replace(tzinfo=tz)
 

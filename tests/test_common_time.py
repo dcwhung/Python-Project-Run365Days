@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 import pytest
 
 from run365days.common.time import (
@@ -31,6 +33,47 @@ class TestParseDateTime:
         assert dt.hour == 6
         assert dt.minute == 10
         assert dt.second == 56
+
+
+class TestParseDateTimeOffset:
+    """Every input path must land on the real HK offset, never the pre-1904 LMT."""
+
+    def test_utc_with_millis_returns_plus_eight_offset(self):
+        dt = parse_datetime("2021-10-16T22:10:56.000Z")
+        assert dt.utcoffset() == timedelta(hours=8)
+
+    def test_iso_with_offset_returns_plus_eight_offset(self):
+        dt = parse_datetime("2021-10-17T06:10:56+08:00")
+        assert dt.utcoffset() == timedelta(hours=8)
+
+    def test_unix_ms_returns_plus_eight_offset(self):
+        dt = parse_datetime("1634451056000")
+        assert dt.utcoffset() == timedelta(hours=8)
+
+    def test_naive_local_returns_plus_eight_offset(self):
+        dt = parse_datetime("2021-10-17 06:10:56")
+        assert dt.utcoffset() == timedelta(hours=8)
+
+    def test_explicit_timezone_argument_returns_plus_eight_offset(self):
+        dt = parse_datetime("2021-10-17 06:10:56", timezone="Asia/Hong_Kong")
+        assert dt.utcoffset() == timedelta(hours=8)
+
+
+class TestParseDateTimeWallClockUnchanged:
+    """The offset fix must not move any wall clock -- see AU-003 scope note."""
+
+    @pytest.mark.parametrize(
+        ("rec_time", "expected"),
+        [
+            ("2021-10-16T22:10:56.000Z", (2021, 10, 17, 6, 10, 56)),
+            ("2021-10-17T06:10:56+08:00", (2021, 10, 17, 6, 10, 56)),
+            ("1634451056000", (2021, 10, 17, 6, 10, 56)),
+            ("2021-10-17 06:10:56", (2021, 10, 17, 6, 10, 56)),
+        ],
+    )
+    def test_wall_clock_is_preserved(self, rec_time, expected):
+        dt = parse_datetime(rec_time)
+        assert (dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second) == expected
 
 
 class TestTimeConversions:
