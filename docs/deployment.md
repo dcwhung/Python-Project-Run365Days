@@ -1,6 +1,6 @@
 # Deployment
 
-The same React app is deployed twice from `develop`: in **API mode** on
+The same React app is deployed twice from `master`: in **API mode** on
 Vercel and in **static mode** on GitHub Pages. Both builds run
 `run365-export` first, so no generated data is ever committed.
 
@@ -10,9 +10,14 @@ Vercel and in **static mode** on GitHub Pages. Both builds run
 | Data mode | `api`: React queries `/api/graphql` | `static`: React fetches `/data/*.json` |
 | Backend | `api/graphql.py`, a Python serverless function running the Flask + Strawberry app over the bundled SQLite file | none |
 | Build | `scripts/vercel-build.sh` via `vercel.json` | `.github/workflows/pages.yml` |
-| Trigger | every push to `develop` (production branch) | every push to `develop`, after lint and tests |
+| Trigger | every push to `master` (production branch) | every push to `master`, after lint and tests |
 
 ## Vercel
+
+The production branch should be `master`. Vercel keeps that setting in
+the project dashboard (Settings, Git, Production Branch) rather than in
+the repository, so it cannot be read or changed from this checkout —
+confirm it there after any change to the branch layout.
 
 `vercel.json` is the whole configuration:
 
@@ -54,7 +59,8 @@ failure is readable in the browser.
 ## GitHub Pages
 
 The workflow has four jobs. The first two run on every push and pull
-request to `develop`; the last two only on pushes.
+request to `master`; the last two only on pushes, so every merge to
+`master` deploys the site.
 
 1. **Lint and test**: `ruff check`, `ruff format --check`, `pytest`, and
    `run365-schema --check frontend/schema.graphql`.
@@ -68,7 +74,11 @@ request to `develop`; the last two only on pushes.
 4. **Deploy to GitHub Pages**.
 
 The repository's `github-pages` environment must allow deployments from
-`develop` (Settings, Environments, Deployment branches).
+`master` (Settings, Environments, Deployment branches). That rule lives
+in the repository settings, not in the workflow file, so it has to be
+updated in the same pass whenever the trigger branches in `pages.yml`
+change — otherwise the deploy job is rejected at the environment gate
+even though the workflow itself ran.
 
 ## Tagging a release
 
