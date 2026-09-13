@@ -1,10 +1,18 @@
 """Shared fixtures: a tiny but complete set of parsed sources."""
 
+from pathlib import Path
+
 import pytest
 
 from run365days.activities.models import Activity, TrackPoint
 from run365days.export.records import ExportRecords, build_records
 from run365days.weight.analysis import WeightRecord
+
+
+@pytest.fixture
+def fixtures_dir() -> Path:
+    """Directory of hand-written minimal Garmin exports (no personal data)."""
+    return Path(__file__).parent / "fixtures"
 
 
 def make_point(i: int, lat=22.3, lon=114.2, ele=330.0, cad=83, speed=2.7, temp=None) -> TrackPoint:
