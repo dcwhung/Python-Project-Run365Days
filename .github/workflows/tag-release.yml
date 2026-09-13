@@ -13,7 +13,7 @@ on:
       ref:
         description: "Branch or commit SHA to tag"
         required: true
-        default: develop
+        default: master
         type: string
       message:
         description: "Annotated tag message"
@@ -60,7 +60,7 @@ jobs:
       - name: Extract release notes from docs/CHANGELOG.md
         if: inputs.release
         env:
-          # The changelog lives on the branch this workflow ran from (usually develop),
+          # The changelog lives on the branch this workflow ran from (usually master),
           # not necessarily on the tagged ref (older release branches predate docs/).
           CHANGELOG_REF: ${{ github.ref }}
         run: |

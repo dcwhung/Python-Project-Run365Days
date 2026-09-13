@@ -1,6 +1,6 @@
 # Run365Days
 
-[![CI and GitHub Pages](https://github.com/dcwhung/Python-Project-Run365Days/actions/workflows/pages.yml/badge.svg?branch=develop)](https://github.com/dcwhung/Python-Project-Run365Days/actions/workflows/pages.yml)
+[![CI and GitHub Pages](https://github.com/dcwhung/Python-Project-Run365Days/actions/workflows/pages.yml/badge.svg?branch=master)](https://github.com/dcwhung/Python-Project-Run365Days/actions/workflows/pages.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
 
@@ -236,7 +236,7 @@ ruff format --check src tests
 ## Continuous integration and deployment
 
 `.github/workflows/pages.yml` runs on every push and pull request to
-`develop`:
+`master`, the default branch:
 
 1. **Lint and test**: install the package, `ruff check`, `ruff format
    --check`, `pytest`, and check `frontend/schema.graphql` matches the
@@ -257,7 +257,7 @@ installs the package with uv, runs `run365-export --skip-static` to produce
 `api/graphql.py` is a Python serverless function that imports the Flask app;
 the database is bundled into it with `includeFiles`. Rewrites send
 `/api/*` to the function and everything else to the SPA. The production
-branch is `develop`. [docs/deployment.md](docs/deployment.md) has the full
+branch is `master`. [docs/deployment.md](docs/deployment.md) has the full
 configuration and the list of things the first deployment taught.
 
 Generated files (`data/processed/`, `frontend/public/data/`, `frontend/dist/`)
@@ -267,21 +267,22 @@ are git-ignored and rebuilt on every deploy.
 
 | Branch | Tag | Contents |
 |---|---|---|
-| `master` | `v1.0.0` | Original 2022 scripts and raw data |
+| (tag only) | `v1.0.0` | Original 2022 scripts and raw data |
 | `release/v1.5` | `v1.5.0` | First modular package with tests |
 | `release/v2` | `v2.0.0` | Static dashboard mockup on top of v1.5 |
-| `develop` | `v3.0.0` | Feature-organised package, SQLite + JSON export, Flask + Strawberry GraphQL API, React dashboard in two data modes, Vercel + GitHub Pages deployments |
+| `master` | `v3.0.0` | Feature-organised package, SQLite + JSON export, Flask + Strawberry GraphQL API, React dashboard in two data modes, Vercel + GitHub Pages deployments |
 
-Release branches are frozen snapshots. New work lands on `develop`; the
-history is in [docs/CHANGELOG.md](docs/CHANGELOG.md). Tags and GitHub
-Releases are created by the manual "Tag release" workflow, which takes its
-notes from the changelog.
+Release branches are frozen snapshots. New work lands on `master` through
+pull requests, which the CI workflow gates; the history is in
+[docs/CHANGELOG.md](docs/CHANGELOG.md). Tags and GitHub Releases are created
+by the manual "Tag release" workflow, which takes its notes from the
+changelog.
 
 ## Privacy
 
 `data/` contains my own activity, weight and scraped weather records and is
 kept in the repository so the project builds end to end. The Garmin account
-export was trimmed on `develop` to the three files the roadmap needs;
+export was trimmed for `v3.0.0` to the three files the roadmap needs;
 earlier tags still contain the full export (profile, device and consent
 records) because the history has not been rewritten. Treat everything under
 `data/` as personal data: see the exclusion at the end of [LICENSE](LICENSE).
