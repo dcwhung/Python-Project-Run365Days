@@ -1,6 +1,6 @@
 # Ticket Registry — Run365Days
 
-**最後更新**：2026-09-14（P3 一次清 + AU-035 + CUI-0019 完成）
+**最後更新**：2026-09-14（P1 Round 1：AU-006/007/008/031/032/047 + CUI-0024 完成）
 
 > 由 `/audit`（AU-NNN）同 `/review`（C/W/S-NNN）產生嘅 ticket 集中登記處。
 > 編號全局唯一、永不重用。已完成嘅保留紀錄，只改狀態。
@@ -1044,3 +1044,212 @@ frontend/src/data/api/source.ts:20   DEFAULT_TRACK_POINTS = 600   （api mode �
 `run365-ci-docs` 明確講明佢覆蓋唔到呢兩樣（喺 dashboard，checkout 讀唔到），所以呢個確認**冇任何自動化承接**
 —— 一旦有人改咗 dashboard 設定，repo 入面唔會有嘢紅。`docs/deployment.md` 嘅切換 checklist 仍然將佢哋列為人手項目，
 呢點維持不變。
+
+---
+
+## P1 Round 1 修復摘要（2026-09-14）
+
+### ⚠️ 先更正我自己一句話
+
+我喺 P3 收尾時講「**AU-047 係唯一剩低嘅 P1**」—— **錯**。嗰句只覆蓋咗 CUI 系列。
+Audit 原本嘅 P1 行有**七組**，逐條實測全部仍然開住。呢個係「登記處只記自己開嘅票，唔記原始 audit」造成嘅盲點。
+
+| 組 | Findings | Round |
+|---|---|---|
+| 1 | AU-010, AU-011, AU-015, AU-020 | Round 2 |
+| 2 | AU-006, AU-007 | ✅ Round 1 |
+| 3 | AU-012 | Round 2 |
+| 4 | AU-033, AU-044 | Round 2 |
+| 5 | AU-008 | ✅ Round 1 |
+| 6 | AU-031 | ✅ Round 1 |
+| 7 | AU-032 | ✅ Round 1 |
+| 8 | AU-047 | ✅ Round 1 |
+
+**點解分兩輪**：第 1 組加 `ANN` + `S` 之後會逼幾乎每個 `.py` 檔案改動，同任何 code lane 都撞；
+第 1、4、7 組又全部搶 `pyproject.toml`。所以 Round 1 只做 correctness + 部署設定，
+tooling 留到所有 code 改動落地之後先做 —— 咁 annotation 加喺最終代碼上而唔係中途版本。
+
+### ⚠️ 基準第二次改動（AU-008 lbs→kg）
+
+| 項目 | 上一個基準 `772b6ca` | **新基準 `cc0235f`** |
+|---|---|---|
+| 總 bytes | 6,850,896 | **6,850,876**（−20） |
+| 檔案數 | 370 | 370 |
+| `activities.json` | 146,443 | 146,443（未變） |
+| `weight.json` | — | **25,840** |
+
+**只有 `weight.json` 郁**。Main agent 獨立驗證：365 個 track 檔嘅 md5 集合前後完全相同；
+`activities.json` / `weather.json` / `warnings.json` 逐 byte 相同；`weight.json` 入面
+`date` 同 `weight_lbs` **365/365 未變**，`weight_kg` 同 `bmi` **365/365 依新因數重算**
+（`154.8 lbs` → `70.28` → **`70.22`**，kg delta `−0.07…−0.05`，bmi delta `−0.03…−0.01`）。
+
+| 指標 | Round 1 前 | 完成 |
+|---|---|---|
+| Python tests | 459 | **504** |
+| Frontend tests | 96 | **100** |
+| Coverage TOTAL | 94% | 94% |
+
+---
+
+## AU-008 —— 真正嘅發現唔係常數散落，而係測試釘死咗錯答案
+
+修復前嗰兩條應該捉到錯因數嘅測試：
+
+```python
+tests/test_weight_analysis.py:31   assert r.weight_kg == pytest.approx(154.8 * 0.454, rel=1e-3)
+tests/test_weight_analysis.py:37   assert r.bmi == pytest.approx(expected_bmi, rel=1e-2)
+```
+
+`0.454` 對 `0.45359237` 嘅相對誤差係 **0.0899%**，同時細過 `rel=1e-3` 同 `rel=1e-2`。
+
+但**寬容差只係次要**。`:31` 個 expected value **本身就係用同一個錯常數 `0.454` 計出嚟** ——
+即係測試同實作各自錯咗同一個地方，兩邊自洽。
+
+**呢個係本 session 第三次撞到「測試釘死錯行為」**：
+1. AU-048 —— `tests/test_common_time.py` 用捏造常數 `1634451056000`（真值 `1634422256000`，差 8 小時），令貼標籤式實作睇落係啱
+2. CUI-0017 —— 一條測試正釘住 `hourly.py:112` 個 `-1 + 1 == 0` 意外，令任何加 guard 嘅改動即刻紅
+3. AU-008 —— expected value 由被測嘅錯常數推導
+
+三次嘅共通形狀：**測試冇獨立來源，佢嘅期望值同實作嘅錯誤同源。**
+
+### 一個關於「刪除」而唔係「修補」嘅判斷
+
+AU-006（`build_dataframe` 靜默無視 `height_cm`）**冇**用「將 `height_cm` 傳落去第二步」去修，
+而係**刪走第二次計算** —— `build_dataframe` 改為由 record 讀返 `weight_kg` / `bmi`，因此**完全唔再收 height**。
+
+理由：咁樣「一步收參數、下一步靜靜用預設值」由「已修好」變成「結構上不可能」。同 CUI-0011 嗰個
+「一個欄位一個主人」係同一條原則。
+
+### AU-008 之後每個概念嘅唯一擁有者
+
+| 概念 | 唯一擁有者 | 守住佢嘅嘢 |
+|---|---|---|
+| 預設身高 | `common/config.py BODY_HEIGHT_CM`（**由零 import 變成真有人用**） | 單一擁有者掃描 + `prefs.test.ts` 對住 SDL |
+| lbs→kg（Python） | `common/config.py LBS_TO_KG = 0.45359237` | 同上 |
+| lbs→kg（TS） | `frontend/src/lib/prefs.ts LBS_TO_KG` | `prefs.test.ts` 掃全部非測試 `.ts(x)`，斷言 `0.45359237` **只**出現喺 `prefs.ts` |
+| 150 = 預設送幾多點 | `dashboard/builder.py TRACK_POINT_LIMIT` | 單一擁有者掃描 |
+| 600 = export 存幾多點 | `common/config.py EXPORT_TRACK_POINTS` | 單一擁有者掃描 + `source.test.ts` 讀返 SDL |
+
+`600` 放喺 `config.py` 而唔係 `cli/export_data.py`，理由係硬嘅：`schema.py` 要佢嚟寫 SDL description，
+而 import CLI 會將 parsing stack 拖入 API 嘅 import graph，打爛 `tests/test_api_imports.py`。
+
+**150 ↔ 600 嘅關係**由 `test_the_export_stores_at_least_the_served_default`（`EXPORT_TRACK_POINTS >= TRACK_POINT_LIMIT`）守住 ——
+export 唔可以送一個佢從來冇存過嘅預設值。**CUI-0024 一併關閉**。
+
+**Main agent 獨立驗證 guard 真係咬**（第一次做錯：我個 `sed` 因為多打咗 `: int` 而冇 match 到，
+所以第一次「測試全綠」係無效結果 —— 重做之後）：
+```
+EXPORT_TRACK_POINTS 600 -> 900，重新生成 SDL
+  frontend: FAIL src/data/api/source.test.ts > asks for exactly as many samples as the export stores
+            AssertionError: expected 900 to be 600
+  python:   FAILED tests/test_dashboard_builder.py::TestOneOwnerPerConstant::...[samples stored]
+還原 -> 504 passed / 100 passed
+```
+
+---
+
+## AU-047 —— 我兩個前提都錯，第二個更重要
+
+### 錯一：我傳落去嘅 `PARTITION BY` 單 query 構想會**靜默改變輸出**
+
+Python 半數進位**取偶**，SQLite 進位**遠離零**。Main agent 獨立掃描：**644 對** `(total, points)` 有分歧
+（lane 用另一組 points 值掃出 547），**最細個案兩邊完全一致**：`total=6, points=3` → Python 揀位置 2、SQLite 揀 3（`2.5`）。
+
+即係話個「捷徑」會回一個唔同嘅點。**COUNT 必須留喺 Python，只有「攞佢」呢個動作可以 batch。**
+
+### 錯二：「500 次 round trip 要喺 15 秒 function 入面行完」誇大咗成本 —— SQLite 係 in-process，冇網絡
+
+Main agent 用真 DB（365 activities / 134,041 track points）獨立 A/B：
+
+| activities | before q | after q | before ms | after ms | 回傳點數一致 |
+|---|---|---|---|---|---|
+| 1 | 2 | **2** | 33.4 | 4.5 | ✅ 150 |
+| 10 | 20 | **12** | 34.2 | 44.7 | ✅ 1,500 |
+| 50 | 100 | **52** | 193.5 | 174.5 | ✅ 7,500 |
+| 100 | 200 | **102** | 404.8 | 337.3 | ✅ 15,000 |
+| 365 | **730** | **367** | 1411.1 | 1330.5 | ✅ 54,750 |
+
+Query 數逐格對上 lane 報嘅。**但時間只快約 5.7%** —— COUNT 只佔 7.4%，**80% 係 row SELECT**。
+
+### 真正嘅瓶頸，同埋點解佢冇順手做
+
+Lane 原型咗 Core column-select：**1196 ms → 805 ms（−33%）**，同樣 query 數、同樣 rows。刻意冇做，理由：
+
+> `tests/test_api.py:329` 靠 `loaded_as_persistent` ORM event 計數：`assert len(loaded) <= 2 * points`。
+> 改用 Core select 之後個 event **一次都唔會 fire**，斷言變成 `0 <= 10` —— **測試照樣綠，但由嗰刻起乜都冇量度緊。**
+
+Main agent 核實咗斷言原文，講法準確。而且該檔案唔喺佢 lane 內。已開 **CUI-0029**。
+
+### 三個被否決方案都有量度撐住
+
+| 否決 | 量度 |
+|---|---|
+| SQL 內做 `_even_positions` | 上述 644 對 rounding 分歧 |
+| DataLoader | `Activity.track` 係 **sync** resolver，Strawberry DataLoader 只支援 async → 要改 `schema.py` |
+| 每次都 `GROUP BY` | 12.19 ms（掃 134k）vs 0.35 ms（scoped seek）—— 為 list page 慳 6.6% 令單條 activity 頁慢 4.5 倍 |
+
+順帶量到 `SQLITE_MAX_VARIABLE_NUMBER` 喺呢個 build 係 **250,000**（唔係一般以為嘅 999 / 32,766），
+所以將來要做真 O(1)，**卡住嘅係 sync resolver 而唔係參數上限**。
+
+---
+
+## AU-031 / AU-032
+
+### AU-031 —— 逐條 header 對住 build artifact 而唔係抄 checklist
+
+`npm run build` 之後查實物：`dist/index.html` **零 inline `<script>` / `<style>`**；657 kB bundle **零 `eval` / `new Function`**；
+CSS **零 `url()` / `@import` / `@font-face`**；`setAttribute("style"` / `insertRule` / `cssText` **全部 0**。
+
+**我 brief 叫佢考慮「地圖 tile 外部來源」—— 根本冇地圖。** Main agent 獨立 grep：
+`leaflet|mapbox|openstreetmap|tile|fonts.googleapis|cdn.` 喺 `frontend/src` 同 `index.html` **零命中**（`RouteMap` 係自繪）。
+整個前端零外部資源，所以 CSP 遠比 ticket 預期簡單。
+
+**冇因為靜態證據夠好就收緊到底**：`style-src` 保留 `'unsafe-inline'`，因為佢**載入唔到真瀏覽器**
+（`playwright-core install` 俾 proxy 403 擋住），而一條錯 CSP 令頁面白畫面比冇 CSP 更差。明講咗邊部分未驗證。
+
+**Main agent 獨立重跑 mutation check**：`script-src` 加返 `'unsafe-inline'` → `1 failed, 13 passed`；還原 → `14 passed`。
+
+**Pages 側不對稱冇掩飾**：GitHub Pages **根本冇能力送 custom response header**，所以呢個唔係 `vercel.json` 補得到嘅洞。
+
+### AU-032 —— 揀上限而唔係 lock，理由係硬約束
+
+CI 行 `pip install -e ".[dev]"`（`pages.yml:51`）。**一個 lock file 除非改埋 workflow 否則完全惰性**，
+而 `.github/workflows/` 唔喺該 lane 內。原話：「shipping a lock nobody installs would be worse than nothing」。
+誠實講明呢個 commit **只做到收窄 blast radius，未達到 ticket 寫嘅「build 可重現」**。
+
+順帶宣告咗 `pytest-cov`（一直冇宣告，只靠 image 預裝）。
+
+---
+
+## ⚠️ 一個由我落嘅 gate 造成嘅跨 worktree 污染
+
+我要求 AU-032 lane 跑 `pip install -e ".[dev]"` 做 gate。跑完之後 editable path hook
+**由主 checkout 轉指去佢個 worktree**。Main agent 實測：
+
+```
+plain import run365days -> .../.claude/worktrees/agent-a9420c53e43836d27/src/__init__.py
+```
+
+即任何**唔用 `.pkgroot`** 嘅 import 都會靜靜咁讀緊嗰棵樹。已喺主 checkout 重跑 `pip install -e . --no-deps` 復原。
+
+**教訓：`pip install` 唔應該出現喺任何 lane 嘅 gate 入面。** `.pkgroot` 慣例保護咗其餘 lane
+（`PYTHONPATH` 排喺 `.pth` 之前），但呢次係 gate 本身製造咗問題。
+
+---
+
+## 新開
+
+| ID | 級別 | 標題 | 來源 |
+|---|---|---|---|
+| **CUI-0029** | 🟡 Medium | `track()` 用 ORM entity + 兩次掃描，佔請求 80% 時間；原型 Core select 快 33%，但改咗會令 `test_api.py:329` 個 guard 變空殼 | AU-047 lane |
+| **CUI-0030** | 🟢 Low | `requires-python = ">=3.10"` 係假宣稱：numpy / pandas 都要 `>=3.11`，而本機 3.11、CI 3.12 令佢永遠唔會被發現 | AU-032 lane（Round 2 處理） |
+| **CUI-0031** | 🟢 Low | 已發佈嘅 `bmi` 由**未 round** 嘅公斤計，但 `weight_kg` published 係 round 到 2dp —— client 由 `weightKg` 重新推導 BMI 會得出第三個答案（實測 16/365 行唔一致） | AU-008 lane |
+| **CUI-0032** | 🟢 Low | `WeightRecord.day_number` 零讀者（`src/` / `tests/` / `frontend/` / SDL 全部冇），同 CUI-0019 同一形狀 | AU-008 lane |
+| **CUI-0033** | 🟢 Low | 寬 `pytest.approx` 容差掃描 —— `rel=1e-3` / `rel=1e-2` 呢個 pattern 藏起咗 AU-008 成世 | AU-008 lane |
+| **CUI-0034** | 🟢 Low | `meta.json.generated_at` 令 export 唔可能 bit-reproducible；支援 `SOURCE_DATE_EPOCH` 可令 byte-identical gate 變成真 content hash | AU-032 lane |
+| **CUI-0035** | 🟢 Low | `playwright-core` 喺 `frontend/package.json` devDependencies 但零引用，而且佢個 browser download 俾 proxy 403 擋住 | AU-032 lane |
+
+### CUI-0029 特別要留意
+
+呢個係**第二次**見到「改動會令一條 guard 測試靜靜變成空殼」。第一次係 CUI-0017 嗰條釘住 `-1` 意外嘅測試。
+分別係：嗰次個測試會**變紅**（所以有人會發現），呢次個測試會**保持綠**（所以冇人會發現）。**後者危險好多。**
