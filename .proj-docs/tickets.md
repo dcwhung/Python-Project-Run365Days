@@ -1,6 +1,6 @@
 # Ticket Registry — Run365Days
 
-**最後更新**：2026-09-14（P0 + Warning + CUI-0001/0002/0007/0009/0010/0011/0012 + AU-013/014/048/049 + W-011 + CUI-0006 完成）
+**最後更新**：2026-09-14（backlog screen 後；AU-049 表格行補回 Done 標記）
 
 > 由 `/audit`（AU-NNN）同 `/review`（C/W/S-NNN）產生嘅 ticket 集中登記處。
 > 編號全局唯一、永不重用。已完成嘅保留紀錄，只改狀態。
@@ -26,7 +26,7 @@
 |---|---|---|---|
 | **AU-047** | P1 | `Activity.track` N+1 fan-out 仍未解決 | Lane C 申報，main agent 核實 `src/api/schema.py:137-139` |
 | **AU-048** | P1 | epoch-ms path 語義錯 8 小時；測試常數係捏造 | ✅ **Done** `9f856a7` |
-| **AU-049** | P2 | `create_app(..., graphiql: bool = True)` 預設仍然開 | Lane C 申報 |
+| **AU-049** | P2 | `create_app(..., graphiql: bool = True)` 預設仍然開 | ✅ **Done** `31f49f4`（採用方案 (b)：跟 `RUN365_GRAPHIQL`，非單純翻轉為 `False`） |
 
 #### AU-047 — `Activity.track` N+1 fan-out
 
