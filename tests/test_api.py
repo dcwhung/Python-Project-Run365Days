@@ -4,7 +4,7 @@ from pathlib import Path
 from types import ModuleType
 
 import pytest
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import Session
 
 from graphql import GraphQLObjectType, get_introspection_query, get_named_type
@@ -117,6 +117,44 @@ def year_client(year_db):
 def year_session(year_db):
     with db.session_scope(db.make_engine(year_db)) as session:
         yield session
+
+
+class RowCounter:
+    """Rows the database has handed back to Python since the last reset."""
+
+    def __init__(self) -> None:
+        self.rows = 0
+
+    def reset(self) -> None:
+        self.rows = 0
+
+
+@pytest.fixture
+def counted_year_session(year_db):
+    """A session over the year database, plus a count of the rows it reads.
+
+    ``sqlite3`` calls ``row_factory`` once for every row it hands to Python and
+    SQLAlchemy leaves that hook alone, so the counter measures what a query
+    actually shipped rather than what some mapping layer did with it afterwards.
+    That independence is the point: the guard below used to count ORM
+    ``loaded_as_persistent`` events, and that number goes to zero as soon as the
+    query stops building entities, whether or not it still reads the whole
+    track (CUI-0029).
+    """
+    engine = db.make_engine(year_db)
+    counter = RowCounter()
+
+    @event.listens_for(engine, "connect")
+    def install_counter(dbapi_connection, connection_record) -> None:
+        def count(cursor, row) -> tuple:
+            counter.rows += 1
+            return row
+
+        dbapi_connection.row_factory = count
+
+    with db.session_scope(engine) as session:
+        yield session, counter
+    engine.dispose()
 
 
 def gql(client, query, variables=None):
@@ -318,16 +356,49 @@ def test_track_returns_at_most_the_requested_points(year_client):
     assert track[0]["sec"] == 0 and track[-1]["sec"] == STORED_TRACK_POINTS - 1
 
 
-def test_track_does_not_materialise_every_stored_point(year_session):
+def test_track_does_not_materialise_every_stored_point(counted_year_session):
+    """A five-point sample must cost five points, in rows read and in objects built.
+
+    Two instruments, because there are two ways to lose this. Reading the whole
+    track and slicing it in Python shows up in the rows the database hands back;
+    reading five rows but inflating each into a mapped entity shows up in the
+    ORM load count. The second one is what CUI-0029 removed, and it is invisible
+    to the first: same query, same rows, 30 to 50 per cent of the wall clock.
+
+    Both instruments are calibrated on this very session first. An assertion
+    that something is small is worthless if the thing measuring it has stopped
+    reporting, and that is not hypothetical here: this test previously bounded
+    the ORM load count alone, so rewriting the query as a Core select would have
+    left it comparing 0 against 10 and passing for the rest of time while
+    measuring nothing at all. A calibration step cannot be silently satisfied --
+    it fails loudly when an instrument goes quiet.
+    """
+    session, counted = counted_year_session
     points = 5
     loaded: list[object] = []
-    event.listen(year_session, "loaded_as_persistent", lambda _s, obj: loaded.append(obj))
+    event.listen(session, "loaded_as_persistent", lambda _s, obj: loaded.append(obj))
 
-    rows = service.track(year_session, TRACKED_ACTIVITY_ID, points)
+    counted.reset()
+    whole = session.scalars(
+        select(models.TrackPoint).where(models.TrackPoint.activity_id == TRACKED_ACTIVITY_ID)
+    ).all()
+    assert len(whole) == STORED_TRACK_POINTS
+    assert counted.rows == STORED_TRACK_POINTS, "the row counter is not counting rows"
+    assert len(loaded) == STORED_TRACK_POINTS, "the ORM load counter is not counting loads"
+
+    # The calibration left every point in the identity map, and an entity
+    # already there is not loaded again -- leaving it would hide exactly the
+    # regression the load count is here to catch.
+    session.expunge_all()
+    counted.reset()
+    loaded.clear()
+
+    rows = service.track(session, TRACKED_ACTIVITY_ID, points)
 
     assert len(rows) == points
     assert rows[0]["sec"] == 0 and rows[-1]["sec"] == STORED_TRACK_POINTS - 1
-    assert len(loaded) <= 2 * points, f"loaded {len(loaded)} of {STORED_TRACK_POINTS} points"
+    assert counted.rows <= 2 * points, f"read {counted.rows} of {STORED_TRACK_POINTS} stored rows"
+    assert loaded == [], f"built {len(loaded)} ORM entities for a {points}-point sample"
 
 
 def test_track_returns_every_stored_point_when_more_are_requested(year_session):
