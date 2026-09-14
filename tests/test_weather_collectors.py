@@ -151,6 +151,39 @@ class TestHkoDailyFetchYear:
         assert january[0].total_rainfall_mm == 0.0
         assert january[0].mean_wind_kmh == 25.6
 
+    def test_keeps_the_rest_of_the_year_when_one_day_row_arrived_short(self, monkeypatch):
+        # The readings are read by position, and the last one read is column 11.
+        # A row that shed its wind block used to take the whole year down with an
+        # IndexError out of the loop -- the same all-or-nothing read CUI-0012
+        # replaced everywhere the collectors touch HTML, still open on the one
+        # source that arrives as JSON.
+        routes = hko_routes()
+        routes[HKO_YEAR_URL] = read_fixture("hko_daily_year_short_row.json")
+        install_fake_get(monkeypatch, hko_daily, routes)
+
+        records = hko_daily.fetch_year("2021")
+
+        january = [r for r in records if r.date.startswith("2021-01")]
+        assert [r.date for r in january] == ["2021-01-01", "2021-01-03"]
+
+    def test_logs_the_day_whose_row_arrived_short(self, monkeypatch, caplog):
+        routes = hko_routes()
+        routes[HKO_YEAR_URL] = read_fixture("hko_daily_year_short_row.json")
+        install_fake_get(monkeypatch, hko_daily, routes)
+
+        with caplog.at_level(logging.WARNING, logger=HKO_DAILY_LOGGER):
+            hko_daily.fetch_year("2021")
+
+        # hko_routes() also leaves March unusable, which logs on its own; the
+        # day named here is the one this test is about.
+        short = [
+            r.getMessage()
+            for r in caplog.records
+            if r.levelno == logging.WARNING and "2021-01-02" in r.getMessage()
+        ]
+        assert len(short) == 1
+        assert "9 of 12 columns" in short[0]
+
     def test_skips_the_summary_row_whose_first_cell_is_not_a_day_number(self, monkeypatch):
         install_fake_get(monkeypatch, hko_daily, hko_routes())
 
@@ -307,6 +340,58 @@ class TestHourlyFetchDay:
         records = hourly.fetch_day("2021-01-01")
 
         assert records[2].temperature_c is None
+
+    def test_does_not_report_a_fahrenheit_reading_as_celsius(self, monkeypatch):
+        # The same family as the wind cell CUI-0018 fixed. ``[:-2]`` counted two
+        # characters off "52 °F" and handed 52.0 to a field declared in Celsius,
+        # so a units=us page would have filled a year of history with readings
+        # 20 degrees too warm and said nothing. The unit is now part of the read.
+        install_fake_get(
+            monkeypatch, hourly, {hourly._URL: read_fixture("freemeteo_other_units.html")}
+        )
+
+        records = hourly.fetch_day("2021-01-01")
+
+        assert records[0].temperature_c is None
+
+    def test_does_not_read_a_humidity_cell_that_states_no_percentage(self, monkeypatch):
+        # ``[:-1]`` dropped the last character whatever it was: "24" became "2".
+        install_fake_get(
+            monkeypatch, hourly, {hourly._URL: read_fixture("freemeteo_other_units.html")}
+        )
+
+        records = hourly.fetch_day("2021-01-01")
+
+        assert records[0].humidity_pct is None
+
+    def test_keeps_the_rest_of_a_row_whose_readings_state_another_unit(self, monkeypatch):
+        install_fake_get(
+            monkeypatch, hourly, {hourly._URL: read_fixture("freemeteo_other_units.html")}
+        )
+
+        records = hourly.fetch_day("2021-01-01")
+
+        assert [r.time for r in records] == ["00:00", "00:30"]
+        assert records[0].wind_kmh == 24.0
+        assert records[0].description == "Clear weather"
+        assert records[1].temperature_c == 11.0
+        assert records[1].humidity_pct == 20.0
+
+    def test_logs_one_warning_for_each_reading_it_could_not_read(self, monkeypatch, caplog):
+        install_fake_get(
+            monkeypatch, hourly, {hourly._URL: read_fixture("freemeteo_other_units.html")}
+        )
+
+        with caplog.at_level(logging.WARNING, logger=HOURLY_LOGGER):
+            hourly.fetch_day("2021-01-01")
+
+        unreadable = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(unreadable) == 2
+        # The cell text is in the message: "which column" alone does not say
+        # whether the page changed units or shed the reading altogether.
+        assert any("52 °F" in message for message in unreadable)
+        assert any("'24'" in message for message in unreadable)
+        assert all("00:00" in message for message in unreadable)
 
     def test_maps_an_unknown_description_code_to_unknown(self, monkeypatch):
         install_fake_get(monkeypatch, hourly, {hourly._URL: read_fixture("freemeteo_day.html")})

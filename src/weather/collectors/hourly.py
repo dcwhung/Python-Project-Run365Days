@@ -9,7 +9,6 @@ from bs4 import BeautifulSoup
 from bs4.element import Tag
 
 from run365days.common import config
-from run365days.common.numeric import to_float
 from run365days.weather.collectors.html_reads import child_string
 from run365days.weather.models import HourlyWeather
 
@@ -33,16 +32,32 @@ _UNKNOWN_DESCRIPTION = "Unknown"
 # and the slice that followed handed back a code nobody wrote (CUI-0017).
 _DESCRIPTION_CODE_RE = re.compile(r"n\(\s*(?P<code>[^,()]+?)\s*,\s*'CurrentWeather'")
 
-# freemeteo writes the wind cell two ways: "Northeast 50° 24 Km/h" names a
-# bearing, "Variable at 20 Km/h" has no degree sign at all. The old read sliced
-# from find("°") + 1, so the second form parsed only because -1 + 1 == 0 started
-# the slice at the front -- the one place in this codebase where the -1 sentinel
-# was load-bearing rather than latent, and the reason a guard added to find()
-# would have broken the Variable form for no stated reason (CUI-0018). Spelling
-# both forms out as alternatives means a third form fails to match and says so.
-# The unit is part of the pattern, not a character count: "Variable at 20 mph"
-# used to lose a digit to [:-5] and report 2.0 Km/h.
-_WIND_SPEED_RE = re.compile(r"(?:\w+°|Variable at)\s*(?P<speed>\d+(?:\.\d+)?)\s*Km/h")
+# The three numeric cells, each matched together with the unit it must be in.
+#
+# All three used to be read by counting characters off the end -- [:-5] for the
+# wind, [:-2] for the temperature, [:-1] for the humidity -- which reads any
+# cell of the right length as a value in the expected unit. That is how
+# "Variable at 20 mph" was reported as 2.0 Km/h (CUI-0018); measured on the same
+# fixtures, "52 °F" was reported as 52.0 °C and a bare "24" as 2.0 % by exactly
+# the same trick. A character count cannot tell a changed unit from a changed
+# reading, so freemeteo switching to units=us would have filled a year of
+# history with numbers 20 degrees out and said nothing (CUI-0013).
+#
+# Naming the unit in the pattern makes that a non-match, which the caller
+# reports rather than converts: this collector's job is to read what the page
+# states, and a page stating Fahrenheit is not a Celsius reading to be salvaged.
+#
+# The wind cell alone has two accepted forms: "Northeast 50° 24 Km/h" names a
+# bearing, "Variable at 20 Km/h" has no degree sign at all. Spelling both out as
+# alternatives means a third form fails to match and says so, instead of parsing
+# by accident the way find("°") + 1 did on the -1 sentinel (CUI-0018).
+_TEMPERATURE_C_RE = re.compile(r"(?P<value>-?\d+(?:\.\d+)?)\s*°\s*C(?![a-zA-Z])")
+_WIND_SPEED_RE = re.compile(r"(?:\w+°|Variable at)\s*(?P<value>\d+(?:\.\d+)?)\s*Km/h")
+_HUMIDITY_PCT_RE = re.compile(r"(?P<value>\d+(?:\.\d+)?)\s*%")
+
+_TEMPERATURE_UNIT = "temperature in °C"
+_WIND_UNIT = "wind speed in Km/h, after a bearing or 'Variable at'"
+_HUMIDITY_UNIT = "humidity in %"
 
 # Column order of the freemeteo daily-history table. Naming them keeps the
 # guarded read below readable and makes a future column shuffle a one-line edit.
@@ -85,30 +100,43 @@ def _description(script: str, date_str: str, observed_at: str) -> str:
     return _DESCRIPTION_MAP.get(match.group("code"), _UNKNOWN_DESCRIPTION)
 
 
-def _wind_kmh(wind_text: str, date_str: str, observed_at: str) -> float | None:
-    """Return the wind speed the row's wind cell states, in Km/h.
+def _reading(
+    cell_text: str,
+    pattern: re.Pattern[str],
+    expected: str,
+    date_str: str,
+    observed_at: str,
+) -> float | None:
+    """Return the number a numeric cell states, in the unit *pattern* requires.
 
     Args:
-        wind_text: The wind cell's text, in either of freemeteo's two forms.
+        cell_text: The cell's text, unit and all.
+        pattern: Pattern naming the unit, capturing the number as ``value``.
+        expected: What the cell should have stated, for the log message.
         date_str: The day being queried.
         observed_at: The row's observation time.
 
     Returns:
-        The speed, or ``None`` when the cell matches neither form -- the rest of
-        the observation is still good, so the gap stays in this one column.
+        The reading, or ``None`` when the cell states nothing in that unit --
+        the rest of the observation is still good, so the gap stays in this one
+        column rather than costing the hour its other three readings.
     """
-    match = _WIND_SPEED_RE.search(wind_text)
+    match = pattern.search(cell_text)
     if match is None:
+        # The cell text goes in the message: naming only the column cannot say
+        # whether the page changed units or dropped the reading altogether, and
+        # those need different fixes.
         logger.warning(
-            "%s %s: wind cell %r states neither a bearing nor a variable direction",
+            "%s %s: cell %r states no %s, so that column is a gap",
             date_str,
             observed_at,
-            wind_text.strip(),
+            cell_text.strip(),
+            expected,
         )
         return None
     # The pattern already fixed the digits, so the cast cannot fail and None
-    # keeps one meaning here: the cell stated no speed.
-    return float(match.group("speed"))
+    # keeps one meaning here: the cell stated nothing in the expected unit.
+    return float(match.group("value"))
 
 
 def _observation_from_row(tds: list[Tag], date_str: str) -> HourlyWeather | None:
@@ -137,9 +165,13 @@ def _observation_from_row(tds: list[Tag], date_str: str) -> HourlyWeather | None
     return HourlyWeather(
         date=date_str,
         time=observed_at,
-        temperature_c=to_float(tds[_COL_TEMPERATURE].text.strip()[:-2]),
-        wind_kmh=_wind_kmh(tds[_COL_WIND].text, date_str, observed_at),
-        humidity_pct=to_float(tds[_COL_HUMIDITY].text.strip()[:-1]),
+        temperature_c=_reading(
+            tds[_COL_TEMPERATURE].text, _TEMPERATURE_C_RE, _TEMPERATURE_UNIT, date_str, observed_at
+        ),
+        wind_kmh=_reading(tds[_COL_WIND].text, _WIND_SPEED_RE, _WIND_UNIT, date_str, observed_at),
+        humidity_pct=_reading(
+            tds[_COL_HUMIDITY].text, _HUMIDITY_PCT_RE, _HUMIDITY_UNIT, date_str, observed_at
+        ),
         description=_description(script, date_str, observed_at),
     )
 
@@ -152,7 +184,10 @@ def fetch_day(date_str: str) -> list[HourlyWeather]:
     that carries no icon call keeps its row but reports ``"Unknown"``, rather
     than a code sliced out of an offset nobody read (CUI-0017). A wind cell in
     neither of freemeteo's two forms keeps its row too, with ``wind_kmh`` as
-    ``None`` instead of a number sliced out of an unexpected unit (CUI-0018).
+    ``None`` instead of a number sliced out of an unexpected unit (CUI-0018);
+    the temperature and humidity cells are read the same way, so a page served
+    in Fahrenheit reports no temperature rather than a Celsius figure 20 degrees
+    out (CUI-0013).
 
     Args:
         date_str: The day to query, ``YYYY-MM-DD``.
