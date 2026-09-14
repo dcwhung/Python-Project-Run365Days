@@ -1,17 +1,18 @@
 """Timestamp parsing and formatting helpers (Hong Kong local time)."""
 
-import re
 from datetime import datetime, timedelta
 from datetime import timezone as dt_timezone
 from typing import Final
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-import dateutil.parser
+from dateutil.parser import isoparse
 
-_UNIX_MS_DIGITS = 13
-_MS_PER_SECOND = 1000
-# ISO 8601 permits +HH, +HHMM and +HH:MM, so the minutes group is optional.
-_ISO_OFFSET_PATTERN: Final[re.Pattern[str]] = re.compile(r"[+-]\d{2}(?::?\d{2})?$")
+_UNIX_MS_DIGITS: Final[int] = 13
+_MS_PER_SECOND: Final[int] = 1000
+_UNPARSEABLE_MESSAGE: Final[str] = (
+    "Unrecognised timestamp {rec_time!r}: expected ISO 8601 (with or without an offset) "
+    "or a 13-digit Unix timestamp in milliseconds."
+)
 _MISSING_TZ_DATA_MESSAGE: Final[str] = (
     "No IANA time zone database entry for {timezone!r}. zoneinfo carries no data of "
     "its own: it reads the host database (usually /usr/share/zoneinfo) and falls back "
@@ -50,14 +51,24 @@ def _zone_info(timezone: str) -> ZoneInfo:
 
 
 def parse_datetime(rec_time: str, timezone: str = "Asia/Hong_Kong") -> datetime:
-    """Parse any of the four Garmin / HKO timestamp formats.
+    """Parse a Garmin / HKO timestamp into a ``timezone``-aware ``datetime``.
 
-    Supported inputs:
+    The string is handed to a real ISO 8601 reader rather than classified by surface
+    features. Two bugs came out of the feature-sniffing it replaces: CUI-0006 (``"+" in
+    rec_time`` rejected the negative offset ``-05:00``) and CUI-0016 (``"." in rec_time``
+    demanded milliseconds, so plain ``...T06:10:56Z`` was not recognised as UTC). Both
+    were the same mistake -- a proxy for "is this ISO?" instead of trying to read it --
+    so the resolution order below states each shape completely:
 
-    - ``2021-10-16T22:10:56.000Z`` (UTC ISO with milliseconds)
-    - ``2021-10-17T06:10:56+08:00`` (ISO with an offset of either sign)
-    - ``1634422256000`` (Unix timestamp in milliseconds)
-    - ``2021-10-17 06:10:56`` (naive local time)
+    1. 13 ASCII digits -> Unix milliseconds, an absolute instant read as UTC.
+    2. Anything ``dateutil.parser.isoparse`` accepts -> ISO 8601, in basic or extended
+       form, with ``Z``, with an offset of either sign, or with none at all.
+    3. Otherwise -> ``ValueError``.
+
+    Epoch is settled first because ``isoparse`` also reads ISO basic format, under which a
+    minority of 13-digit epochs are valid dates: ``1591101132141`` reads as year 1591.
+    An offset-bearing input names an instant, so it is converted into *timezone*; a naive
+    one carries no offset and is therefore taken as a wall clock already in *timezone*.
 
     Args:
         rec_time: The timestamp string.
@@ -67,25 +78,26 @@ def parse_datetime(rec_time: str, timezone: str = "Asia/Hong_Kong") -> datetime:
         A timezone-aware ``datetime`` in ``timezone``.
 
     Raises:
+        ValueError: If *rec_time* matches none of the supported shapes.
         MissingTimeZoneDataError: If no tz database is reachable on this host.
     """
     tz = _zone_info(timezone)
     rec_time = rec_time.strip()
 
-    if "T" in rec_time:
-        if "." in rec_time and rec_time.endswith("Z"):
-            return dateutil.parser.parse(rec_time).replace(tzinfo=dt_timezone.utc).astimezone(tz)
-        # Matched against the time part only: the date part is full of '-' separators, so
-        # searching the whole string would take "2021-10-17" for a negative offset.
-        elif _ISO_OFFSET_PATTERN.search(rec_time.split("T", 1)[1]):
-            return dateutil.parser.parse(rec_time).astimezone(tz)
-    elif rec_time.isdigit() and len(rec_time) == _UNIX_MS_DIGITS:
+    if rec_time.isdigit() and len(rec_time) == _UNIX_MS_DIGITS:
         epoch_seconds = round(int(rec_time) / _MS_PER_SECOND, 1)
         # An epoch is an absolute instant, so it is read as UTC and converted; relabelling
         # it with *timezone* instead would shift the result by that zone's offset (AU-048).
         return datetime.fromtimestamp(epoch_seconds, tz=dt_timezone.utc).astimezone(tz)
 
-    return datetime.strptime(rec_time, "%Y-%m-%d %H:%M:%S").replace(tzinfo=tz)
+    try:
+        parsed = isoparse(rec_time)
+    except ValueError as exc:
+        raise ValueError(_UNPARSEABLE_MESSAGE.format(rec_time=rec_time)) from exc
+
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=tz)
+    return parsed.astimezone(tz)
 
 
 def seconds_to_hhmmss(total_sec: float) -> str:
