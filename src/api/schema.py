@@ -8,10 +8,16 @@ session from ``info.context["session"]`` and delegate to
 
 from __future__ import annotations
 
+import os
 from datetime import date as date_type
 
 import strawberry
-from strawberry.extensions import MaxTokensLimiter, QueryDepthLimiter
+from strawberry.extensions import (
+    DisableIntrospection,
+    MaxTokensLimiter,
+    QueryDepthLimiter,
+    SchemaExtension,
+)
 from strawberry.types import Info
 
 from run365days.api import service
@@ -49,6 +55,34 @@ MAX_QUERY_TOKENS = 1000
 The biggest document the dashboard sends lexes to 113 tokens and
 introspection to 163, so this only ever stops alias-flooded documents.
 """
+
+GRAPHIQL_ENV = "RUN365_GRAPHIQL"
+"""Environment variable that opens the endpoint up for local development.
+
+One variable, not two: a browser IDE is useless without introspection, so the
+flag that serves GraphiQL is the same flag that lets ``__schema`` through.
+"""
+
+GRAPHIQL_ON = frozenset({"1", "true", "yes", "on"})
+"""Values that count as on. An allowlist, so ``RUN365_GRAPHIQL=0`` stays off."""
+
+
+def graphiql_enabled() -> bool:
+    """Report whether the environment asks for the IDE and its introspection."""
+    return os.environ.get(GRAPHIQL_ENV, "").strip().lower() in GRAPHIQL_ON
+
+
+def _introspection_gate() -> SchemaExtension:
+    """Reject ``__schema`` / ``__type`` documents unless the dev flag is on.
+
+    Returns:
+        A per-request extension that either blocks introspection or does
+        nothing, according to :func:`graphiql_enabled`.
+    """
+    # The flag is read here, per request, rather than once at import: the
+    # module-level ``schema`` below is a singleton, so a start-up read would
+    # freeze whatever the environment happened to hold for the first importer.
+    return SchemaExtension() if graphiql_enabled() else DisableIntrospection()
 
 
 def _iso(d: date_type | None) -> str | None:
@@ -379,6 +413,7 @@ def build_schema(
             # Factories, not instances: Strawberry builds a fresh extension per request.
             lambda: QueryDepthLimiter(max_depth=max_depth),
             lambda: MaxTokensLimiter(max_token_count=max_tokens),
+            _introspection_gate,
         ],
     )
 

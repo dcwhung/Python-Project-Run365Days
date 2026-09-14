@@ -371,3 +371,22 @@ def test_graphiql_is_served_when_the_env_var_is_on(monkeypatch, sample_records, 
     r = module.app.test_client().get(GRAPHQL_PATH, headers={"Accept": "text/html"})
     assert r.status_code == 200
     assert b"graphiql" in r.data.lower()
+
+
+# ── W-008: introspection follows the same flag as GraphiQL ─────────────────
+INTROSPECTION_QUERY = "{ __schema { queryType { name } } }"
+
+
+def test_introspection_is_rejected_when_the_env_var_is_off(monkeypatch, client):
+    monkeypatch.delenv(GRAPHIQL_ENV, raising=False)
+    assert "introspection" in gql_errors(client, INTROSPECTION_QUERY).lower()
+
+
+def test_introspection_is_served_when_the_env_var_is_on(monkeypatch, client):
+    monkeypatch.setenv(GRAPHIQL_ENV, "1")
+    assert gql(client, INTROSPECTION_QUERY)["__schema"]["queryType"]["name"] == "Query"
+
+
+def test_typename_still_resolves_when_introspection_is_off(monkeypatch, client):
+    monkeypatch.delenv(GRAPHIQL_ENV, raising=False)
+    assert gql(client, "{ meta { __typename year } }")["meta"]["__typename"] == "Meta"
