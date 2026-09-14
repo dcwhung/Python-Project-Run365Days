@@ -128,6 +128,19 @@ def gql_errors(client, query, variables=None):
     return " ".join(e["message"] for e in body["errors"])
 
 
+def gql_partial(client, query, variables=None):
+    """Return the whole body, for the documents that are half served and half refused.
+
+    ``gql`` and ``gql_errors`` each assert one of the two away, which is no use
+    when what is under test is exactly which fields survived.
+    """
+    r = client.post(GRAPHQL_PATH, json={"query": query, "variables": variables or {}})
+    assert r.status_code == 200, r.data
+    body = r.get_json()
+    assert "errors" in body, body
+    return body
+
+
 def test_health(client):
     r = client.get(HEALTH_PATH)
     assert r.get_json()["status"] == "ok"
@@ -695,6 +708,103 @@ def test_the_field_cap_is_per_request_and_does_not_leak_across_requests(year_cli
     query = _cheap_tracks(MAX_TRACK_FIELDS_PER_REQUEST)
     for _ in range(2):
         assert len(gql(year_client, query)["activities"]) == MAX_TRACK_FIELDS_PER_REQUEST
+
+
+# ── AU-047: the two budgets have to hold each other's line ─────────────────
+CHEAP_ALIASES = 20
+"""Cheap ``track`` fields hung off the back of a document, to see them refused.
+
+Well under MAX_TRACK_FIELDS_PER_REQUEST once the fields ahead of them are
+counted, so nothing here can be refused by the field budget by accident: if
+these are refused, the points budget is what refused them.
+"""
+
+
+def _cheap_alias(name: str, activity: str) -> str:
+    """One aliased activity taking the cheapest track there is."""
+    return f'{name}: activity(id: "{activity}") {{ {CHEAP_TRACK} }}'
+
+
+def test_a_cheap_track_is_refused_once_the_points_budget_is_spent(year_client):
+    # The budget is spent exactly, not overrun, and then 20 of the cheapest
+    # field the schema has ask for one point each. Every one of them has to be
+    # refused: a budget that only stops the field that overruns it, and lets
+    # the traffic behind it through, is not a budget.
+    query = _document(
+        _page_field(ACTIVITIES_THAT_FIT, f"track(points: {MAX_TRACK_POINTS}) {{ sec }}"),
+        *(_cheap_alias(f"c{n}", f"r{n}") for n in range(CHEAP_ALIASES)),
+    )
+
+    body = gql_partial(year_client, query)
+    data = body["data"]
+
+    assert len(data["activities"]) == ACTIVITIES_THAT_FIT, "the spend itself must be served"
+    assert [n for n in range(CHEAP_ALIASES) if data[f"c{n}"] is not None] == []
+    messages = [e["message"] for e in body["errors"]]
+    assert len(messages) == CHEAP_ALIASES
+    # Named, not just counted: the field budget would refuse these too, and a
+    # bare count cannot tell the two budgets apart.
+    assert all(str(MAX_TRACK_POINTS_PER_REQUEST) in m for m in messages), messages
+
+
+def test_a_field_that_overruns_the_points_budget_leaves_it_for_the_next_one(year_client):
+    # The charge is all-or-nothing: a refused field writes nothing back, so
+    # what is left stays available to a field that fits in it. The budget
+    # refuses each field on that field's own cost, and does not latch.
+    half = MAX_TRACK_POINTS // 2
+    spend = (MAX_TRACK_POINTS_PER_REQUEST - half) // half
+    track_of = f'activity(id: "{TRACKED_ACTIVITY_ID}") {{ track(points: %d) {{ sec }} }}'
+    query = _document(
+        _page_field(spend, f"track(points: {half}) {{ sec }}"),
+        f"over: {track_of % MAX_TRACK_POINTS}",
+        f"after: {track_of % half}",
+    )
+
+    body = gql_partial(year_client, query)
+    data = body["data"]
+
+    assert len(data["activities"]) == spend
+    assert data["over"] is None, f"{MAX_TRACK_POINTS} points must not fit in the {half} left"
+    assert len(data["after"]["track"]) == half, "the refusal must not have spent the remainder"
+
+
+# ── AU-047: the charge follows the resolved field, not the syntax ──────────
+CHEAP_TRACK_FRAGMENT = f"fragment CheapTrack on Activity {{ {CHEAP_TRACK} }}"
+
+
+@pytest.mark.parametrize(
+    "selection,suffix",
+    [
+        ("...CheapTrack", f" {CHEAP_TRACK_FRAGMENT}"),
+        (f"... on Activity {{ {CHEAP_TRACK} }}", ""),
+    ],
+    ids=["named-fragment", "inline-fragment"],
+)
+def test_a_track_reached_through_a_fragment_is_charged(year_client, selection, suffix):
+    # A fragment resolves the same field by another spelling. A cap that
+    # counted selections in the document rather than resolver calls would let
+    # either of these spellings past it.
+    fits = _one_page(MAX_TRACK_FIELDS_PER_REQUEST, selection) + suffix
+    assert len(gql(year_client, fits)["activities"]) == MAX_TRACK_FIELDS_PER_REQUEST
+
+    over = _one_page(MAX_TRACK_FIELDS_PER_REQUEST + 1, selection) + suffix
+    assert str(MAX_TRACK_FIELDS_PER_REQUEST) in gql_errors(year_client, over)
+
+
+def test_a_skipped_track_is_not_charged(year_client):
+    # Two track fields per activity, one of them skipped: 2 x 64 fields if
+    # @skip were charged, which the cap would refuse. Only the resolved one
+    # may count, because only the resolved one costs a query.
+    query = _one_page(
+        MAX_TRACK_FIELDS_PER_REQUEST,
+        f"skipped: track(points: 1) @skip(if: true) {{ sec }} charged: {CHEAP_TRACK}",
+    )
+
+    rows = gql(year_client, query)["activities"]
+
+    assert len(rows) == MAX_TRACK_FIELDS_PER_REQUEST
+    assert "skipped" not in rows[0], "the skipped field must not be resolved at all"
+    assert len(rows[0]["charged"]) == 1
 
 
 # ── AU-047 W-014: the budgets fail closed when they were never seeded ──────
