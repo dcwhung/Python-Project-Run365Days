@@ -1,6 +1,6 @@
 # 項目文件索引 — Run365Days
 
-**最後更新**：2026-09-14（AU-047 完成：3 輪 review + QA，309 tests）
+**最後更新**：2026-09-14（AU-047 完成：3 輪 review + QA，309 tests；PR #12 已開）
 
 > 本目錄為 ai-dev-team 產出文件嘅 Single Source of Truth。
 > 每次有新文件輸出，必須喺此更新條目同頂部日期。
@@ -68,7 +68,7 @@
 | Functional spec | `.proj-docs/specs/` | ❌ 未建立 |
 | Technical spec | `.proj-docs/specs/` | ❌ 未建立 |
 | Implementation plan | `.proj-docs/plans/` | ❌ 未建立 |
-| Session log | `.claude/session-logs/` | ❌ 未建立 |
+| Session log | [`.claude/session-logs/2026-09-14_14-55.md`](../.claude/session-logs/2026-09-14_14-55.md) | ✅ 2026-09-14 建立（AU-047 + CLAUDE.md） |
 
 ---
 
