@@ -53,7 +53,7 @@ def parse_datetime(rec_time: str, timezone: str = "Asia/Hong_Kong") -> datetime:
 
     - ``2021-10-16T22:10:56.000Z`` (UTC ISO with milliseconds)
     - ``2021-10-17T06:10:56+08:00`` (ISO with offset)
-    - ``1634451056000`` (Unix timestamp in milliseconds)
+    - ``1634422256000`` (Unix timestamp in milliseconds)
     - ``2021-10-17 06:10:56`` (naive local time)
 
     Args:
@@ -76,14 +76,9 @@ def parse_datetime(rec_time: str, timezone: str = "Asia/Hong_Kong") -> datetime:
             return dateutil.parser.parse(rec_time)
     elif rec_time.isdigit() and len(rec_time) == _UNIX_MS_DIGITS:
         epoch_seconds = round(int(rec_time) / _MS_PER_SECOND, 1)
-        # KNOWN INCORRECT, kept deliberately. The epoch is read as UTC and then
-        # relabelled -- not converted -- to *timezone*, so the result is 8 hours off for
-        # Asia/Hong_Kong. AU-003 was scoped to the offset only and preserved this wall
-        # clock; correcting the shift is AU-048. TestParseDateTimeWallClockUnchanged in
-        # tests/test_common_time.py pins the current behaviour on purpose and must be
-        # updated in the same change as this line.
-        naive_utc = datetime.fromtimestamp(epoch_seconds, tz=dt_timezone.utc).replace(tzinfo=None)
-        return naive_utc.replace(tzinfo=tz)
+        # An epoch is an absolute instant, so it is read as UTC and converted; relabelling
+        # it with *timezone* instead would shift the result by that zone's offset (AU-048).
+        return datetime.fromtimestamp(epoch_seconds, tz=dt_timezone.utc).astimezone(tz)
 
     return datetime.strptime(rec_time, "%Y-%m-%d %H:%M:%S").replace(tzinfo=tz)
 
