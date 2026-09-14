@@ -139,6 +139,7 @@ in a container or against a different year's exports.
   CLI serialiser (133 tests).
 - **pre-commit** runs the same ruff checks locally.
 - **GitHub Actions** (`.github/workflows/pages.yml`) runs lint and tests on
-  every push and pull request to `master`, then builds and deploys the
-  static dashboard on pushes only. Vercel builds the API-mode deployment
-  from the same commits; both are described in [deployment.md](deployment.md).
+  every push and pull request to `develop` and `master`, then builds and
+  deploys the static dashboard from `develop` only. Vercel builds the
+  API-mode deployment from the same commits; both are described in
+  [deployment.md](deployment.md).
