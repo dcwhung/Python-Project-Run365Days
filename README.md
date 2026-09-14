@@ -257,7 +257,10 @@ installs the package with uv, runs `run365-export --skip-static` to produce
 `api/graphql.py` is a Python serverless function that imports the Flask app;
 the database is bundled into it with `includeFiles`. Rewrites send
 `/api/*` to the function and everything else to the SPA. The production
-branch is `master`. [docs/deployment.md](docs/deployment.md) has the full
+branch should be `master`, but Vercel keeps that setting in the project
+dashboard rather than in the repository, so it cannot be read or changed
+from this checkout -- confirm it there after any change to the branch
+layout. [docs/deployment.md](docs/deployment.md) has the full
 configuration and the list of things the first deployment taught.
 
 Generated files (`data/processed/`, `frontend/public/data/`, `frontend/dist/`)
