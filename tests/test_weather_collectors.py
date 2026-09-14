@@ -195,6 +195,31 @@ def hko_routes(*, feb=None, mar=None) -> dict:
     }
 
 
+class TestTheNetworkGuardItself:
+    """The one test here that installs no fake, so the guard is shown rather than assumed.
+
+    This module's docstring called ``block_real_sockets`` "the proof that none
+    of them reaches the real network" while nothing ever exercised it -- the
+    same shape as the collector CUI-0010 found had never worked, believed
+    correct because nothing had run it. "The sandbox has no internet" would not
+    have covered for it either: the agent proxy listens on 127.0.0.1 and an
+    unfaked collector connects to it happily.
+    """
+
+    @pytest.mark.parametrize(
+        ("collect", "argument"),
+        [
+            (hourly.fetch_day, "2021-01-01"),
+            (hko_daily.fetch_year, "2021"),
+            (sun_moon.fetch_year, "2021"),
+        ],
+        ids=["hourly", "hko-daily", "sun-moon"],
+    )
+    def test_the_socket_block_refuses_an_unfaked_collector_call(self, collect, argument):
+        with pytest.raises(AssertionError, match="real network connection"):
+            collect(argument)
+
+
 class TestGuardedHtmlReads:
     """The two guards CUI-0012 turned three chained ``.find()`` reads into.
 
