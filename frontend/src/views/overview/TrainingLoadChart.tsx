@@ -1,6 +1,6 @@
 import { Line } from "react-chartjs-2";
 import type { TrainingLoadPoint } from "@/data/types";
-import { BASE, COLORS, GRID, dayAxis } from "@/components/charts/theme";
+import { BASE, COLORS, GRID, alpha, dayAxis } from "@/components/charts/theme";
 import { Card } from "@/components/Card";
 
 export function TrainingLoadChart({ load }: { load: TrainingLoadPoint[] }) {
@@ -16,7 +16,7 @@ export function TrainingLoadChart({ load }: { load: TrainingLoadPoint[] }) {
                 label: "Fitness (CTL)",
                 data: load.map((p) => p.ctl),
                 borderColor: COLORS.accent,
-                backgroundColor: "rgba(79,142,247,0.1)",
+                backgroundColor: alpha(COLORS.accent, 0.1),
                 tension: 0.3,
                 fill: true,
                 pointRadius: 0,

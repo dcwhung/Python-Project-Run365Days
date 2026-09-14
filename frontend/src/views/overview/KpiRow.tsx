@@ -1,5 +1,6 @@
 import type { PersonalBests, Totals } from "@/data/types";
-import { fmtPace, fmtShortDate } from "@/lib/format";
+import { fmtPace, fmtShortDate, fmtThousands } from "@/lib/format";
+import { secToHours, secToMin } from "@/lib/units";
 import { KpiCard } from "@/components/KpiCard";
 
 export function KpiRow({
@@ -21,9 +22,9 @@ export function KpiRow({
       />
       <KpiCard
         label="Total Time"
-        value={(totals.durationSec / 3600).toFixed(1)}
+        value={secToHours(totals.durationSec).toFixed(1)}
         unit="hrs"
-        sub={`avg ${Math.round(totals.durationSec / 60 / totals.days)} min/day`}
+        sub={`avg ${Math.round(secToMin(totals.durationSec) / totals.days)} min/day`}
         accent="accent2"
       />
       <KpiCard
@@ -35,7 +36,7 @@ export function KpiRow({
       />
       <KpiCard
         label="Total Calories"
-        value={`${Math.round(totals.calories / 1000)}k`}
+        value={fmtThousands(totals.calories)}
         unit="kcal"
         sub={`avg ${totals.runs ? Math.round(totals.calories / totals.runs) : 0}/run`}
         accent="danger"

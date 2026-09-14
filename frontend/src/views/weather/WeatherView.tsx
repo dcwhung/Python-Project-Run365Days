@@ -2,8 +2,9 @@ import { useNavigate } from "react-router-dom";
 import { Bar, Line, Scatter } from "react-chartjs-2";
 import { useActivities, useWeather, useYear } from "@/data/hooks";
 import { fmtKm, fmtPace, fmtShortDate } from "@/lib/format";
+import { minToSec, paceToPlotMin } from "@/lib/units";
 import { actTemp, wxEmoji } from "@/lib/weather";
-import { BASE, COLORS, GRID, NO_GRID, NO_LEGEND, dayAxis } from "@/components/charts/theme";
+import { BASE, COLORS, GRID, NO_GRID, NO_LEGEND, alpha, dayAxis } from "@/components/charts/theme";
 import { Card } from "@/components/Card";
 import { KpiCard } from "@/components/KpiCard";
 import { DataTable } from "@/components/DataTable";
@@ -18,7 +19,8 @@ import {
   weatherKpis,
 } from "./model";
 
-const COND_COLORS = ["#f59e0b", "#4f8ef7", "#a78bfa", "#60a5fa", "#f87171"];
+/** One colour per sky condition, in the order `conditions()` returns them. */
+const COND_COLORS = [COLORS.warn, COLORS.accent, COLORS.violet, COLORS.blue, COLORS.danger];
 
 export function WeatherView() {
   const navigate = useNavigate();
@@ -114,8 +116,8 @@ export function WeatherView() {
                 {
                   label: "HKO max",
                   data: range.map((r) => r.max),
-                  borderColor: "rgba(248,113,113,.5)",
-                  backgroundColor: "rgba(248,113,113,.10)",
+                  borderColor: alpha(COLORS.danger, 0.5),
+                  backgroundColor: alpha(COLORS.danger, 0.1),
                   borderWidth: 1,
                   pointRadius: 0,
                   fill: "+1",
@@ -124,7 +126,7 @@ export function WeatherView() {
                 {
                   label: "HKO min",
                   data: range.map((r) => r.min),
-                  borderColor: "rgba(96,165,250,.5)",
+                  borderColor: alpha(COLORS.blue, 0.5),
                   borderWidth: 1,
                   pointRadius: 0,
                   spanGaps: true,
@@ -195,7 +197,7 @@ export function WeatherView() {
                 labels: bands.map((b) => b.label),
                 datasets: [
                   {
-                    data: bands.map((b) => Math.round((b.pace / 60) * 100) / 100),
+                    data: bands.map((b) => paceToPlotMin(b.pace)),
                     backgroundColor: bands.map((_, i) => `hsl(${210 - i * 30},70%,60%)`),
                     borderRadius: 5,
                   },
@@ -208,7 +210,7 @@ export function WeatherView() {
                   tooltip: {
                     callbacks: {
                       label: (c) =>
-                        `${fmtPace((c.parsed.y ?? 0) * 60)} /km · ${bands[c.dataIndex].runs} runs`,
+                        `${fmtPace(minToSec(c.parsed.y ?? 0))} /km · ${bands[c.dataIndex].runs} runs`,
                     },
                   },
                 },
@@ -217,7 +219,7 @@ export function WeatherView() {
                   y: {
                     grid: GRID,
                     reverse: true,
-                    ticks: { callback: (v) => fmtPace(Number(v) * 60) },
+                    ticks: { callback: (v) => fmtPace(minToSec(Number(v))) },
                   },
                 },
               }}
@@ -231,7 +233,7 @@ export function WeatherView() {
                 datasets: [
                   {
                     data: hp,
-                    backgroundColor: "rgba(96,165,250,.5)",
+                    backgroundColor: alpha(COLORS.blue, 0.5),
                     pointRadius: 4,
                     pointHoverRadius: 6,
                   },
@@ -248,7 +250,7 @@ export function WeatherView() {
                     callbacks: {
                       label: (c) => {
                         const p = c.raw as (typeof hp)[number];
-                        return `${fmtShortDate(p.date)} · ${p.x}% RH · ${fmtPace(p.y * 60)}/km`;
+                        return `${fmtShortDate(p.date)} · ${p.x}% RH · ${fmtPace(minToSec(p.y))}/km`;
                       },
                     },
                   },
@@ -258,7 +260,7 @@ export function WeatherView() {
                   y: {
                     grid: GRID,
                     reverse: true,
-                    ticks: { callback: (v) => fmtPace(Number(v) * 60) },
+                    ticks: { callback: (v) => fmtPace(minToSec(Number(v))) },
                   },
                 },
               }}

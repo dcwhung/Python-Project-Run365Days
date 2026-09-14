@@ -3,7 +3,8 @@ import { Bar, Line, Scatter } from "react-chartjs-2";
 import { useActivities, useYear } from "@/data/hooks";
 import { MONTHS, fmtDuration, fmtKm, fmtPace, fmtShortDate } from "@/lib/format";
 import { WEEKDAYS } from "@/lib/dates";
-import { BASE, COLORS, GRID, NO_GRID, NO_LEGEND, dayAxis } from "@/components/charts/theme";
+import { minToSec, paceToPlotMin } from "@/lib/units";
+import { BASE, COLORS, GRID, NO_GRID, NO_LEGEND, alpha, dayAxis } from "@/components/charts/theme";
 import { Card } from "@/components/Card";
 import { KpiCard } from "@/components/KpiCard";
 import { DataTable } from "@/components/DataTable";
@@ -16,7 +17,7 @@ import {
   weekdayPace,
 } from "./model";
 
-const min = (sec: number | null) => (sec ? Math.round((sec / 60) * 100) / 100 : null);
+const min = (sec: number | null) => (sec ? paceToPlotMin(sec) : null);
 
 export function PerformanceView() {
   const navigate = useNavigate();
@@ -40,7 +41,7 @@ export function PerformanceView() {
   const paceScale = (extra = {}) => ({
     grid: GRID,
     reverse: true,
-    ticks: { callback: (v: unknown) => fmtPace(Number(v) * 60) },
+    ticks: { callback: (v: unknown) => fmtPace(minToSec(Number(v))) },
     ...extra,
   });
 
@@ -104,7 +105,7 @@ export function PerformanceView() {
                   data: points,
                   showLine: false,
                   pointRadius: 3,
-                  pointBackgroundColor: "rgba(79,142,247,.55)",
+                  pointBackgroundColor: alpha(COLORS.accent, 0.55),
                   pointBorderWidth: 0,
                 },
                 {
@@ -131,7 +132,7 @@ export function PerformanceView() {
                 tooltip: {
                   callbacks: {
                     title: (c) => fmtShortDate(labels[c[0].dataIndex]),
-                    label: (c) => `${c.dataset.label}: ${fmtPace((c.parsed.y ?? 0) * 60)} /km`,
+                    label: (c) => `${c.dataset.label}: ${fmtPace(minToSec(c.parsed.y ?? 0))} /km`,
                   },
                 },
               },
@@ -150,7 +151,7 @@ export function PerformanceView() {
                 datasets: [
                   {
                     data: hist.map((h) => h.count),
-                    backgroundColor: "rgba(167,139,250,.7)",
+                    backgroundColor: alpha(COLORS.violet, 0.7),
                     borderRadius: 5,
                   },
                 ],
@@ -174,7 +175,7 @@ export function PerformanceView() {
                 datasets: [
                   {
                     data: wd.map((w) => min(w.pace)),
-                    backgroundColor: "rgba(79,142,247,.7)",
+                    backgroundColor: alpha(COLORS.accent, 0.7),
                     borderRadius: 5,
                   },
                 ],
@@ -186,7 +187,7 @@ export function PerformanceView() {
                   tooltip: {
                     callbacks: {
                       label: (c) =>
-                        `${fmtPace((c.parsed.y ?? 0) * 60)} /km · ${wd[c.dataIndex].runs} runs`,
+                        `${fmtPace(minToSec(c.parsed.y ?? 0))} /km · ${wd[c.dataIndex].runs} runs`,
                     },
                   },
                 },
@@ -209,7 +210,7 @@ export function PerformanceView() {
                 datasets: [
                   {
                     data: tod.map((t) => min(t.pace)),
-                    backgroundColor: "rgba(245,158,11,.7)",
+                    backgroundColor: alpha(COLORS.warn, 0.7),
                     borderRadius: 5,
                   },
                 ],
@@ -222,7 +223,7 @@ export function PerformanceView() {
                     callbacks: {
                       title: (c) => tod[c[0].dataIndex].label,
                       label: (c) =>
-                        `${fmtPace((c.parsed.y ?? 0) * 60)} /km · ${tod[c.dataIndex].runs} runs`,
+                        `${fmtPace(minToSec(c.parsed.y ?? 0))} /km · ${tod[c.dataIndex].runs} runs`,
                     },
                   },
                 },
@@ -241,7 +242,7 @@ export function PerformanceView() {
                 datasets: [
                   {
                     data: cp,
-                    backgroundColor: "rgba(52,211,153,.5)",
+                    backgroundColor: alpha(COLORS.accent2, 0.5),
                     pointRadius: 4,
                     pointHoverRadius: 6,
                   },
@@ -258,7 +259,7 @@ export function PerformanceView() {
                     callbacks: {
                       label: (c) => {
                         const p = c.raw as (typeof cp)[number];
-                        return `${fmtShortDate(p.date)} · ${p.x} spm · ${fmtPace(p.y * 60)}/km`;
+                        return `${fmtShortDate(p.date)} · ${p.x} spm · ${fmtPace(minToSec(p.y))}/km`;
                       },
                     },
                   },

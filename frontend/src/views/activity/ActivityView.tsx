@@ -8,54 +8,11 @@ import { longDate } from "@/lib/dates";
 import { mean } from "@/lib/stats-helpers";
 import { wxEmoji } from "@/lib/weather";
 import { usePrefs } from "@/lib/prefs";
-import { buildSeries, type SeriesSpec } from "./series";
+import { SERIES_SPECS, buildSeries } from "./series";
 import { usePlayback } from "./usePlayback";
 import { RouteMap } from "./RouteMap";
 import { SeriesChart } from "./SeriesChart";
 import { LiveCard } from "./LiveCard";
-
-const SPECS: SeriesSpec[] = [
-  {
-    key: "ele",
-    title: "Elevation (m)",
-    color: "#34d399",
-    area: true,
-    invert: false,
-    pad: 4,
-    format: (v) => String(Math.round(v)),
-    unit: "m",
-  },
-  {
-    key: "pace",
-    title: "Pace (min/km)",
-    color: "#4f8ef7",
-    area: true,
-    invert: true,
-    pad: 0.3,
-    format: (v) => fmtPace(v * 60),
-    unit: "/km",
-  },
-  {
-    key: "cad",
-    title: "Run Cadence (spm)",
-    color: "#a78bfa",
-    area: false,
-    invert: false,
-    pad: 8,
-    format: (v) => String(Math.round(v)),
-    unit: "spm",
-  },
-  {
-    key: "temp",
-    title: "Temperature (°C)",
-    color: "#f59e0b",
-    area: true,
-    invert: false,
-    pad: 1,
-    format: (v) => v.toFixed(1),
-    unit: "°C",
-  },
-];
 
 export function ActivityView() {
   const { id } = useParams();
@@ -212,7 +169,7 @@ export function ActivityView() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
-        {SPECS.map((spec) => (
+        {SERIES_SPECS.map((spec) => (
           <SeriesChart
             key={spec.key}
             series={series}

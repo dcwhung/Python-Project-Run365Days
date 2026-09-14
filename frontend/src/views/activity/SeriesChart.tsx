@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef } from "react";
 import type { SeriesSpec, TrackSeries } from "./series";
 import { indexAtTime, seriesRange } from "./series";
 import { fmtDuration, fmtPace } from "@/lib/format";
+import { SEC_PER_HOUR, minToSec } from "@/lib/units";
+import { FONT_SANS, TOKENS } from "@/styles/tokens";
 
 const L = 44;
 const R = 8;
@@ -44,8 +46,8 @@ export function SeriesChart({
     const iw = W - L - R;
     const ih = H - TOP - BOT;
     if (!data.some(Number.isFinite)) {
-      g.fillStyle = "#7c85a8";
-      g.font = '12px "Segoe UI",system-ui,sans-serif';
+      g.fillStyle = TOKENS.muted;
+      g.font = `12px ${FONT_SANS}`;
       g.textAlign = "center";
       g.fillText("no data for this run", W / 2, H / 2);
       return;
@@ -57,10 +59,10 @@ export function SeriesChart({
       if (spec.invert) t = 1 - t;
       return TOP + ih - t * ih;
     };
-    g.strokeStyle = "#2e3250";
+    g.strokeStyle = TOKENS.border;
     g.lineWidth = 1;
-    g.fillStyle = "#7c85a8";
-    g.font = '500 10px "Segoe UI",system-ui,sans-serif';
+    g.fillStyle = TOKENS.muted;
+    g.font = `500 10px ${FONT_SANS}`;
     g.textAlign = "right";
     g.textBaseline = "middle";
     for (const v of [lo, (lo + hi) / 2, hi]) {
@@ -70,14 +72,15 @@ export function SeriesChart({
       g.lineTo(W - R, y);
       g.stroke();
       g.fillText(
-        spec.key === "pace" ? fmtPace(v * 60) : v.toFixed(spec.key === "temp" ? 1 : 0),
+        spec.key === "pace" ? fmtPace(minToSec(v)) : v.toFixed(spec.key === "temp" ? 1 : 0),
         L - 6,
         y,
       );
     }
     g.textAlign = "center";
     g.textBaseline = "top";
-    const step = series.totalSec > 3600 ? 600 : 300;
+    // Ticks every ten minutes on a long run, every five on a short one.
+    const step = minToSec(series.totalSec > SEC_PER_HOUR ? 10 : 5);
     for (let m = 0; m <= series.totalSec; m += step)
       g.fillText(fmtDuration(m), L + (m / series.totalSec) * iw, H - BOT + 5);
     const trace = () => {
@@ -105,7 +108,7 @@ export function SeriesChart({
     g.lineWidth = spec.key === "cad" ? 1 : 1.5;
     g.stroke();
     const x = X(idx);
-    g.strokeStyle = "#e2e8f0";
+    g.strokeStyle = TOKENS.text;
     g.lineWidth = 1;
     g.beginPath();
     g.moveTo(x, TOP);
@@ -116,7 +119,7 @@ export function SeriesChart({
       g.beginPath();
       g.arc(x, Y(data[idx]), 4, 0, Math.PI * 2);
       g.fill();
-      g.strokeStyle = "#1a1d27";
+      g.strokeStyle = TOKENS.surface;
       g.lineWidth = 1.5;
       g.stroke();
     }

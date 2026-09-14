@@ -1,5 +1,8 @@
 import type { Activity, TrackPoint } from "@/data/types";
+import { fmtPace } from "@/lib/format";
 import { smooth } from "@/lib/stats-helpers";
+import { minToSec } from "@/lib/units";
+import { TOKENS } from "@/styles/tokens";
 
 /** Derived, chart-ready arrays for one run. Pure so it can be unit-tested. */
 export interface TrackSeries {
@@ -100,3 +103,52 @@ export function seriesRange(values: number[], spec: SeriesSpec): { lo: number; h
   }
   return { lo, hi };
 }
+
+/**
+ * The four traces an activity page plots, in the order they appear. Which
+ * measures a run is described by, what unit each is read in and how tight its
+ * axis sits are facts about the sport, not about the page that draws them --
+ * they belong next to the series they configure.
+ */
+export const SERIES_SPECS: SeriesSpec[] = [
+  {
+    key: "ele",
+    title: "Elevation (m)",
+    color: TOKENS.accent2,
+    area: true,
+    invert: false,
+    pad: 4,
+    format: (v) => String(Math.round(v)),
+    unit: "m",
+  },
+  {
+    key: "pace",
+    title: "Pace (min/km)",
+    color: TOKENS.accent,
+    area: true,
+    invert: true,
+    pad: 0.3,
+    format: (v) => fmtPace(minToSec(v)),
+    unit: "/km",
+  },
+  {
+    key: "cad",
+    title: "Run Cadence (spm)",
+    color: TOKENS.violet,
+    area: false,
+    invert: false,
+    pad: 8,
+    format: (v) => String(Math.round(v)),
+    unit: "spm",
+  },
+  {
+    key: "temp",
+    title: "Temperature (°C)",
+    color: TOKENS.warn,
+    area: true,
+    invert: false,
+    pad: 1,
+    format: (v) => v.toFixed(1),
+    unit: "°C",
+  },
+];

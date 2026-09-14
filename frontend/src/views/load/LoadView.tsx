@@ -6,7 +6,7 @@ import { fmtDuration, fmtKm, fmtPace, fmtShortDate } from "@/lib/format";
 import { WEEKDAYS } from "@/lib/dates";
 import { paceOf, weeksWithActivities, type WeekWithActivities } from "@/lib/analytics";
 import { actTemp, wxEmoji } from "@/lib/weather";
-import { BASE, COLORS, GRID, NO_GRID, NO_LEGEND, dayAxis } from "@/components/charts/theme";
+import { BASE, COLORS, GRID, NO_GRID, NO_LEGEND, alpha, dayAxis } from "@/components/charts/theme";
 import { Card } from "@/components/Card";
 import { KpiCard } from "@/components/KpiCard";
 import { DataTable } from "@/components/DataTable";
@@ -103,7 +103,7 @@ export function LoadView() {
                   label: "Fitness (CTL)",
                   data: y.trainingLoad.map((p) => p.ctl),
                   borderColor: COLORS.accent,
-                  backgroundColor: "rgba(79,142,247,.1)",
+                  backgroundColor: alpha(COLORS.accent, 0.1),
                   fill: true,
                   borderWidth: 2,
                   pointRadius: 0,
@@ -178,7 +178,7 @@ export function LoadView() {
                       type: "bar",
                       label: "Week km",
                       data: weeks.map((w) => w.distanceKm),
-                      backgroundColor: "rgba(79,142,247,.7)",
+                      backgroundColor: alpha(COLORS.accent, 0.7),
                       borderRadius: 3,
                       order: 1,
                     },
@@ -220,7 +220,7 @@ export function LoadView() {
               data={{
                 labels: WEEKDAYS,
                 datasets: [
-                  { data: wdKm, backgroundColor: "rgba(167,139,250,.7)", borderRadius: 5 },
+                  { data: wdKm, backgroundColor: alpha(COLORS.violet, 0.7), borderRadius: 5 },
                 ],
               }}
               options={{
