@@ -1,5 +1,6 @@
 import pytest
 
+from run365days.common.config import BODY_HEIGHT_CM, LBS_TO_KG
 from run365days.weight.analysis import build_dataframe, parse_weight_file
 
 _SAMPLE_WEIGHT_DATA = """\
@@ -28,13 +29,23 @@ class TestParseWeightFile:
         r = records[0]
         assert r.weight_lbs == 154.8
         assert r.date == "2021-01-01"
-        assert r.weight_kg == pytest.approx(154.8 * 0.454, rel=1e-3)
+        # Exact, not approximate: the old assertion allowed 0.1% either way,
+        # which is wider than the gap between the 0.454 the parser used and the
+        # exact factor, so it passed on the wrong number for as long as it stood.
+        assert r.weight_kg == round(154.8 * LBS_TO_KG, 2)
 
     def test_bmi_calculation(self, weight_file):
         records = parse_weight_file(weight_file, year=2021, height_cm=170)
         r = records[0]
-        expected_bmi = (154.8 * 0.454) / (1.70**2)
-        assert r.bmi == pytest.approx(expected_bmi, rel=1e-2)
+        assert r.bmi == round((154.8 * LBS_TO_KG) / 1.70**2, 2)
+
+    def test_uses_the_configured_height_when_none_is_given(self, weight_file):
+        default = parse_weight_file(weight_file, year=2021)
+        explicit = parse_weight_file(weight_file, year=2021, height_cm=BODY_HEIGHT_CM)
+        assert [r.bmi for r in default] == [r.bmi for r in explicit]
+
+    def test_converts_pounds_at_the_international_definition(self):
+        assert LBS_TO_KG == 0.45359237
 
     def test_empty_file(self, tmp_path):
         f = tmp_path / "empty.txt"

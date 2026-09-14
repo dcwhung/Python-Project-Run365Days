@@ -1,5 +1,6 @@
 import type { DayDistance, WeekSummary, WeightEntry } from "@/data/types";
 import { MS_PER_DAY, weekday } from "@/lib/dates";
+import { LBS_TO_KG } from "@/lib/prefs";
 import { mean, sum } from "@/lib/stats-helpers";
 import { weekIndex } from "@/data/stats";
 
@@ -12,7 +13,7 @@ export function weightKpis(entries: WeightEntry[], heightCm: number, days: numbe
   const min = entries.reduce((b, r) => (r.weightLbs < b.weightLbs ? r : b));
   const max = entries.reduce((b, r) => (r.weightLbs > b.weightLbs ? r : b));
   const loss = first.weightLbs - last.weightLbs;
-  const bmi = (lbs: number) => (lbs * 0.45359237) / (heightCm / 100) ** 2;
+  const bmi = (lbs: number) => (lbs * LBS_TO_KG) / (heightCm / 100) ** 2;
   return {
     first,
     last,

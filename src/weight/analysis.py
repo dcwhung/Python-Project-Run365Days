@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from run365days.common.config import BODY_HEIGHT_CM, LBS_TO_KG
 from run365days.weight.models import WeightRecord
 
 __all__ = [
@@ -17,8 +18,6 @@ __all__ = [
     "weekday_summary",
     "describe_weight",
 ]
-
-_HEIGHT_CM_DEFAULT = 170.0
 
 
 _DATED_LINE = re.compile(r"([\d.]+)\s*lbs\s*\((\d+)/(\d+)\)")
@@ -46,7 +45,7 @@ def _read_weigh_in(
 def parse_weight_file(
     file_path: Path,
     year: int | None = None,
-    height_cm: float = _HEIGHT_CM_DEFAULT,
+    height_cm: float = BODY_HEIGHT_CM,
 ) -> list[WeightRecord]:
     """Parse a daily weight text file.
 
@@ -79,7 +78,7 @@ def parse_weight_file(
             if weigh_in is None:
                 continue
             weight_lbs, last_date = weigh_in
-            weight_kg = weight_lbs * 0.454
+            weight_kg = weight_lbs * LBS_TO_KG
             records.append(
                 WeightRecord(
                     day_number=len(records) + 1,
