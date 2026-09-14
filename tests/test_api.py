@@ -1,6 +1,7 @@
 import importlib.util
 from datetime import date, timedelta
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 from sqlalchemy import create_engine, event
@@ -465,7 +466,7 @@ def test_the_stored_activity_has_no_point_count_column():
 
 
 # ── AU-001: GraphiQL is off unless the environment asks for it ─────────────
-def _load_vercel_entry(monkeypatch, db_path, graphiql_env=None):
+def _load_vercel_entry(monkeypatch, db_path, graphiql_env=None) -> ModuleType:
     monkeypatch.setenv(db.DB_PATH_ENV, str(db_path))
     if graphiql_env is None:
         monkeypatch.delenv(GRAPHIQL_ENV, raising=False)
@@ -514,7 +515,7 @@ def test_typename_still_resolves_when_introspection_is_off(monkeypatch, client):
 
 
 # ── AU-049: the factory default follows the flag instead of being a second one ─
-def _ide_status(db_path, **kwargs):
+def _ide_status(db_path, **kwargs) -> int:
     """Ask for the endpoint as a browser would, and report the status."""
     app = create_app(db_path, **kwargs)
     app.testing = True

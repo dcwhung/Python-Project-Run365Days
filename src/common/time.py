@@ -116,7 +116,9 @@ def pace_str(total_sec: float, distance_km: float) -> str:
     return str(timedelta(seconds=total_sec / distance_km)).split(".")[0]
 
 
-def activity_time_range(start: datetime, end: datetime, period: int = 30):
+def activity_time_range(
+    start: datetime, end: datetime, period: int = 30
+) -> tuple[datetime, datetime]:
     """Widen a start / end pair to the surrounding *period*-minute boundaries.
 
     Args:

@@ -118,6 +118,10 @@ select = [
     # a directive keeps looking like a considered decision long after the rule it
     # names is gone, and a reader has no way to tell the live ones from the fossils.
     "RUF100", # unused noqa directive
+    # AU-020 counted 20 unannotated functions by hand. Counting by hand is the
+    # defect: the number was stale before it was written down. ANN keeps it at zero
+    # without anyone tracking it.
+    "ANN",  # flake8-annotations
 ]
 ignore = [
     "D105", # magic methods need no docstring
@@ -129,10 +133,35 @@ ignore = [
 # expectation, and pytest rewrites the statement to produce the failure message, so
 # banning it would ban testing. Every other security rule still applies to tests --
 # a hardcoded password or an unsafe deserialisation in a fixture is still a finding.
-"tests/*" = ["D", "S101"]          # test names are the documentation; assert is the idiom
+"tests/*" = [
+    "D",     # test names are the documentation
+    "S101",  # assert is the idiom (see above)
+    # The annotation rules are split here rather than dropped wholesale. Measured
+    # on this tree: ANN001 fires 466 times and ANN201 409 times in tests/, and
+    # essentially all of it is `def test_x() -> None` plus fixture parameters whose
+    # types pytest already fixes (tmp_path, monkeypatch, parametrize arguments).
+    # Writing those 875 annotations buys a reader nothing -- pytest itself rejects a
+    # test that returns non-None -- while the diff is large enough to hide a real
+    # change inside it.
+    "ANN001", # fixture and parametrize parameters
+    "ANN002", # *args on test doubles
+    "ANN003", # **kwargs on test doubles
+    "ANN201", # test functions return None by pytest's own contract
+    # ANN202 and ANN205 are deliberately NOT ignored. A helper's return type is the
+    # one annotation a caller cannot infer by looking at the call, which is the
+    # whole reason AU-020 was raised; the 19 helpers in tests/ have it.
+]
 "src/cli/*" = ["D103"]             # main() is described by the module docstring
 "src/api/schema.py" = ["D101", "D102"]  # GraphQL types carry descriptions in the schema
 "api/*" = ["D"]
+
+[tool.ruff.lint.flake8-annotations]
+# A `**kwargs` that exists only to be forwarded to super() has no narrower honest
+# type than Any -- the accepted keywords are the parent's, and restating them here
+# would be a copy that goes stale the first time the parent changes. ANN003 still
+# applies, so the annotation cannot simply be left off. Return values and ordinary
+# arguments are unaffected: ANN401 still rejects Any there.
+allow-star-arg-any = true
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"

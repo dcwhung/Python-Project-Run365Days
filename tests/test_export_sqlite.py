@@ -5,7 +5,7 @@ from run365days.export import models
 from run365days.export.sqlite import sqlite_url, write_sqlite
 
 
-def _session(path):
+def _session(path) -> Session:
     return Session(create_engine(sqlite_url(path, read_only=True)))
 
 

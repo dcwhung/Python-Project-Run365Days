@@ -6,6 +6,7 @@ and callers rely on ``distance_by_coord_km``.
 """
 
 import xml.etree.ElementTree as ET
+from collections.abc import Iterable
 from pathlib import Path
 
 import numpy as np
@@ -145,7 +146,7 @@ class GPXParser(BaseActivityParser):
         return (end - beg).total_seconds()
 
 
-def _describe(values) -> pd.Series:
+def _describe(values: Iterable[float | None]) -> pd.Series:
     """Return pandas summary statistics over *values*, ignoring ``None``."""
     kept = [v for v in values if v is not None]
     return pd.Series(kept, dtype="float64").describe()

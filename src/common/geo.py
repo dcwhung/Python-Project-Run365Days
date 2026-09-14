@@ -1,5 +1,7 @@
 """Great-circle distance helpers."""
 
+from collections.abc import Sequence
+
 import numpy as np
 
 Coord = tuple[float | None, float | None]
@@ -15,7 +17,7 @@ _NON_FINITE_MESSAGE = (
 )
 
 
-def _finite_degrees(coords) -> np.ndarray:
+def _finite_degrees(coords: Sequence[Coord]) -> np.ndarray:
     """Return *coords* as an ``(n, 2)`` float array, rejecting non-finite degrees.
 
     ``None`` is the documented "no GPS" marker and survives as ``nan``. An

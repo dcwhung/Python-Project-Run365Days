@@ -16,6 +16,7 @@ real response-iterable path is exercised without opening outbound network.
 import json
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from http.client import HTTPConnection
 
@@ -63,7 +64,7 @@ def _small_engine(db_file) -> Engine:
     )
 
 
-def _tracking_factory(opened: list, closed: list):
+def _tracking_factory(opened: list, closed: list) -> Callable[[Engine], Session]:
     """Return a ``db.Session`` stand-in that records every open and every close."""
 
     def make_session(engine: Engine) -> Session:
@@ -90,7 +91,7 @@ def harness(sample_records, tmp_path, monkeypatch) -> Harness:
     opened: list[Session] = []
     closed: list[Session] = []
 
-    def make_engine(db_file):
+    def make_engine(db_file) -> Engine:
         captured.append(_small_engine(db_file))
         return captured[-1]
 

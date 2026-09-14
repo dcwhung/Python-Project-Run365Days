@@ -1,7 +1,7 @@
 from run365days.dashboard import stats
 
 
-def _act(id, date, km, sec, kcal=300, cad=170.0, pace=None):
+def _act(id, date, km, sec, kcal=300, cad=170.0, pace=None) -> dict:
     return {
         "id": id,
         "date": date,

@@ -1,8 +1,11 @@
 """Flask application factory."""
 
 from pathlib import Path
+from typing import Any
 
-from flask import Flask, g, jsonify
+from flask import Flask, Request, Response, g, jsonify
+from sqlalchemy import Engine
+from sqlalchemy.orm import Session
 from strawberry.flask.views import GraphQLView
 
 from run365days.api import db
@@ -17,14 +20,14 @@ SESSION_KEY = "run365_session"
 class _SessionView(GraphQLView):
     """GraphQL view that opens one database session per request."""
 
-    def __init__(self, engine, **kwargs):
+    def __init__(self, engine: Engine, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._engine = engine
 
-    def get_context(self, request, response):
+    def get_context(self, request: Request, response: Response) -> dict[str, Any]:
         return {"request": request, "response": response, "session": self._request_session()}
 
-    def _request_session(self):
+    def _request_session(self) -> Session:
         """Return this request's session, opening it on first use.
 
         The session hangs off ``g`` and is closed by ``teardown_request``, not
@@ -69,14 +72,14 @@ def create_app(db_path: Path | str | None = None, graphiql: bool | None = None) 
     app.add_url_rule(GRAPHQL_PATH, view_func=view, methods=["GET", "POST"])
 
     @app.teardown_request
-    def close_session(exc):
+    def close_session(exc: BaseException | None) -> None:
         """Release this request's session, whether it ended in a response or an error."""
         session = g.pop(SESSION_KEY, None)
         if session is not None:
             session.close()
 
     @app.get(HEALTH_PATH)
-    def health():
+    def health() -> Response:
         return jsonify({"status": "ok", "db": str(path)})
 
     return app

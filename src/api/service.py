@@ -52,7 +52,9 @@ def _page(stmt: Select, limit: int | None, offset: int) -> Select:
     return stmt.limit(limit) if limit is not None else stmt
 
 
-def _dated(stmt: Select, column, date_from: str | None, date_to: str | None) -> Select:
+def _dated(
+    stmt: Select, column: ColumnElement, date_from: str | None, date_to: str | None
+) -> Select:
     """Apply an inclusive date window to *column*."""
     if date_from:
         stmt = stmt.where(column >= date_from)
@@ -82,7 +84,9 @@ def _activity_filters(
     return stmt
 
 
-def _count_dated(session: Session, model, date_from: str | None, date_to: str | None) -> int:
+def _count_dated(
+    session: Session, model: type[models.Base], date_from: str | None, date_to: str | None
+) -> int:
     """Count rows of a date-keyed table inside an inclusive date window."""
     stmt = _dated(select(func.count()).select_from(model), model.date, date_from, date_to)
     return session.scalar(stmt) or 0

@@ -10,6 +10,7 @@ week of the year is the (possibly partial) week containing 1 January.
 
 import calendar
 from collections import defaultdict
+from collections.abc import Iterable
 from datetime import date, timedelta
 
 CTL_DAYS = 42
@@ -27,11 +28,11 @@ def days_in_year(year: int) -> int:
     return 366 if calendar.isleap(year) else 365
 
 
-def _sum(values) -> float:
+def _sum(values: Iterable[float | None]) -> float:
     return sum(v for v in values if v is not None)
 
 
-def _mean(values) -> float | None:
+def _mean(values: Iterable[float | None]) -> float | None:
     vals = [v for v in values if v is not None]
     return sum(vals) / len(vals) if vals else None
 
