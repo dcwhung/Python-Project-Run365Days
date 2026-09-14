@@ -22,6 +22,9 @@ STORED_TRACK_POINTS = 600
 TRACKED_ACTIVITY_ID = "r0"
 GRAPHIQL_ENV = "RUN365_GRAPHIQL"
 VERCEL_ENTRY = Path(__file__).resolve().parents[1] / "api" / "graphql.py"
+HTTP_OK = 200
+HTTP_NOT_FOUND = 404
+BROWSER_HEADERS = {"Accept": "text/html"}
 
 # The deepest document the front end sends (queries.ts YearQuery): year ->
 # personalBests -> longest -> weather -> leaf.
@@ -31,10 +34,16 @@ DEEPEST_CLIENT_QUERY = """
 
 
 @pytest.fixture
-def client(sample_records, tmp_path):
+def api_db(sample_records, tmp_path):
+    """A database file on disk, for tests that build their own app."""
     path = tmp_path / "run365.db"
     write_sqlite(sample_records, path)
-    app = create_app(path, graphiql=False)
+    return path
+
+
+@pytest.fixture
+def client(api_db):
+    app = create_app(api_db, graphiql=False)
     app.testing = True
     return app.test_client()
 
@@ -391,6 +400,41 @@ def test_introspection_is_served_when_the_env_var_is_on(monkeypatch, client):
 def test_typename_still_resolves_when_introspection_is_off(monkeypatch, client):
     monkeypatch.delenv(GRAPHIQL_ENV, raising=False)
     assert gql(client, "{ meta { __typename year } }")["meta"]["__typename"] == "Meta"
+
+
+# ── AU-049: the factory default follows the flag instead of being a second one ─
+def _ide_status(db_path, **kwargs):
+    """Ask for the endpoint as a browser would, and report the status."""
+    app = create_app(db_path, **kwargs)
+    app.testing = True
+    return app.test_client().get(GRAPHQL_PATH, headers=BROWSER_HEADERS).status_code
+
+
+def test_the_ide_is_not_served_when_no_argument_and_no_env_var(monkeypatch, api_db):
+    monkeypatch.delenv(GRAPHIQL_ENV, raising=False)
+    assert _ide_status(api_db) == HTTP_NOT_FOUND
+
+
+def test_the_ide_is_served_when_the_caller_asks_for_it_explicitly(monkeypatch, api_db):
+    monkeypatch.delenv(GRAPHIQL_ENV, raising=False)
+    assert _ide_status(api_db, graphiql=True) == HTTP_OK
+
+
+def test_the_ide_follows_the_env_var_when_no_argument_is_given(monkeypatch, api_db):
+    monkeypatch.setenv(GRAPHIQL_ENV, "1")
+    assert _ide_status(api_db) == HTTP_OK
+
+
+def test_an_explicit_false_overrides_the_env_var(monkeypatch, api_db):
+    monkeypatch.setenv(GRAPHIQL_ENV, "1")
+    assert _ide_status(api_db, graphiql=False) == HTTP_NOT_FOUND
+
+
+def test_the_env_var_is_read_per_call_rather_than_frozen_at_import(monkeypatch, api_db):
+    monkeypatch.delenv(GRAPHIQL_ENV, raising=False)
+    while_unset = _ide_status(api_db)
+    monkeypatch.setenv(GRAPHIQL_ENV, "1")
+    assert (while_unset, _ide_status(api_db)) == (HTTP_NOT_FOUND, HTTP_OK)
 
 
 # ── W-009: counts let a client see rows the page window cut off ────────────

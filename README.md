@@ -128,15 +128,17 @@ run as `python -m run365days.cli.<module>`.
 ### GraphQL API
 
 ```bash
-run365-export                                   # build data/processed/run365.db once
-flask --app run365days.api.app:create_app run   # GraphiQL at http://127.0.0.1:5000/api/graphql
+run365-export                                                     # build data/processed/run365.db once
+RUN365_GRAPHIQL=1 flask --app run365days.api.app:create_app run   # GraphiQL at http://127.0.0.1:5000/api/graphql
 ```
 
-The schema exposes `meta`, `activities(fromDate, toDate, minKm, hasGps)`,
-`activity(id)` with a downsampled `track(points)`, `weight`, `weather`,
-`warnings` and a `year` aggregate (totals, monthly, weekly, daily distance,
-training load, personal bests). `api/graphql.py` exports the same app for
-Vercel; `RUN365_DB_PATH` points it at the bundled database.
+Without `RUN365_GRAPHIQL` the endpoint still answers queries; the flag adds
+the IDE and the introspection it needs. The schema exposes `meta`,
+`activities(fromDate, toDate, minKm, hasGps)`, `activity(id)` with a
+downsampled `track(points)`, `weight`, `weather`, `warnings` and a `year`
+aggregate (totals, monthly, weekly, daily distance, training load, personal
+bests). `api/graphql.py` exports the same app for Vercel; `RUN365_DB_PATH`
+points it at the bundled database.
 
 ## Dashboard
 
