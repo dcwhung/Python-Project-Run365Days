@@ -100,7 +100,7 @@ form `154.8 lbs (1/5)` (day/month). `run365days.weight.analysis.parse_weight_fil
 handles the two quirks of the file: the final line is often written without
 a date and is taken as the day after the previous entry, and any line that
 matches neither form is ignored. Weight in kilograms and BMI are derived
-using `config.BODY_HEIGHT_CM`.
+using the default height in `run365days.weight.analysis`.
 
 `activities.xlsx` is the spreadsheet the challenge was originally tracked
 in (date, time, distance, duration, pace, weight). It is kept as a record

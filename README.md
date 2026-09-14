@@ -73,7 +73,7 @@ pages.
 ```
 pyproject.toml                 package metadata, console scripts, ruff and pytest config
 src/                           Python package, imported as `run365days`, one sub-package per feature
-  activities/                  Activity / TrackPoint models, parsers/ (tcx, gpx, kml), metrics (MET)
+  activities/                  Activity / TrackPoint models, parsers/ (tcx, gpx, kml)
   weather/                     weather models, collectors/ (hko_daily, hourly, warnings)
   weight/                      daily weight parsing, year table, summaries
   dashboard/                   builder (shared run calculations), stats (year aggregates)
@@ -115,15 +115,16 @@ elsewhere, set `RUN365_DATA_DIR` to a directory with the same
 
 ## Command-line tools
 
-Installing the package registers three console scripts. Each can also be
+Installing the package registers five console scripts. Each can also be
 run as `python -m run365days.cli.<module>`.
 
 | Command | What it does | Reads | Writes |
 |---|---|---|---|
-| `run365-activities --format all --year 2021` | Parse every activity file into normalised records | `data/raw/garmin/{tcx,gpx,kml}/` | `data/processed/activities_<fmt>.jsonl` |
-| `run365-weather --source all --year 2021` | Scrape hourly weather, HKO warnings and the HKO daily extract | the web | `data/raw/weather/*.json` |
+| `run365-activities --format all --year 2021` | Parse every activity file into normalised records. `--year` is a **lower bound**: earlier activities are skipped, later ones are kept. Exits non-zero, writing nothing, if a format yields no records | `data/raw/garmin/{tcx,gpx,kml}/` | `data/processed/activities_<fmt>.jsonl` |
+| `run365-weather --source all --year 2021` | Scrape hourly weather, HKO warnings and the HKO daily extract. Leaves an existing file untouched rather than blanking it when a source yields no records | the web | `data/raw/weather/*.json` |
 | `run365-export [--points 600] [--skip-db] [--skip-static] [--static-dir DIR]` | Parse everything once and write the processed data set for the API and the static build | `data/raw/**` | `data/processed/run365.db` and `data/processed/static/*.json` |
 | `run365-schema [--check FILE]` | Print the GraphQL SDL, or verify a file matches it | the Strawberry schema | stdout |
+| `run365-ci-docs [--check FILE...] [--write FILE...]` | Regenerate, or verify, the CI facts blocks in the documentation from the workflow itself | `.github/workflows/pages.yml` | the given documentation files |
 
 ### GraphQL API
 
@@ -211,14 +212,14 @@ ruff check src tests
 ruff format --check src tests
 ```
 
-- 93 tests cover the geo and time helpers, MET and calorie maths, weight
-  parsing (including the undated-last-line quirk), every dashboard builder
-  function, the export records, SQLite and JSON writers, and the CLI
-  serialiser.
-- Front end: 87 Vitest tests cover the TypeScript stats port (pinned to the
-  Python numbers), the static JSON mappers and source, the API source,
-  data-mode resolution, formatting and weather helpers, every view's model
-  module, and all nine views rendered against a fake data source.
+- The Python suite covers the geo and time helpers, the three activity
+  parsers, the weather collectors and their CLI, weight parsing (including
+  the undated-last-line quirk), every dashboard builder function, the export
+  records, SQLite and JSON writers, the GraphQL API and the CLI entry points.
+- Front end: Vitest covers the TypeScript stats port (pinned to the Python
+  numbers), the static JSON mappers and source, the API source, data-mode
+  resolution, formatting and weather helpers, every view's model module, and
+  all nine views rendered against a fake data source.
 - ruff enforces pycodestyle, pyflakes, isort, pyupgrade, bugbear,
   simplify, pep8-naming and Google-style docstrings on every public
   symbol. Line length is 100.

@@ -1,9 +1,10 @@
 # Architecture
 
 Run365Days turns three kinds of personal records (Garmin activity exports,
-a daily weight log and scraped Hong Kong weather) into a single JSON payload
-that a static web dashboard renders. This page describes how the code is
-organised and why.
+a daily weight log and scraped Hong Kong weather) into one processed data set
+that a React dashboard reads in either of two modes: split JSON files served
+as static assets, or a GraphQL API over SQLite. This page describes how the
+code is organised and why.
 
 ## Package layout
 
@@ -14,18 +15,18 @@ while the project keeps a conventional src-layout that prevents tests from
 importing an uninstalled tree by accident.
 
 Sub-packages are split **by feature**, not by layer. Each feature owns its
-models, its readers and its derived metrics:
+models, its readers and its derived calculations:
 
 | Package | Owns | Depends on |
 |---|---|---|
 | `run365days.common` | `config` (all paths and constants), `geo` (haversine), `time` (timestamp parsing, pace formatting) | nothing inside the project |
-| `run365days.activities` | `Activity` / `TrackPoint` dataclasses, `parsers/` for TCX, GPX and KML, `metrics` (MET and kcal) | `common` |
+| `run365days.activities` | `Activity` / `TrackPoint` dataclasses, `parsers/` for TCX, GPX and KML | `common` |
 | `run365days.weather` | `HourlyWeather`, `WeatherWarning`, `DailyWeather`, `SunMoon` dataclasses and `collectors/` that scrape HKO and freemeteo | `common` |
 | `run365days.weight` | `WeightRecord` and the year table / summaries built from the text log | `common` |
 | `run365days.dashboard` | `builder` (pure per-run calculations shared by export and API) and `stats` (year aggregates) | `activities`, `weight` |
 | `run365days.export` | `records` (one intermediate structure), `models` (SQLAlchemy), `sqlite` and `static_json` writers | `dashboard.builder`, `activities`, `weight` |
-| `run365days.api` | `app` (Flask factory), `schema` (Strawberry types and `Query`), `service` (SQLAlchemy queries), `db` (engine and session helpers) | `export.models`, `dashboard.stats` |
-| `run365days.cli` | Three console scripts that wire the features together | everything above |
+| `run365days.api` | `app` (Flask factory), `schema` (Strawberry types and `Query`), `service` (SQLAlchemy queries), `db` (engine and session helpers) | `export.models`, `export.records`, `export.sqlite`, `dashboard.stats` |
+| `run365days.cli` | Five console scripts that wire the features together | everything above |
 
 Dependencies only point downwards in that table. Nothing under `activities`,
 `weather` or `weight` knows the dashboard exists, which keeps each feature
@@ -100,8 +101,8 @@ the sub-resources a future API will expose.
 ### Pure builder functions
 
 Everything in `dashboard.builder` takes plain Python values and returns
-plain Python values; file I/O is limited to `load_jsonl` and
-`write_data_js`. That is what makes the payload unit-testable without
+plain Python values; the only one that touches the filesystem is
+`load_jsonl`. That is what makes them unit-testable without
 fixtures on disk (`tests/test_dashboard_builder.py`).
 
 ### One front end, two data modes
@@ -133,10 +134,10 @@ in a container or against a different year's exports.
 
 - **ruff** with `E W F I UP B SIM N D` rule sets, line length 100, Google
   docstring convention. Configuration is in `pyproject.toml`.
-- **pytest** covering geo and time helpers, MET metrics, weight parsing,
-  every builder function, the year statistics, the export writers, the
-  GraphQL API (Flask test client against a temporary database) and the
-  CLI serialiser.
+- **pytest** covering geo and time helpers, the activity parsers, the
+  weather collectors, weight parsing, every builder function, the year
+  statistics, the export writers, the GraphQL API (Flask test client
+  against a temporary database) and the CLI entry points.
 - **pre-commit** runs the same ruff checks locally.
 - **GitHub Actions** (`.github/workflows/pages.yml`) gates the repository
   and publishes the static dashboard. The branch rules are read out of the
