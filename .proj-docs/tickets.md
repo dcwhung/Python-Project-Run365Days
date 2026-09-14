@@ -1,6 +1,6 @@
 # Ticket Registry — Run365Days
 
-**最後更新**：2026-09-14（P1 Round 1：AU-006/007/008/031/032/047 + CUI-0024 完成）
+**最後更新**：2026-09-14（P1 全清 + P2 Round 1：AU-019/025/026/027/029/036/037 + CUI-0021/0029 完成）
 
 > 由 `/audit`（AU-NNN）同 `/review`（C/W/S-NNN）產生嘅 ticket 集中登記處。
 > 編號全局唯一、永不重用。已完成嘅保留紀錄，只改狀態。
@@ -1451,3 +1451,274 @@ path hook 再次指去佢個 worktree，已再次喺主 checkout 復原。
 | **CUI-0041** | 🟢 Low | `WeightView.tsx` 有個無大括號嘅單句 `if` 被 prettier 拆成兩行，讀落更差，亦違反團隊「所有條件都要 `{}`」規則 | Lane F |
 | **CUI-0042** | 🟢 Low | `dist/assets/index-*.js` **657 kB**（gzip 204 kB），每次 build 都有 Vite chunk-size 警告，冇配置 code-splitting | Lane F |
 | **CUI-0043** | 🟢 Low | pre-commit 冇 JS/TS hook；prettier local hook 可以直接加入（現有 `end-of-file-fixer` / `trailing-whitespace` 已經覆蓋 `frontend/` 而且同 prettier 唔衝突） | Lane F |
+
+---
+
+## P2 Round 1 修復摘要（2026-09-14）
+
+三條並行 lane：前端 token / a11y（AU-019/025/026/027）、死碼 + SunMoon（AU-029/036/037）、API（CUI-0021/0029）。
+
+| 指標 | Round 1 前 | 完成 |
+|---|---|---|
+| Python tests | 504 | **544** |
+| Frontend tests | 100（19 files） | **123（23 files）** |
+| Coverage TOTAL | 94.07% | **95.07%** |
+| `rgba()` 硬寫（非 token module） | 24 | **0** |
+| `.tsx` 入面嘅顏色 hex | 78 | **1**（`MARKER_RING = "#fff"`，具名兼有註釋） |
+| Static export | 6,850,876 / 370 | **未變** |
+
+**刻意排除**：AU-028（六個頂層 `.tsx` 搬入 `<type-group>/<name>/`）、AU-022（命名縮寫）、AU-005（`dashboard` → `analytics`）。
+三者都係純搬位／改名，同任何內容改動硬撞，應該單獨一輪做，令 diff 係純 rename、reviewer 可以整段跳過。
+
+---
+
+## 我報錯咗五個數字（連續第二輪）
+
+| 我寫 | 實測 |
+|---|---|
+| `rgba()` 硬寫 23 | **24** |
+| `.tsx` hex 70 | **78** |
+| token 來源 3 份 | **4 份** |
+| AU-019 有 4 處 | **5 處，而且唔係我嗰四處** |
+| AU-027 係「26 個 module-scope 常數」 | **20 個常數**；「26」係另一樣嘢（見下） |
+
+**第三個係 audit 自己都漏咗嘅**：`frontend/src/lib/paceColor.ts` 藏住第四份 palette ——
+```
+const C_SLOW = [248, 113, 113];   // = #f87171 = --color-danger
+const C_MID  = [245, 158, 11];    // = #f59e0b = --color-warn
+const C_FAST = [52, 211, 153];    // = #34d399 = --color-accent2
+export const NO_PACE_COLOR = "#2e3250";  // = --color-border
+```
+四個 theme token 換成 RGB array 重新編碼，所以任何 grep `#` 或 `rgba(` 都搵唔到佢。
+
+**第四個係 false positive**：我將 `RecentActivities.tsx:20` 當成 a11y 違規，但 base commit 嗰度**已經係 `<button type="button">`**。
+我 grep `onClick` 冇睇元素。真正五處入面有**兩處（`ActivitiesView.tsx:174` 同 `:187`）連 audit 都冇列**。
+
+**第五個係我 framing 錯而 audit 啱**：`.tsx` 入面確實得 20 個 module-scope 常數，但**啱啱好有 26 個裸單位換算**
+（`/60`、`/3600`、`/1000`、`*60`）散喺九個 view component 嘅 JSX 同 Chart.js tooltip callback 入面 ——
+嗰個先係 ticket 講緊嘅「單位換算」，而 26 就係佢嘅數目。已收歸 `src/lib/units.ts`，殘留 **0**。
+
+---
+
+## ⚠️ AU-019 最重要嘅發現：加 linter 唔等於捉到
+
+Lane A 裝咗 `eslint-plugin-jsx-a11y` 之後**先量度再信**：`recommended` **同** `strict` **都只捉到 5 個入面嘅 1 個**。
+
+原因：`aria-query` 俾 `<tr>` / `<td>` / `<th>` 派咗 **interactive 嘅 `row` / `cell` role**，
+所以 `click-events-have-key-events`、`no-noninteractive-element-interactions`、`interactive-supports-focus`
+三條全部行過一個可點擊嘅 row 都唔出聲。
+
+**Main agent 獨立重現**（一個淨係載入 `jsx-a11y.flatConfigs.strict` 嘅最小 config，一個裸 `<tr onClick>`）：
+
+```
+jsx-a11y strict 對 <tr onClick>  ->  exit=0，零 output
+```
+
+即係話**單靠個 plugin 會宣告呢類 bug 已修好，同時留低 5 個入面 4 個永遠捉唔到**。
+Lane A 冇收貨，喺 plugin 之上加咗一條 `no-restricted-syntax` selector 專門封呢個窿。Main agent 用同一個 probe 驗返 repo config：
+
+```
+repo config 對同一個 probe -> exit=1
+  error  A clickable <tr>/<td>/<th>/<li> needs keyboard parity: either move the handler
+         onto a real <button>, or add tabIndex={0} plus an onKeyDown that fires on Enter and Space
+```
+
+**呢個係本 session 第二次見到「開咗工具唔等於有保護」**：第一次係 CUI-0029 嗰條 `loaded_as_persistent` guard
+改用 Core select 之後會靜靜變空殼。兩次嘅共通點都係**冇人量度過個工具實際捉唔捉到**。
+
+---
+
+## Design-Source Binding Rule —— 四張改顏色嘅票，零 CSS 改動
+
+**Main agent 獨立 build base commit 同 branch HEAD 對比**：
+
+```
+BASE  (0c9006e): 74a1a510c3d6ff7391d553f4120d8b01f0fc928c10ab3d52e49570eb01f7ecad  index-uk9sh9F2.css
+AFTER          : 74a1a510c3d6ff7391d553f4120d8b01f0fc928c10ab3d52e49570eb01f7ecad  index-uk9sh9F2.css
+```
+
+**逐 byte 相同**，連檔名 hash 都一樣。加 `--color-blue` 落 `@theme` costs zero bytes ——
+Tailwind v4 會 tree-shake 冇人引用嘅 theme variable（Lane A 先實測驗證咗呢點先敢靠佢）。
+
+Lane A 另外做咗一個超出 hash 嘅檢查：抽出 base commit 嗰 **74 個顏色字面值**，逐個由取代佢嘅 token 表達式重新推導再比對 ——
+**74 個全部重現，0 個唔同**。`WarningSprite` 再喺 jsdom 同 base 版本並排 render：**DOM 逐 byte 相同**，21 個 symbol id 齊全。
+
+### 一個中途出現、被追到底而唔係含混過去嘅 CSS hash 改動
+
+Lane A 加咗新測試之後 CSS hash 變咗。追查結果：**Tailwind 掃 source text 搵 class candidate，
+而佢新寫嘅測試描述入面「container」同「invisible」兩個英文字，令 339 bytes 真實 CSS
+（`.container` + 五個 `@media` breakpoint + `.visible` / `.invisible`）ship 咗俾每一個訪客。**
+
+用 `@source not "./**/*.test.ts(x)"` 修好，hash 回復。**呢個係 repo 本來就有嘅曝險**，
+只係之前冇一條測試啱啱好包含一個 utility 形狀嘅英文字。
+
+---
+
+## AU-026 —— 49 個 hex 分兩類，界線劃得有理
+
+| 類別 | 數量 | 去向 |
+|---|---|---|
+| 品牌色 | 16 | → `TOKENS.text`（八個熱帶氣旋信號嘅形狀 fill 同級數字，係 theme foreground，必須跟 theme 走） |
+| 固定語義色 | 33 | → `signalColors.ts`（**刻意獨立、frozen**） |
+
+語義色嘅論證：暴雨嘅琥珀／紅／黑係**讀者單靠顏色分辨嘅級別**；七個 `#fff` 字符之所以睇得清，
+係因為底下嗰塊 tile 係固定飽和色；山泥傾瀉嘅土色、水浸／海嘯藍、霜凍／寒冷／酷熱、火災黃紅，全部係 HKO 側而唔係 dashboard 側。
+**綁去 theme token 會令改 palette 靜靜咁改變個 icon 嘅意思。**
+
+四個「差少少」嘅顏色同一個字體 stack **刻意冇收斂**（收斂會係真視覺改動），已列表交返俾人決定 —— 見下面 CUI-0044。
+
+---
+
+## CUI-0021 —— 我 brief 講錯咗對象
+
+我寫「前端 TanStack Query 亦會當成功」。**Main agent 核實：錯。**
+
+`graphql-request@7.4.0` 嘅 `runRequest.js:43` 對 `!response.ok` 回 `ClientError`，
+而 **2xx 帶 `errors` 一樣回 `ClientError`**（`:68`）；八個 view 全部 render `isError`。
+即係**前端一直都處理緊**。真正睇唔到嘅係 **HTTP 層** —— 任何淨係 check status code 嘅監控或 harness
+（QA 當初撞到嗰個「400 requests 全部 ok，收到 341 個 unique id 當 365」）。
+
+修改仍然啱，但理由要改寫。
+
+### 界線同本 session 已劃四次嗰條一致
+
+`original_error is None` = graphql-core parse / validate 出嚟嘅，即「API 讀咗你送嘅嘢然後答『唔得』」→ **200**。
+`ClientArgumentError`（新，`ValueError` 子類）= 同一個答案喺 resolver 層講 → **200**。
+其餘 = 去到 resolver 但完成唔到 → **500**。
+
+**唔用裸 `ValueError` 做判別**，因為 `int()` 對一行壞數據都會掟 `ValueError` ——
+咁樣會將後端故障重新標籤成用戶錯誤，即係同一個缺陷換條門入。
+
+**Main agent 獨立實測**（自己注入錯誤）：
+
+| 情況 | status |
+|---|---|
+| 健康請求 | 200 |
+| `ClientArgumentError`（points 出界） | **200** |
+| GraphQL validation（unknown field） | **200** |
+| `OperationalError`（基建） | **500**，payload 保住具名成因 |
+
+順帶：我原本想用「耗盡 pool」重現，**12 個 request 都爆唔到** —— 因為 CUI-0005 已經修好 session leak。呢個係 CUI-0005 生效嘅旁證。
+
+---
+
+## CUI-0029 —— 兩個 ticket 前提錯，佢量度之後做咗啱嘅嘢
+
+| 我寫 | 實測 |
+|---|---|
+| 「兩次掃描」係成本所在 | `EXPLAIN QUERY PLAN` 顯示內層係 **COVERING INDEX**（只讀 seq，冇 row payload），外層係逐 seq seek。單次掃描原型**每次都更慢**（843.7 vs 807.6 ms 等），**冇 ship** |
+| 「`track()` 佔請求 80%」 | 唔重現。80% 係**上一輪量嘅 service 層佔比**（分母 1490 ms）；佢量嘅係 **end-to-end GraphQL**（分母 3370 ms），ORM 讀取佔 ~34%。兩者唔矛盾，係我傳遞時冇講清楚分母 |
+
+實際改動：`select(models.TrackPoint)` → Core column select（由 `TRACK_COLUMNS` 砌，所以新增 export 欄位會自動到 API）。
+
+| | before | after |
+|---|---|---|
+| service `track()`（預設取樣數） | 1161.3 ms | **807.6 ms（−30%）** |
+| service `track()`（全條 track） | 1643.2 ms | **855.6 ms（−48%）** |
+| end-to-end `{ activities { track } }` | 3370.8 ms | **2883.0 ms（−14.5%）** |
+| query 數 | 367 | 367（不變） |
+
+**行為不變**：2,555 組合 / 459,061 點，`cmp` exit 0，兩邊 sha256 `c5a7f9a3…` 相同。
+
+### 個 guard 測試點樣避免變空殼
+
+而家同時睇兩樣嘢，**而且用同一個 session 先校準兩個計數器再信佢哋**：
+- `sqlite3` 嘅 `row_factory`（每行 fire 一次，SQLAlchemy 唔會掂佢，唔知有 mapping 呢回事 → 任何 query 改寫都殺唔死佢），斷言 `<= 2 * points`
+- `loaded_as_persistent`（起咗幾多 ORM entity），斷言 **`== []`** 而唔係設上限
+
+校準步驟先讀全條 track、斷言兩個計數器都動咗 `STORED_TRACK_POINTS`，並喺之後 `expunge_all()` ——
+否則一個熱 entity 會遮住 regression。**一個停止報數嘅儀器會大聲失敗，而唔係靜靜俾斷言過關。**
+
+四個 mutation 逐個單獨落，三紅一綠，而嗰個綠正正解釋咗 `expunge_all()` 點解要喺度。
+Main agent 獨立重跑第一個：還原 ORM select → 紅，還原 → 綠。
+
+---
+
+## AU-037 —— 我個前提只啱一半，佢冇假裝做到
+
+我寫「SunMoon 有真正寫入者，令重新採集唔會摧毀現有資料」。**後半錯。**
+
+**Main agent 核實**：`src/cli/export_data.py:77-79` 只載入 `HKO_DAILY_JSON` / `WEATHER_HISTORY_JSON` / `WEATHER_WARNING_JSON`，
+**冇 `SUN_MOON_JSON`**；而 `records.py:171-172` 讀嘅係 **hko_daily 個 row**。
+
+所以移植 collector 保護到 `sun_moon_rise_set_history.json`，但**重新採集 hko-daily 之後 export 出嘅 sunrise/sunset 一樣會變 `None`**。
+要補呢個窿就要喺 `records.py` + `export_data.py` join sun/moon 檔 —— 兩者都唔喺該 lane，
+**而且會打破 byte-identical**（兩份副本逐分鐘唔一致：`2021-01-01` → hko_daily `07:03`、sun_moon `07:02`）。
+Lane B 改咗 `to_raw_row` 個 docstring 講返實情，而唔係留住一句「collector 未移植」嘅假話。已開 **CUI-0045**。
+
+### 喺睇唔到 HKO 頁面嘅情況下，佢揾到最硬嗰個佐證
+
+Legacy script 有個 `colspan==4` 分支硬寫 `100.0%`，睇落似 bug。**Main agent 掃 365 行 raw 確認**：
+
+```
+Moon Transit == "/"  ->  12 行，Illumination 全部 100.0%
+Moonrise == "/" 13 次 ｜ Moonset == "/" 12 次 ｜ 從不同時出現（農曆月節奏）
+```
+
+即嗰個 `100.0%` **唔係 bug，係滿月情況**。
+
+**時間 pattern 拒絕 12 小時制** —— legacy 個 `[:5]` 切片會將 `7:05 pm` 讀成 `07:05`，**差十二個鐘而且靜默**（CUI-0018 同一家族）。
+
+`sun_moon.py` **100% 覆蓋**。而且佢喺 `tests/test_weather_collectors.py` 加咗 `TestTheNetworkGuardItself` ——
+之前嗰個 `block_real_sockets` **聲稱係證明但從未被行使過**，同 CUI-0010 揭到嘅失敗形狀一模一樣。
+實測 sandbox **唔係離線**：TCP connect 去 `127.0.0.1:45183`（`$HTTPS_PROXY`）**成功**。
+
+---
+
+## AU-029 —— 四個全刪，證據鏈完整
+
+| function | production 消費者 | 測試消費者 |
+|---|---|---|
+| `parse_weight_file` | `cli/export_data.py:26,70` | 多條 |
+| `build_dataframe` | **0**（AU-006 之後） | 只有自己嗰條測試 |
+| `monthly_summary` / `weekday_summary` / `describe_weight` | **0** | **0** |
+
+`legacy/README.md:17` 將 `05_GetDailyWeightSummary.py` 對應到 `run365days.weight`，
+而讀該 script 顯示四個 function 係佢**console 列印 / matplotlib 半邊**嘅逐行移植。
+唯一寫檔嗰行（`:155 to_json`）喺 `exit()`（`:137`）之後 —— **喺 legacy script 入面本身都係死碼**，
+而佢寫嘅正正就係 AU-036 要刪嗰個 `DAILY_WEIGHT_JSON`。同源，同死。
+
+`weight` package 而家唔再需要 pandas + numpy（有新 subprocess 測試釘住），
+**但 `pyproject.toml` 仍然要兩者**（`weather/collectors/`、`activities/parsers/`、`common/geo.py`）—— 呢點佢講清楚咗，冇誇大。
+
+`weight/analysis.py`：62 stmts / 12 miss（81%）→ **31 / 0（100%）**。
+
+---
+
+## 我 gate list 又寫錯一條
+
+我叫前端 lane 跑 `npx tsc -b`。**Fresh checkout 上佢必然 exit 2** ——
+`src/data/api/queries.ts` import `@/gql`，而 `frontend/.gitignore:5` 將 `src/gql/` 排除、從未 commit。
+**Main agent 核實**：`git ls-files frontend/src/gql` 零 output。
+
+之前跑得通純粹因為早前 build / test 已經生成咗佢。正確嘅 gate 係 **`npm run typecheck`**（= `codegen && tsc -b`），
+CI 亦係咁叫。已修正。
+
+---
+
+## 新開
+
+| ID | 級別 | 標題 | 來源 |
+|---|---|---|---|
+| **CUI-0044** | 🟢 Low | 四個 sprite 顏色 + 一個 font stack「差少少」但唔相等，收斂會係真視覺改動 —— **需要人決定** | Lane A |
+| **CUI-0045** | 🟡 Medium | `SUN_MOON_JSON` 有寫入者但**冇讀取者**；補窿要 join 入 export，而兩份副本差一分鐘，會打破 byte-identical —— 要決定邊份權威 | Lane B |
+| **CUI-0046** | 🟢 Low | Tailwind 掃 source text，任何測試描述含 utility 形狀嘅英文字都會 ship 死 CSS（實測 339 bytes）。`@source not` 只封咗測試檔，值得一條 CI 檢查 | Lane A |
+| **CUI-0047** | 🟢 Low | `WeatherView.tsx:201` 用 `hsl(${210 - i * 30},70%,60%)` 生成溫度帶顏色 —— 唯一一個既非 token 亦非固定 palette 嘅顏色來源，唔會跟 theme 走 | Lane A |
+| **CUI-0048** | 🟢 Low | `eslint.config.js` 個 `no-restricted-syntax` selector **冇測試**，改壞咗會靜默失效 | Lane A |
+| **CUI-0049** | 🟢 Low | `test_a_single_activity_request_is_not_made_slower` 斷言喺**生成嘅 SQL 文字**上；今次靠彩數過關，將來 alias 表名會為咗無關原因而紅 | Lane C |
+| **CUI-0050** | 🟢 Low | Coverage 未開 `branch = true`，所以「100%」只代表行行過，唔代表兩邊都行過（實例：batched GraphQL document 分支） | Lane C |
+| **CUI-0051** | 🟢 Low | `TestOneOwnerPerConstant` 連 docstring 同註釋都掃，所以任何**討論**受管常數嘅文件都會令佢紅 —— 目前無法引用一個實測數字 | Lane C |
+
+### CUI-0044 詳情（要你決定）
+
+| `signalColors.ts` | 現值 | 最接近嘅 token | 相等？ |
+|---|---|---|---|
+| `thunderTile` | `#2a2f3d` | `--color-surface2` `#22263a` | ❌ |
+| `thunderTileEdge` | `#4b5268` | `--color-border` `#2e3250` | ❌ |
+| `rainBlack` | `#0b0d14` | `--color-bg` `#0f1117` | ❌ |
+| `rainBlackEdge` | `#cbd5e1` | `--color-text` `#e2e8f0` | ❌ |
+
+加上 sprite 數字用 `system-ui,sans-serif` 而 `--font-sans` 係 `"Segoe UI", system-ui, sans-serif` ——
+收斂會令 Windows 上 Segoe UI 贏，係真改動。已具名為 `SIGNAL_DIGIT_FONT` 並加註釋。
+
+**問題本質係：呢啲係「我哋揀嘅顏色」定「人哋俾我哋嘅顏色」。** 五個都係一行改動，只等一句話。
