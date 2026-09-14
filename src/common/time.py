@@ -37,8 +37,12 @@ def parse_datetime(rec_time: str, timezone: str = "Asia/Hong_Kong") -> datetime:
             return dateutil.parser.parse(rec_time)
     elif rec_time.isdigit() and len(rec_time) == _UNIX_MS_DIGITS:
         epoch_seconds = round(int(rec_time) / _MS_PER_SECOND, 1)
-        # AU-003 keeps the existing wall clock: the epoch is read as UTC, then relabelled
-        # (not converted) to *timezone*. The 8-hour semantic question is tracked separately.
+        # KNOWN INCORRECT, kept deliberately. The epoch is read as UTC and then
+        # relabelled -- not converted -- to *timezone*, so the result is 8 hours off for
+        # Asia/Hong_Kong. AU-003 was scoped to the offset only and preserved this wall
+        # clock; correcting the shift is AU-048. TestParseDateTimeWallClockUnchanged in
+        # tests/test_common_time.py pins the current behaviour on purpose and must be
+        # updated in the same change as this line.
         naive_utc = datetime.fromtimestamp(epoch_seconds, tz=dt_timezone.utc).replace(tzinfo=None)
         return naive_utc.replace(tzinfo=tz)
 
