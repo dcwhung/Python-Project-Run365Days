@@ -9,6 +9,15 @@ from run365days.weather.models import DailyWeather
 
 _BASE_URL = "https://www.weather.gov.hk/cis/dailyExtract/dailyExtract_"
 
+# A socket with no timeout can hang forever, and fetch_year() pays that cost up
+# to 13 times in sequence. Five seconds is generous for a TCP handshake to a
+# reachable host, so an unreachable one fails fast instead of stalling the run;
+# thirty covers HKO's slowest yearly payload without letting one bad month
+# dominate the whole year (AU-014).
+_CONNECT_TIMEOUT_SEC = 5
+_READ_TIMEOUT_SEC = 30
+_REQUEST_TIMEOUT = (_CONNECT_TIMEOUT_SEC, _READ_TIMEOUT_SEC)
+
 
 def fetch_year(year: str) -> list[DailyWeather]:
     """Fetch the HKO daily extract for a whole year.
@@ -23,7 +32,7 @@ def fetch_year(year: str) -> list[DailyWeather]:
         One record per day, in calendar order.
     """
     records: list[DailyWeather] = []
-    content = requests.get(f"{_BASE_URL}{year}.xml").text
+    content = requests.get(f"{_BASE_URL}{year}.xml", timeout=_REQUEST_TIMEOUT).text
     res = json.loads(content)
 
     for month_data in res["stn"]["data"]:
@@ -33,7 +42,9 @@ def fetch_year(year: str) -> list[DailyWeather]:
         if not day_data:
             # Fallback to per-month endpoint
             try:
-                content2 = requests.get(f"{_BASE_URL}{year}{month}.xml").text
+                content2 = requests.get(
+                    f"{_BASE_URL}{year}{month}.xml", timeout=_REQUEST_TIMEOUT
+                ).text
                 res2 = json.loads(content2)
                 day_data = res2["stn"]["data"][0]["dayData"]
             except Exception:
