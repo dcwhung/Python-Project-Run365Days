@@ -1,5 +1,6 @@
 """Timestamp parsing and formatting helpers (Hong Kong local time)."""
 
+import re
 from datetime import datetime, timedelta
 from datetime import timezone as dt_timezone
 from typing import Final
@@ -9,6 +10,8 @@ import dateutil.parser
 
 _UNIX_MS_DIGITS = 13
 _MS_PER_SECOND = 1000
+# ISO 8601 permits +HH, +HHMM and +HH:MM, so the minutes group is optional.
+_ISO_OFFSET_PATTERN: Final[re.Pattern[str]] = re.compile(r"[+-]\d{2}(?::?\d{2})?$")
 _MISSING_TZ_DATA_MESSAGE: Final[str] = (
     "No IANA time zone database entry for {timezone!r}. zoneinfo carries no data of "
     "its own: it reads the host database (usually /usr/share/zoneinfo) and falls back "
@@ -52,7 +55,7 @@ def parse_datetime(rec_time: str, timezone: str = "Asia/Hong_Kong") -> datetime:
     Supported inputs:
 
     - ``2021-10-16T22:10:56.000Z`` (UTC ISO with milliseconds)
-    - ``2021-10-17T06:10:56+08:00`` (ISO with offset)
+    - ``2021-10-17T06:10:56+08:00`` (ISO with an offset of either sign)
     - ``1634422256000`` (Unix timestamp in milliseconds)
     - ``2021-10-17 06:10:56`` (naive local time)
 
@@ -72,8 +75,10 @@ def parse_datetime(rec_time: str, timezone: str = "Asia/Hong_Kong") -> datetime:
     if "T" in rec_time:
         if "." in rec_time and rec_time.endswith("Z"):
             return dateutil.parser.parse(rec_time).replace(tzinfo=dt_timezone.utc).astimezone(tz)
-        elif "+" in rec_time:
-            return dateutil.parser.parse(rec_time)
+        # Matched against the time part only: the date part is full of '-' separators, so
+        # searching the whole string would take "2021-10-17" for a negative offset.
+        elif _ISO_OFFSET_PATTERN.search(rec_time.split("T", 1)[1]):
+            return dateutil.parser.parse(rec_time).astimezone(tz)
     elif rec_time.isdigit() and len(rec_time) == _UNIX_MS_DIGITS:
         epoch_seconds = round(int(rec_time) / _MS_PER_SECOND, 1)
         # An epoch is an absolute instant, so it is read as UTC and converted; relabelling
