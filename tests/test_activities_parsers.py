@@ -1,5 +1,7 @@
 import logging
+import sys
 import xml.etree.ElementTree as ET
+import zoneinfo
 
 import pytest
 
@@ -13,6 +15,7 @@ from run365days.activities.parsers.base import (
 from run365days.activities.parsers.gpx import GPXParser
 from run365days.activities.parsers.kml import KMLParser
 from run365days.activities.parsers.tcx import TCXParser
+from run365days.common.time import MissingTimeZoneDataError
 
 CHALLENGE_YEAR = 2021
 
@@ -341,3 +344,25 @@ class TestParserFailurePaths:
     def test_should_skip_directories_that_match_the_format_glob(self, tmp_path):
         (tmp_path / "not_a_file.tcx").mkdir()
         assert TCXParser(CHALLENGE_YEAR).parse_all(tmp_path) == []
+
+
+@pytest.fixture
+def no_tz_database(monkeypatch):
+    """Simulate a host with neither /usr/share/zoneinfo nor the tzdata package."""
+    monkeypatch.setitem(sys.modules, "tzdata", None)
+    zoneinfo.reset_tzpath(to=[])
+    zoneinfo.ZoneInfo.clear_cache()
+    yield
+    zoneinfo.reset_tzpath()
+    zoneinfo.ZoneInfo.clear_cache()
+
+
+class TestParseAllWithoutTimeZoneDatabase:
+    def test_should_propagate_a_readable_error_when_tz_database_missing(
+        self, fixtures_dir, no_tz_database
+    ):
+        # A missing tz database is an environment fault, not a bad file: parse_all
+        # must abort loudly instead of demoting it to a per-file skip (W-004).
+        with pytest.raises(MissingTimeZoneDataError) as excinfo:
+            TCXParser(CHALLENGE_YEAR).parse_all(fixtures_dir)
+        assert "tzdata" in str(excinfo.value)

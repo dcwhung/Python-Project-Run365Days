@@ -11,7 +11,10 @@ dependencies = [
     "numpy",
     "pandas",
     "python-dateutil",
-    "pytz",
+    # zoneinfo ships no data. It reads the host database and only then falls back
+    # to this package, so hosts without /usr/share/zoneinfo (slim and distroless
+    # containers, minimal base images, Windows) need it to resolve any zone.
+    "tzdata",
     "requests",
     "beautifulsoup4",
     "lxml",

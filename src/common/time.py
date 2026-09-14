@@ -2,12 +2,48 @@
 
 from datetime import datetime, timedelta
 from datetime import timezone as dt_timezone
-from zoneinfo import ZoneInfo
+from typing import Final
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import dateutil.parser
 
 _UNIX_MS_DIGITS = 13
 _MS_PER_SECOND = 1000
+_MISSING_TZ_DATA_MESSAGE: Final[str] = (
+    "No IANA time zone database entry for {timezone!r}. zoneinfo carries no data of "
+    "its own: it reads the host database (usually /usr/share/zoneinfo) and falls back "
+    "to the 'tzdata' PyPI package, and neither is available here. Install the "
+    "declared dependency with `pip install tzdata`, or provide a host tz database."
+)
+
+
+class MissingTimeZoneDataError(RuntimeError):
+    """No IANA time zone database is reachable on this host.
+
+    Deliberately not a :class:`LookupError` or :class:`ValueError` subclass, unlike
+    the :class:`~zoneinfo.ZoneInfoNotFoundError` it replaces. A missing tz database
+    is an environment fault that applies to every input, so it must escape the
+    per-file ``except`` lists that exist to drop individual unreadable records
+    (W-004) and stop the run outright.
+    """
+
+
+def _zone_info(timezone: str) -> ZoneInfo:
+    """Return the :class:`ZoneInfo` for *timezone* with an actionable failure.
+
+    Args:
+        timezone: IANA zone name.
+
+    Returns:
+        The requested zone.
+
+    Raises:
+        MissingTimeZoneDataError: If no tz database is reachable on this host.
+    """
+    try:
+        return ZoneInfo(timezone)
+    except ZoneInfoNotFoundError as exc:
+        raise MissingTimeZoneDataError(_MISSING_TZ_DATA_MESSAGE.format(timezone=timezone)) from exc
 
 
 def parse_datetime(rec_time: str, timezone: str = "Asia/Hong_Kong") -> datetime:
@@ -26,8 +62,11 @@ def parse_datetime(rec_time: str, timezone: str = "Asia/Hong_Kong") -> datetime:
 
     Returns:
         A timezone-aware ``datetime`` in ``timezone``.
+
+    Raises:
+        MissingTimeZoneDataError: If no tz database is reachable on this host.
     """
-    tz = ZoneInfo(timezone)
+    tz = _zone_info(timezone)
     rec_time = rec_time.strip()
 
     if "T" in rec_time:
