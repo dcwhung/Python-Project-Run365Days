@@ -681,11 +681,11 @@ Cleanup 輪嘅六條全部關閉（CUI-0017 / W-015 / S-019 / S-020 / S-021 ✅�
 
 | ID | 級別 | 標題 | 狀態 |
 |---|---|---|---|
-| **W-016** | 🟡 Warning | `tests/test_api.py:613-620` `_page_field` docstring 三句斷言都錯：「a fan-out cannot reach the field cap at all」「64 aliased `track` fields lex to 1218 tokens」「Only a page window can put that many tracks in one operation」。實測單一 parent 加 64 個 aliased `track` = **714 tokens，完全服務**；65 個 = 725 tokens，被 **field cap**（唔係 parser）拒；90 個先啱啱好貼 `MAX_QUERY_TOKENS`。`1218` 只屬「64 個 aliased **parent** 各帶一個 track」嗰個讀法。**連帶令 `activity(id:)` + aliased track 呢條真實可達路徑零測試覆蓋 —— 而嗰條就係 C-001 原本嘅攻擊面** | 🔧 修正中 |
-| **W-017** | 🟡 Warning | 八個新量度數字（`130 / 208 / 990 / 1009 / 1218 / 332 / 166 / 0.11–0.20 s`）**只以 docstring 散文存在，零 assert 釘住**。改動 `MAX_QUERY_TOKENS`、`SQL_PER_TRACK_FIELD` 或 warnings query 之後會靜靜咁腐爛。**呢個就係 AU-047 重複五次同一個錯嘅結構成因** | 🔧 修正中 |
-| **S-024** | 🟢 Suggestion | `src/api/schema.py:97`「Saturating this cap takes one list field.」讀落似必要條件 | 🔧 修正中 |
-| **S-025** | 🟢 Suggestion | `src/api/schema.py:225-227`「charges it below 0 too」：拒收唔會寫回，儲存值永遠停 0，只有 local 值計到 −1 | 🔧 修正中 |
-| **S-026** | 🟢 Suggestion | `src/api/schema.py:93`「Measured against a 365-activity, 600-point export」同 `year_db` fixture 唔符（fixture 只有 `r0` 有 track，共 600 rows 唔係 219,000）。**冇一個數字係錯**，只係描述誤導 | 🔧 修正中 |
+| **W-016** ✅ | 🟡 Warning | `tests/test_api.py:613-620` `_page_field` docstring 三句斷言都錯：「a fan-out cannot reach the field cap at all」「64 aliased `track` fields lex to 1218 tokens」「Only a page window can put that many tracks in one operation」。實測單一 parent 加 64 個 aliased `track` = **714 tokens，完全服務**；65 個 = 725 tokens，被 **field cap**（唔係 parser）拒；90 個先啱啱好貼 `MAX_QUERY_TOKENS`。`1218` 只屬「64 個 aliased **parent** 各帶一個 track」嗰個讀法。**連帶令 `activity(id:)` + aliased track 呢條真實可達路徑零測試覆蓋 —— 而嗰條就係 C-001 原本嘅攻擊面** | ✅ **Done** |
+| **W-017** ✅ | 🟡 Warning | 八個新量度數字（`130 / 208 / 990 / 1009 / 1218 / 332 / 166 / 0.11–0.20 s`）**只以 docstring 散文存在，零 assert 釘住**。改動 `MAX_QUERY_TOKENS`、`SQL_PER_TRACK_FIELD` 或 warnings query 之後會靜靜咁腐爛。**呢個就係 AU-047 重複五次同一個錯嘅結構成因** | ✅ **Done** |
+| **S-024** ✅ | 🟢 Suggestion | `src/api/schema.py:97`「Saturating this cap takes one list field.」讀落似必要條件 | ✅ **Done** |
+| **S-025** ✅ | 🟢 Suggestion | `src/api/schema.py:225-227`「charges it below 0 too」：拒收唔會寫回，儲存值永遠停 0，只有 local 值計到 −1 | ✅ **Done** |
+| **S-026** ✅ | 🟢 Suggestion | `src/api/schema.py:93`「Measured against a 365-activity, 600-point export」同 `year_db` fixture 唔符（fixture 只有 `r0` 有 track，共 600 rows 唔係 219,000）。**冇一個數字係錯**，只係描述誤導 | ✅ **Done** |
 
 ### ⚠️ 同一類缺陷第五次 —— 而且係喺專門修佢嘅 commit 入面
 
@@ -695,8 +695,43 @@ Cleanup 輪嘅六條全部關閉（CUI-0017 / W-015 / S-019 / S-020 / S-021 ✅�
 | 2 | 同上（W-012） | 「twice the most expensive document the dashboard can send」 | 消耗 0 點 | ✅ 已修 |
 | 3 | `MAX_SQL_PER_REQUEST`（W-015） | 名為 per-request 上限 | 208 | ✅ 已修 |
 | 4 | field cap docstring（CUI-0017） | 「64 × 2 = 128 statements」 | 208 | ✅ 已修 |
-| 5 | `_page_field` docstring（W-016） | 「alias fan-out cannot reach the field cap」 | 714 tokens，服務 | 🔧 修正中 |
+| 5 | `_page_field` docstring（W-016） | 「alias fan-out cannot reach the field cap」 | 714 tokens，服務 | ✅ **Done** |
 
 **W-017 係呢五次嘅共同成因**：每次都係「散文寫咗一個冇 gate 嘅數」。修 W-017（將 headline 數字變成 assert）比逐個修 claim 更根本 —— 呢個係本 ticket 最有價值嘅一項。
 
 > ⚠️ 留意 W-016 嘅方向：field cap 嘅實際保護面**比 docstring 講嘅闊**（佢真係擋到 alias fan-out，fails safe）。出事嘅係描述，唔係 bound。零 runtime 影響。
+
+
+### W-016 / W-017 修復結果（`b127a7e` `57317e9` `bab3858`）
+
+測試 **303 → 309**。`src/api/schema.py` 經 AST 證明**只改咗 docstring**。
+
+**W-017 嗰條測試真係有牙** —— developer 試咗三種漂移，每次都紅，還原後回綠：
+
+| 改動 | 結果 |
+|---|---|
+| `MAX_TRACK_FIELDS_PER_REQUEST` 64 → 32 | 紅：`statement cost drifted: saturating the cap takes one list field` / `assert 66 == 130` |
+| `MAX_QUERY_TOKENS` 1000 → 900 | 紅：兩條闊 row 變 `Document contains more than 900 tokens` |
+| `SQL_PER_TRACK_FIELD` 2 → 3 | 紅：`assert 130 == (2 + (64 * 3))` |
+
+`_token_count()` helper 用二分搜尋揾 graphql-core 肯 parse 嘅最細 `max_tokens` —— 即係**定義上** `MaxTokensLimiter` 攞嚟同 `MAX_QUERY_TOKENS` 比嗰個數，而唔係重寫一個會自己漂嘅 lexer。
+
+Alias route（原本零覆蓋）而家有三條測試，其中 `test_the_parser_never_gets_to_refuse_an_aliased_track_flood` **唔 hardcode 90**，而係由 64 開始長大直到 parser 肯收嘅最闊 fan-out，再 assert 佢仍然係 cap 拒 —— 兩個常數點郁都仲係啱。
+
+### Developer 差啲犯第 6 次，自己捉返
+
+寫 S-024 嗰陣佢加咗「53 lexes to 1009」—— 一個冇 gate 嘅新數字，正正係 W-017 要斬嘅 pattern。自己捉返、補咗 assertion 先 commit。
+
+### 兩個 reviewer 表未 cover 嘅數字更正
+
+| 原本寫 | 實測 |
+|---|---|
+| page window `~0.1 s` | **0.026–0.039 s**（差 3 倍） |
+| `75x inside the 15 s Vercel function` | 用返實測最慢值 0.209 s → **~70x** |
+
+### 新開（W-016 修復過程發現）
+
+| ID | 級別 | 標題 | 狀態 |
+|---|---|---|---|
+| **S-027** | 🟢 Suggestion | `_page_field` 個 `MAX_PAGE_SIZE` assertion 嘅理由弱咗一半：原本立論係「fan-out 根本唔可能」所以 page window 係唯一出路；而家已知 alias route 可行，所以呢個 helper 揀 page window 純粹係短。AU-050 抬高 field cap 時重建佢嘅選項多過一個 | pending |
+| **S-028** | 🟢 Suggestion | `from graphql import ...` 被 ruff 排入 first-party block（`run365days` 隔籬），即使 `pyproject.toml` 寫住 `known-first-party = ["run365days"]`。放第三方 block 會被 `I001` 拒。ruff 自己嘅判決、CI 一致，但讀落怪 —— 可能同 repo root 有個 `api/graphql.py` 有關 | pending |

@@ -1,6 +1,6 @@
 # 項目文件索引 — Run365Days
 
-**最後更新**：2026-09-14（AU-047 review pass + QA pass；cleanup 輪 review warn，收尾中）
+**最後更新**：2026-09-14（AU-047 完成：3 輪 review + QA，309 tests）
 
 > 本目錄為 ai-dev-team 產出文件嘅 Single Source of Truth。
 > 每次有新文件輸出，必須喺此更新條目同頂部日期。
@@ -41,8 +41,9 @@
 | P1 | `ActivityView` 將 track 載入失敗誤報成「Activity not found.」 | CUI-0016 | pending（AU-050 之前要修） |
 | P2 | Client 輸入錯誤一律以 `ValueError` + 完整 traceback 記入 ERROR log | S-018 | pending（AU-047 review 分拆） |
 | P2 | 測試常數 / docstring 嘅 claim 收窄 | W-015, S-019 ~ S-022 | ✅ 已修（`9cd1125` `5ff91d3` `3ce2bd5`），S-022 嘅理由本身要重寫 → W-016 |
-| P1 | **claim discipline 嘅結構修復**：headline 量度數字由散文變成 assert | W-017 | 🔧 修正中（AU-047 五次重複嘅共同成因） |
-| P2 | `_page_field` docstring 斷言 alias fan-out 去唔到 field cap（實測去到）+ 該路徑零測試覆蓋 | W-016, S-024 ~ S-026 | 🔧 修正中 |
+| P1 | **claim discipline 嘅結構修復**：headline 量度數字由散文變成 assert | W-017 | ✅ **Done** `57317e9`（AU-047 五次重複嘅共同成因，已驗證三種漂移都會紅） |
+| P2 | `_page_field` docstring 斷言 alias fan-out 去唔到 field cap（實測去到）+ 該路徑零測試覆蓋 | W-016, S-024 ~ S-026 | ✅ **Done** `b127a7e` `bab3858` |
+| P3 | `MAX_PAGE_SIZE` assertion 理由減弱；ruff 將 `graphql` 排入 first-party | S-027, S-028 | pending |
 | P2 | 非 track 嘅 `year` fan-out 係 post-fix 最貴合法請求（330 SQL / 1.58 s） | S-023 | pending（AU-047 之前已存在，範圍外） |
 | P1 | epoch-ms path 語義錯 8 小時（含捏造測試常數） | AU-048 | pending |
 | P1 | ruff 加 `ANN`+`S`、CI 加 `api/`、前端加 prettier、加 coverage gate | AU-010 ~ AU-012, AU-033 | pending |
