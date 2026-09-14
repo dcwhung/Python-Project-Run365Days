@@ -4,12 +4,14 @@ from pathlib import Path
 
 import pytest
 from sqlalchemy import create_engine, event
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
 from run365days.api import db, service
 from run365days.api.app import GRAPHQL_PATH, HEALTH_PATH, create_app
 from run365days.api.schema import (
     MAX_PAGE_SIZE,
+    MAX_TRACK_FIELDS_PER_REQUEST,
     MAX_TRACK_POINTS,
     MAX_TRACK_POINTS_PER_REQUEST,
     build_schema,
@@ -533,3 +535,102 @@ def test_every_personal_best_may_carry_a_full_track(year_client):
     )
     data = gql(year_client, f"{{ year {{ personalBests {{ {bests} }} }} }}")
     assert data["year"]["personalBests"]["longest"]["track"] is not None
+
+
+# ── AU-047 C-001: a per-request bound on track round trips ─────────────────
+SQL_PER_TRACK_FIELD = 2
+"""Statements one ``track`` field issues: a COUNT then a SELECT.
+
+See ``service._even_sample_filter``. The number is fixed -- it does not move
+with ``points`` -- which is exactly why the points budget cannot bound it.
+"""
+
+SQL_PER_LIST_FIELD = 2
+"""Statements one ``activities`` field issues: the list, then its warnings."""
+
+ALIAS_FLOOD_ALIASES = 27
+"""Aliases in the flood, as C-001 was reported.
+
+The widest the *points* budget lets through: 27 x 365 = 9,855 points, where 28
+would charge 10,220 and be refused for the wrong reason. Not a token-limit
+figure -- this document lexes to 515 of MAX_QUERY_TOKENS.
+"""
+
+MAX_SQL_PER_REQUEST = (
+    MAX_TRACK_FIELDS_PER_REQUEST * SQL_PER_TRACK_FIELD + ALIAS_FLOOD_ALIASES * SQL_PER_LIST_FIELD
+)
+"""Statements a flood of this width may issue, whether it is served or refused.
+
+Every ``track`` field the cap allows, plus one list query and one warnings
+query for each alias.
+"""
+
+
+def _cheap_tracks(activities: int) -> str:
+    """One list field taking the cheapest track it can, to spend fields not points."""
+    return f"{{ activities(limit: {activities}) {{ track(points: 1) {{ sec }} }} }}"
+
+
+def _alias_flood(aliases: int = ALIAS_FLOOD_ALIASES, points: int = 1) -> str:
+    """Build the request C-001 was found with: cheap in points, dear in queries."""
+    fields = " ".join(
+        f"a{n}: activities(limit: {YEAR_DAYS}) {{ track(points: {points}) {{ sec }} }}"
+        for n in range(aliases)
+    )
+    return f"{{ {fields} }}"
+
+
+@pytest.fixture
+def sql_count():
+    """Count statements every engine issues while the fixture is alive."""
+    counter = [0]
+
+    def tally(*_args, **_kwargs):
+        counter[0] += 1
+
+    # Listening on the Engine class, not one instance: create_app builds its
+    # own engine, so a test client gives no engine to attach to.
+    event.listen(Engine, "before_cursor_execute", tally)
+    try:
+        yield counter
+    finally:
+        event.remove(Engine, "before_cursor_execute", tally)
+
+
+def test_an_alias_flood_under_the_points_budget_is_still_rejected(year_client):
+    # The whole of C-001: this asks for one point per track, so its points
+    # charge fits the budget with room to spare, yet it is the single most
+    # expensive request the schema could serve.
+    charged = ALIAS_FLOOD_ALIASES * YEAR_DAYS
+    assert charged < MAX_TRACK_POINTS_PER_REQUEST, "shape must pass the points budget"
+
+    message = gql_errors(year_client, _alias_flood())
+
+    assert "field" in message.lower()
+    assert str(MAX_TRACK_FIELDS_PER_REQUEST) in message
+
+
+def test_the_track_field_cap_is_the_boundary(year_client):
+    fits = gql(year_client, _cheap_tracks(MAX_TRACK_FIELDS_PER_REQUEST))
+    assert len(fits["activities"]) == MAX_TRACK_FIELDS_PER_REQUEST
+
+    over = gql_errors(year_client, _cheap_tracks(MAX_TRACK_FIELDS_PER_REQUEST + 1))
+    assert str(MAX_TRACK_FIELDS_PER_REQUEST) in over
+
+
+def test_no_request_issues_more_statements_than_the_field_cap_allows(year_client, sql_count):
+    # The bound has to hold for refused requests too. An error does not unwind
+    # the queries already sent, and before the cap existed a request that ended
+    # in an error had still issued some 20,000 statements getting there.
+    gql(year_client, _cheap_tracks(MAX_TRACK_FIELDS_PER_REQUEST))
+    assert 0 < sql_count[0] <= MAX_SQL_PER_REQUEST
+
+    sql_count[0] = 0
+    gql_errors(year_client, _alias_flood())
+    assert sql_count[0] <= MAX_SQL_PER_REQUEST
+
+
+def test_the_field_cap_is_per_request_and_does_not_leak_across_requests(year_client):
+    query = _cheap_tracks(MAX_TRACK_FIELDS_PER_REQUEST)
+    for _ in range(2):
+        assert len(gql(year_client, query)["activities"]) == MAX_TRACK_FIELDS_PER_REQUEST

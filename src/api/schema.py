@@ -9,7 +9,7 @@ session from ``info.context["session"]`` and delegate to
 from __future__ import annotations
 
 import os
-from collections.abc import MutableMapping
+from collections.abc import Iterator, MutableMapping
 from datetime import date as date_type
 
 import strawberry
@@ -55,8 +55,33 @@ activities of ``YearQuery``'s ``personalBests``, each carrying a full
 ``MAX_TRACK_POINTS`` track, comes to 5,000. 10,000 rows costs about 0.37 s.
 """
 
+MAX_TRACK_FIELDS_PER_REQUEST = 64
+"""``track`` fields one operation may resolve, however few points each asks for.
+
+Every ``track`` field costs one fixed round trip -- today a COUNT plus a
+SELECT, see :func:`run365days.api.service._even_sample_filter` -- and that
+count does not move with ``points``. So the points budget cannot bound it:
+``track(points: 1)`` buys the most expensive thing in the request (two
+statements) for the cheapest charge the budget can levy (one point). That is
+AU-047 C-001, found as 27 aliases of ``activities(limit: 365)`` each taking
+``track(points: 1)``: 9,855 points, inside every other limit, 19,764
+statements and 13 s.
+
+64 is the ceiling the points budget already implied at the default ``points``
+of :data:`DEFAULT_TRACK_POINTS`: ``10000 // 150`` is 66. Stating it outright
+costs legal traffic close to nothing -- the flood worked only by pushing
+``points`` down to 1 to slip out from under that implicit cap.
+
+Worst case is therefore 64 x 2 = 128 statements. Batching the per-activity
+queries (AU-050) would let this number be raised on its own, without
+reopening the points budget.
+"""
+
 TRACK_BUDGET_KEY = "track_points_remaining"
 """``info.context`` key holding what is left of this request's track budget."""
+
+TRACK_FIELDS_KEY = "track_fields_remaining"
+"""``info.context`` key holding how many ``track`` fields this request may still resolve."""
 
 DEFAULT_PAGE_SIZE = 500
 """Rows a list field returns when the client asks for no window.
@@ -114,30 +139,52 @@ def _introspection_gate() -> SchemaExtension:
 
 
 class _TrackBudget(SchemaExtension):
-    """Give every operation its own :data:`MAX_TRACK_POINTS_PER_REQUEST`."""
+    """Give every operation its own track budgets, in points and in fields.
 
-    def on_operation(self):
-        """Seed the budget before any resolver runs, then let the operation go."""
+    "Per operation" and "per request" are the same thing here only because
+    Strawberry's operation batching is off (``schema.config.batching_config``
+    is ``None``), so one HTTP request carries exactly one operation. Switching
+    batching on would let a client spend both budgets once per operation in
+    the batch, which is a decision to weigh against these limits, not a free
+    transport setting.
+    """
+
+    def on_operation(self) -> Iterator[None]:
+        """Seed both budgets before any resolver runs, then let the operation go."""
         # Seeded here rather than in the transport's ``get_context`` so that
         # the bound belongs to the schema: every caller gets it, including
         # ``schema.execute_sync(..., context_value=...)`` in a test.
         context = self.execution_context.context
         if isinstance(context, MutableMapping):
             context[TRACK_BUDGET_KEY] = MAX_TRACK_POINTS_PER_REQUEST
-        # An operation run with no context mapping at all cannot reach
-        # ``track`` anyway -- that resolver reads its session out of the same
-        # mapping -- so there is nothing to seed and nothing left unbounded.
+            context[TRACK_FIELDS_KEY] = MAX_TRACK_FIELDS_PER_REQUEST
+        # A context that is not a mutable mapping is left as it is, and that is
+        # safe for a less obvious reason than "track is then unreachable". A
+        # read-only ``Mapping`` -- ``MappingProxyType``, say -- is not a
+        # ``MutableMapping``, so nothing is seeded here, yet
+        # ``info.context["session"]`` still reads and ``track`` is reachable.
+        # What actually holds the line is ``_charge_track_field``, which reads
+        # a missing budget as a refusal rather than as permission.
         yield
 
 
-def _charge_track_points(info: Info, points: int) -> int:
-    """Deduct one ``track`` field's cost from this request's budget.
+def _charge_track_field(info: Info, points: int) -> int:
+    """Deduct one ``track`` field, and its points, from this request's budgets.
 
-    Charged on the points the client asked for, not on the rows the track
+    Two counters because they bound two different costs. Points bound the rows
+    an operation materialises; fields bound the round trips it makes, which
+    points cannot see -- a ``track`` field issues the same two statements
+    whether it asks for 1 point or 1000.
+
+    Points are charged on what the client asked for, not on the rows the track
     turns out to hold. That is the whole point: the request has to be refused
     *before* the SQL goes out, and the row count is only known after. The
     trade-off is that an honest client asking 1000 points of a 4-point track
     still pays 1000, which keeps the bound conservative rather than exact.
+
+    Both charges land before the resolver touches its session, so overrunning
+    either budget costs no SQL at all: every ``track`` field after the one that
+    overran it is refused in constant time, having issued nothing.
 
     Args:
         info: Resolver info carrying this request's context.
@@ -147,30 +194,48 @@ def _charge_track_points(info: Info, points: int) -> int:
         ``points``, so the caller can spend and pass it in one expression.
 
     Raises:
-        ValueError: If this operation has already spent its budget.
-        KeyError: If the budget was never seeded, which means the schema was
-            built without :class:`_TrackBudget`. Falling back to an unbounded
-            request would defeat the limit, so it fails loudly instead.
+        ValueError: If this operation has already spent either budget.
+        RuntimeError: If the budgets were never seeded. Two ways in: the schema
+            was built without :class:`_TrackBudget`, or the context is a
+            mapping that extension could not write to (a read-only ``Mapping``
+            is not a ``MutableMapping``). Falling back to an unbounded request
+            would defeat both limits, so it fails loudly instead.
     """
-    remaining = info.context[TRACK_BUDGET_KEY] - points
-    if remaining < 0:
+    try:
+        fields_left = info.context[TRACK_FIELDS_KEY] - 1
+        points_left = info.context[TRACK_BUDGET_KEY] - points
+    except KeyError as exc:
+        # Deliberately not surfacing the key that was missing: it is an
+        # internal detail of the extension, not something a client can act on.
+        raise RuntimeError(
+            "track budget was not seeded for this request, so `track` cannot be served"
+        ) from exc
+    if fields_left < 0:
+        raise ValueError(
+            "track field budget exhausted: one request may read at most "
+            f"{MAX_TRACK_FIELDS_PER_REQUEST} tracks"
+        )
+    if points_left < 0:
         raise ValueError(
             "track points budget exhausted: one request may return at most "
             f"{MAX_TRACK_POINTS_PER_REQUEST} track points"
         )
-    info.context[TRACK_BUDGET_KEY] = remaining
+    info.context[TRACK_FIELDS_KEY] = fields_left
+    info.context[TRACK_BUDGET_KEY] = points_left
     return points
 
 
 TRACK_DESCRIPTION = (
     "GPS track, evenly downsampled to at most `points` samples. "
-    f"One request may ask for {MAX_TRACK_POINTS_PER_REQUEST} track points in total, "
-    "counted across every `track` field in it and charged on `points` as asked for, "
-    "not on the rows a track turns out to hold."
+    f"One request may read at most {MAX_TRACK_FIELDS_PER_REQUEST} `track` fields, "
+    f"totalling {MAX_TRACK_POINTS_PER_REQUEST} points. Both are counted across every "
+    "`track` field in the request; points are charged on `points` as asked for, not "
+    "on the rows a track turns out to hold. The field limit applies however small "
+    "`points` is, because each `track` field costs the same query either way."
 )
 """Description for ``Activity.track``.
 
-The budget is part of the field's contract, so a client reading the SDL can
+Both budgets are part of the field's contract, so a client reading the SDL can
 see why a wide fan-out is refused without having to trigger the error first.
 """
 
@@ -271,8 +336,8 @@ class Activity:
 
     @strawberry.field(description=TRACK_DESCRIPTION)
     def track(self, info: Info, points: int = DEFAULT_TRACK_POINTS) -> list[TrackPoint]:
-        # Spend first: the budget exists to stop the query being issued at all.
-        wanted = _charge_track_points(info, _track_points(points))
+        # Spend first: the budgets exist to stop the query being issued at all.
+        wanted = _charge_track_field(info, _track_points(points))
         rows = service.track(info.context["session"], str(self.id), wanted)
         return [TrackPoint(**row) for row in rows]
 
