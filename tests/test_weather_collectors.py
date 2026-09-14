@@ -13,11 +13,13 @@ from pathlib import Path
 
 import pytest
 import requests
+from bs4 import BeautifulSoup
 
 from run365days.cli.collect_weather import _write_jsonl
 from run365days.dashboard.builder import hourly_at, load_jsonl, warnings_by_date
 from run365days.export.records import daily_weather_record, warning_record
 from run365days.weather.collectors import hko_daily, hourly, warnings
+from run365days.weather.collectors.html_reads import child_attr, child_string
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "weather"
 
@@ -94,6 +96,41 @@ def hko_routes(*, feb=None, mar=None) -> dict:
         HKO_FEB_URL: month_body if feb is None else feb,
         HKO_MAR_URL: "" if mar is None else mar,
     }
+
+
+class TestGuardedHtmlReads:
+    """The two guards CUI-0012 turned three chained ``.find()`` reads into.
+
+    ``fetch_day`` only ever reaches the "element absent" branch, so the two
+    "element present but unreadable" branches are pinned here directly -- both
+    are real BeautifulSoup shapes, and both used to raise.
+    """
+
+    @staticmethod
+    def cell(markup: str):
+        return BeautifulSoup(markup, "html.parser")
+
+    def test_child_string_returns_none_when_the_tag_is_absent(self):
+        assert child_string(self.cell("<td>&nbsp;</td>"), "script") is None
+
+    def test_child_string_returns_none_when_the_tag_is_present_but_empty(self):
+        # An emitted-but-empty <script> is the second way this read used to
+        # break: ``find()`` hands back a Tag, and ``.string`` on it is None.
+        assert child_string(self.cell("<td><script></script></td>"), "script") is None
+
+    def test_child_string_returns_the_tags_only_string(self):
+        assert child_string(self.cell("<td><script>icon(7)</script></td>"), "script") == "icon(7)"
+
+    def test_child_attr_returns_none_when_the_tag_is_absent(self):
+        assert child_attr(self.cell("<td>&nbsp;</td>"), "img", "src") is None
+
+    def test_child_attr_returns_none_when_the_tag_lacks_the_attribute(self):
+        assert child_attr(self.cell('<td><img alt="cold" /></td>'), "img", "src") is None
+
+    def test_child_attr_returns_the_attribute_value(self):
+        cell = self.cell('<td><img src="/images_e/cold.gif" /></td>')
+
+        assert child_attr(cell, "img", "src") == "/images_e/cold.gif"
 
 
 class TestHkoDailyFetchYear:
