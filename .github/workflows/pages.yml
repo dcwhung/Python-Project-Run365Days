@@ -99,11 +99,20 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      # The Python side has `ruff format --check` in this same workflow. Without
+      # this step the front end had no equivalent, which is how a 637-character
+      # line reached the default branch (AU-012).
+      - name: Format check
+        run: npm run format:check
+
       - name: Typecheck (runs codegen first)
         run: npm run typecheck
 
+      # `npm test` runs codegen itself. Calling vitest directly worked only
+      # because the step above happened to generate src/gql first, so reordering
+      # these two steps would have broken the run for a reason neither one names.
       - name: Unit tests
-        run: npx vitest run
+        run: npm test
 
       - name: Build (api mode)
         run: npx vite build
