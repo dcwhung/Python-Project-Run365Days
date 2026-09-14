@@ -215,7 +215,6 @@ class Activity:
     elevation_max_m: float | None
     ascent_m: float | None
     has_gps: bool
-    num_points: int
     weather: RunWeather | None
     warnings: list[str]
 

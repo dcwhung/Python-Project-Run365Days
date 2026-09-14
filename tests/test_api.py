@@ -81,7 +81,6 @@ def _write_year_db(path: Path) -> None:
                     elevation_max_m=None,
                     ascent_m=None,
                     has_gps=True,
-                    num_points=STORED_TRACK_POINTS if i == 0 else 0,
                     weather_description=None,
                     weather_temp_c=None,
                     weather_humidity_pct=None,
@@ -450,6 +449,19 @@ def test_introspection_is_exempt_from_the_depth_limit(monkeypatch):
 )
 def test_sdl_publishes_the_limits_the_api_enforces(published):
     assert published in build_schema().as_str()
+
+
+# ── CUI-0019: numPoints counted pre-downsample points and is withdrawn ─────
+def test_sdl_no_longer_declares_num_points():
+    assert "numPoints" not in build_schema().as_str()
+
+
+def test_querying_num_points_is_rejected(client):
+    assert "numPoints" in gql_errors(client, "{ activities { id numPoints } }")
+
+
+def test_the_stored_activity_has_no_point_count_column():
+    assert not hasattr(models.Activity, "num_points")
 
 
 # ── AU-001: GraphiQL is off unless the environment asks for it ─────────────

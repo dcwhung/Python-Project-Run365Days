@@ -28,7 +28,6 @@ export interface Activity {
   elevationMaxM: number | null;
   ascentM: number | null;
   hasGps: boolean;
-  numPoints: number;
   weather: RunWeather | null;
   warnings: string[];
 }

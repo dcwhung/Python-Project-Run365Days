@@ -22,7 +22,6 @@ export const ActivityFields = graphql(/* GraphQL */ `
     elevationMaxM
     ascentM
     hasGps
-    numPoints
     weather {
       description
       tempC

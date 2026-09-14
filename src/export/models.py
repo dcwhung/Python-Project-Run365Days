@@ -41,7 +41,6 @@ class Activity(Base):
     elevation_max_m: Mapped[float | None] = mapped_column(Float)
     ascent_m: Mapped[float | None] = mapped_column(Float)
     has_gps: Mapped[bool] = mapped_column(Boolean)
-    num_points: Mapped[int] = mapped_column(Integer)
     weather_description: Mapped[str | None] = mapped_column(String)
     weather_temp_c: Mapped[float | None] = mapped_column(Float)
     weather_humidity_pct: Mapped[float | None] = mapped_column(Float)

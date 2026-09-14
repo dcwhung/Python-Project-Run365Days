@@ -39,7 +39,6 @@ def _activity_row(record: dict) -> models.Activity:
         elevation_max_m=record["elevation_max_m"],
         ascent_m=record["ascent_m"],
         has_gps=record["has_gps"],
-        num_points=record["num_points"],
         weather_description=weather.get("description"),
         weather_temp_c=weather.get("temp_c"),
         weather_humidity_pct=weather.get("humidity_pct"),

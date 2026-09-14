@@ -27,7 +27,6 @@ export type StaticActivity = {
   elevation_max_m: number | null;
   ascent_m: number | null;
   has_gps: boolean;
-  num_points: number;
   weather: {
     description: string | null;
     temp_c: number | null;
@@ -75,7 +74,6 @@ export function mapActivity(a: StaticActivity): Activity {
     elevationMaxM: a.elevation_max_m,
     ascentM: a.ascent_m,
     hasGps: a.has_gps,
-    numPoints: a.num_points,
     weather: a.weather
       ? {
           description: a.weather.description,

@@ -18,6 +18,11 @@ describe("static mappers", () => {
     expect(a.weather).toEqual({ description: "Clear weather", tempC: 19, humidityPct: 65, windKmh: 10 });
   });
 
+  // CUI-0019: numPoints counted pre-downsample points, was never rendered, and is withdrawn.
+  it("carries no point count", () => {
+    expect(mapActivity(STATIC_ACTIVITY)).not.toHaveProperty("numPoints");
+  });
+
   it("keeps null weather and missing warnings safe", () => {
     const a = mapActivity({ ...STATIC_ACTIVITY, weather: null, warnings: undefined as unknown as string[] });
     expect(a.weather).toBeNull();
