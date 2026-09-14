@@ -12,10 +12,18 @@ permissions:
   pages: write
   id-token: write
 
-# one deploy at a time; a newer push cancels an in-flight one
+# Deploying runs (push to master, workflow_dispatch) all share one group and are
+# never cancelled: a merge to master is a production Pages deploy, and a cancelled
+# run reports as "cancelled" rather than "failed", so killing one leaves the site on
+# the old build with no alert. GitHub keeps at most one run pending per group, so
+# back-to-back merges still finish with the newest commit live -- the deploy is
+# superseded by queueing behind the in-flight one instead of aborting it, which also
+# keeps two actions/deploy-pages runs off the Pages deployment queue at once.
+# PR runs get one group per PR and still cancel their own older runs, which is the
+# runner saving the single shared group was there for.
 concurrency:
-  group: pages
-  cancel-in-progress: true
+  group: pages-${{ github.event_name == 'pull_request' && github.ref || 'deploy' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   PYTHON_VERSION: "3.12"

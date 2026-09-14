@@ -60,7 +60,17 @@ class TestParseDateTimeOffset:
 
 
 class TestParseDateTimeWallClockUnchanged:
-    """The offset fix must not move any wall clock -- see AU-003 scope note."""
+    """Pins the wall clock of every ``parse_datetime`` path, AU-003 scope note.
+
+    The ``"1634451056000"`` case deliberately pins a known-incorrect behaviour: the
+    epoch-ms path reads the epoch as UTC and relabels rather than converts it, so the
+    expected wall clock below is 8 hours ahead of the correct one. It is asserted here
+    to stop the semantics changing unnoticed, not because it is right.
+
+    Fixing that shift is AU-048, and AU-048 must update this class in the same change --
+    a red ``test_wall_clock_is_preserved`` on the epoch-ms case is the expected outcome
+    of that fix, not a regression to revert. See ``src/common/time.py``.
+    """
 
     @pytest.mark.parametrize(
         ("rec_time", "expected"),
