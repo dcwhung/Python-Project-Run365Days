@@ -1,6 +1,6 @@
 # Ticket Registry — Run365Days
 
-**最後更新**：2026-09-14（backlog screen 後；AU-049 表格行補回 Done 標記）
+**最後更新**：2026-09-14（CUI-0016 + CUI-0017 完成）
 
 > 由 `/audit`（AU-NNN）同 `/review`（C/W/S-NNN）產生嘅 ticket 集中登記處。
 > 編號全局唯一、永不重用。已完成嘅保留紀錄，只改狀態。
@@ -548,7 +548,7 @@ elif _ISO_OFFSET_PATTERN.search(rec_time.split("T", 1)[1]):
 
 | ID | 級別 | 標題 | 狀態 |
 |---|---|---|---|
-| **CUI-0016** | 🟢 Low | `parse_datetime` 唔接受冇毫秒嘅 ISO UTC（`2021-10-17T06:10:56Z`） | pending |
+| **CUI-0016** | 🟢 Low | `parse_datetime` 唔接受冇毫秒嘅 ISO UTC（`2021-10-17T06:10:56Z`） | ✅ **Done** `978b7d6` `226a197` |
 
 **同 CUI-0006 同一類缺口但唔同條件**：CUI-0006 係「有 offset 但係負數」，呢條係「係 UTC 但冇毫秒」（第一個分支要求 `"." in rec_time`）。兩者都係**分支條件用表面特徵代替真正判別**。
 
@@ -614,6 +614,71 @@ Main agent 獨立實測四個組合全部符合預期，同一 process 內翻 en
 
 | ID | 級別 | 標題 | 狀態 |
 |---|---|---|---|
-| **CUI-0017** | 🟢 Low | `hourly.py` script 字串切割兩個 `str.find()` 可返 `-1`；`_load_signal_metadata()` 無防護索引 | pending |
+| **CUI-0017** | 🟢 Low | `hourly.py` script 字串切割兩個 `str.find()` 可返 `-1`；`_load_signal_metadata()` 無防護索引 | ✅ **Done** `2fef340` `d755436` |
 
 **同 CUI-0012 嘅 marker 完全同一類** —— `str.find()` 返 `-1` 被當成有效位置。呢個 pattern 喺本 repo 已經出事一次，ticket 明確建議**唔好再用 `str.find()` + slice**，改用 regex 並喺 match 唔到時明確回 `None`。
+
+---
+
+## CUI-0016 + CUI-0017 修復摘要（2026-09-14）—— 「消除表面特徵判別」一輪
+
+用戶指定一次過做，目標唔係補兩個 edge case，而係**拆走兩個會反覆漏嘅機制**。
+
+| 指標 | 目前 |
+|---|---|
+| Tests | **362 passed**（310 → 356 → 362） |
+| Coverage TOTAL | **95%** |
+| 三個 collector + `html_reads.py` | **全部 100%** |
+| Static JSON vs 基準 `1896778` | **byte-identical** |
+
+### CUI-0016 —— Developer 推翻咗 ticket 寫嘅執行次序，而且啱
+
+Ticket（main agent 寫）指示「**先試 `isoparse()`**，失敗先落 fallback 處理 epoch-ms」。
+
+Developer 寫代碼之前先量度，發現 **`isoparse` 識讀 ISO basic format，所以 13 位數字可以被拆成 `YYYYMMDD` + 時間**。20 萬個 epoch-ms 樣本入面約 **0.5%** 會被當成日期接受。
+
+**Main agent 獨立重現**：1068 / 200,000 = **0.53%**，例如 `1981082071747` → `1981-08-20T17:47:00`。
+
+即係 ticket 寫嗰個次序會**靜靜咁將約 1/200 個 epoch 時間戳讀錯年份** —— 一個舊 code 冇嘅回歸。所以改為 **epoch 先**。
+
+Developer 主動論證咗呢個唔係退回 sniffing：**「13 個 ASCII 數字」係 epoch-ms 形態嘅完整規格，唔係一個代替 parse 嘗試嘅代理特徵。** 兩個碰撞值已寫成回歸測試。
+
+#### Parser 選擇避開咗一個陷阱
+
+`fromisoformat()` 要 Python **3.11+** 先支援 `Z`，而 `pyproject.toml` 宣稱 `>=3.10`。本機 3.11、CI 3.12 —— **兩者都唔會踩到 3.10**，所以揀佢會令「宣稱支援 3.10 但實際爆」永遠唔會被發現。改用 `isoparse()`（已係現有依賴、版本無關）。
+
+#### 一個明講出嚟嘅行為放寬
+
+date-only `"2021-10-17"` 之前 raise，而家回午夜。現行資料唔可達（byte-identical 確認）。Developer 冇收埋，寫入 matrix 同 follow_up。
+
+### CUI-0017 —— 揾到第四個實例，而且 sentinel 係 load-bearing
+
+除咗 ticket 列嘅兩處，加上 main agent 核實時發現嘅 `warnings.py:55` `rfind`（共三處，全部已修），Developer 做全域掃描時揾到**第四個**：
+
+`hourly.py:112` `wind_text[wind_text.find("°") + 1 :]`
+
+**Main agent 實測確認**：
+```
+'N° 20 Km/h'          find(°)=  1  -> 切片由 2 開始 -> ' 20 Km/h'
+'Variable at 20 Km/h' find(°)= -1  -> 切片由 0 開始 -> 'Variable at 20 Km/h'
+```
+
+「Variable at」form **根本冇 `°`**，佢 parse 得到純粹因為 `-1 + 1 == 0`。呢個係四個實例入面**唯一一個 sentinel 正喺度做有用嘢**嘅 —— 現行正確，但建立喺意外之上。而且有條測試正釘住呢個意外，所以任何「加 guard 令佢更安全」嘅改動會即刻打爛 Variable form。
+
+已開 **CUI-0018**。
+
+#### 三處修法各自對症
+
+| 處 | 修法 | 點解 |
+|---|---|---|
+| `hourly.py` script | regex | match 咗就係 match 咗 —— 「讀唔到」唔再係算術可達嘅結果。而且 fixture 證明舊 code 對一個**完全冇 icon call** 嘅 script body 會報 `"Rain"` |
+| `warnings.py` `rfind` | `PurePosixPath(src).stem` | **移走 sentinel 而唔係檢查佢** —— 根本冇 `-1` 可以洩漏 |
+| `_load_signal_metadata` 索引 | `cells(parent, minimum)` helper | 沿用 `html_reads.py` 既有契約（`None` = 唔存在，由 caller 決定意義） |
+
+---
+
+## 新開
+
+| ID | 級別 | 標題 | 狀態 |
+|---|---|---|---|
+| **CUI-0018** | 🟡 Medium | `hourly.py:112` wind `find("°")` —— `-1` sentinel 係 load-bearing，refactor 就會靜默出錯 | pending |
