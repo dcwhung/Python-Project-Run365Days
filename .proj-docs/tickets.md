@@ -603,3 +603,69 @@ Repo 外：GitHub `github-pages` environment deployment branch｜Vercel Producti
 | `activities(365){track(1000)}` | 732 SQL / 8.29 s / 219,000 rows | 22 SQL / 0.22 s（被 points budget 拒） |
 | 27 alias × `activities(365){track(1)}` | 19,764 SQL / 14 s / HTTP 200 | **130 SQL / 0.15 s**（被 field cap 拒） |
 | `activity(id){track(600)}`（前端真實路徑） | 4 SQL / 0.02 s / 600 點 | **4 SQL / 0.02 s / 600 點**（零回歸） |
+
+---
+
+## CUI-NNNN — 來自 AU-047 QA（2026-09-14）
+
+來源：[`qa/2026-09-14_qa_au-047.md`](qa/2026-09-14_qa_au-047.md)
+✅ **pass**｜0 Critical / 1 Major / 2 Minor｜next_action `merge_develop`
+
+| ID | 級別 | 標題 | 狀態 |
+|---|---|---|---|
+| **CUI-0016** | 🟡 Major | `ActivityView` 將 track 載入失敗誤報成「Activity not found.」—— `ActivityView.tsx:70` 有 `all.isError` 處理但**冇** `track.isError`，所以 track 失敗跌落 `:71` 嗰條「唔存在」分支，連已經成功載入嘅 KPI／天氣一併丟棄。唔會白畫面（乾淨 early return，無需 ErrorBoundary），純粹係訊息報錯咗因 | pending |
+| **CUI-0017** | 🟢 Minor | `src/api/schema.py:84` 寫「Worst case is therefore 64 × 2 = 128 statements」，但實測 request 層面去到 **208**：每個 aliased `activity(id:)` parent 本身要 ~2 條語句（`session.get` + `selectinload`），而且個 track 就算被拒都照收 —— 呢半邊唔受 field cap 約束，只受 token limiter 約束。Bound 本身冇問題（86 倍 headroom），純文件準確性 | pending |
+| **CUI-0018** | 🟢 Minor | Budget 拒絕嘅 GraphQL error 得 `['locations','message','path']`，**冇 `extensions.code`**，client 只能 match 由常數 f-string 砌出嚟嘅字串（常數一改就靜靜哋失效）。另外 non-null propagation 令一個被拒 track 清空成個 `data`（連成功嘅 sibling `meta` 都冇）。今日不可達，AU-050 之前應處理 | pending |
+
+> ✅ Response **零洩漏**：177 bytes、無 stacktrace、無絕對路徑、無 context key 名。W-013 特登唔講出 `track_points_remaining` 係啱嘅。
+
+### CUI-0016 / CUI-0018 嘅共同前提
+
+兩者**今日都不可達**：全 codebase 只有一個 `useTrack` call site，600 點 × 1 個 field，離 budget 好遠。但 AU-047 為呢兩條路徑各新增咗一個成因，所以 **AU-050 加 batch track field 之前要修**，否則第一個用到嘅人就會撞。
+
+### ⚠️ 同一類缺陷第四次出現
+
+`CUI-0017` 同 `C-001` docstring、`W-012`、`W-015` 係**同一個失敗模式**：**寫低嘅 claim 闊過實測支持嘅範圍**。
+
+| # | 位置 | Claim | 實測 |
+|---|---|---|---|
+| 1 | `MAX_TRACK_POINTS_PER_REQUEST` docstring（已修） | 「batching would not have bought the headroom back」 | alias flood 之下 round trip 佔 99.9% 成本 |
+| 2 | 同上，W-012（已修） | 「twice the most expensive document the dashboard can send」 | 該 document 消耗 0 點 |
+| 3 | `MAX_SQL_PER_REQUEST`，W-015（pending） | 名為 per-request 上限 | 有合法、被服務、零 error 嘅 document 去到 208 |
+| 4 | `MAX_TRACK_FIELDS_PER_REQUEST` docstring，CUI-0017（pending） | 「Worst case is therefore 64 × 2 = 128 statements」 | request 層面 208 |
+
+第 3 同第 4 其實係**同一個 208** 由兩個唔同角度撞到。修嘅時候應該一次過處理：講清楚 field cap bound 嘅係 **track 語句**，而 request 總語句數仲有 parent field 嗰半邊（由 `MAX_QUERY_TOKENS` 封頂）。
+
+### QA 建議補測（developer 執行）
+
+| 優先 | 測試 | 理由 |
+|---|---|---|
+| **高** | E5 跨 budget fail-closed（points 耗盡後平價 alias 全部要拒） | QA 實測：而家改壞 `_charge_track_field` 嘅收費順序，**298 條測試全部照綠** |
+| 中 | E1 具名 fragment / E2 inline fragment | 兩個都過咗，但冇測試釘住 |
+| 中 | E6 `@skip` 唔誤收費 | 同上 |
+
+### Regression：byte-identical 守住
+
+QA 用 `git archive origin/develop` 抽基準（冇切 branch），以 `PYTHONPATH` shadow 掉 editable install，並核實 baseline 真係跑舊 code（`hasattr(schema, "MAX_TRACK_FIELDS_PER_REQUEST") == False`）。
+
+| 指標 | 基準 | HEAD | |
+|---|---|---|---|
+| Activities | 365 | 365 | ✅ |
+| SQLite | 11,460 KB | 11,460 KB | ✅ |
+| Static JSON bytes | 6,857,102 | 6,857,102 | ✅ |
+| Static JSON files | 370 | 370 | ✅ |
+
+md5 逐檔對拍 **369/370 完全相同**，唯一差異係 `meta.json` 嘅 `generated_at`。
+
+### 前端 gates（reviewer 冇跑過，QA 補齊）
+
+```
+npm run lint          → eslint 零輸出，exit 0
+npx vitest run        → 19 files / 87 tests passed
+npm run build         → 292 modules, 657.73 kB
+npm run build:static  → 292 modules, 657.69 kB
+```
+
+真實前端 8 條 document 打真 Flask + 真 `run365.db`：全部 200 / `errors=[]`；`TrackQuery` 攞足 390 點；**`YearQuery` 收費 0 個 track field**（直接 patch `_charge_track_field` 數出嚟，核實 reviewer 講法）；全 365 條 track 嘅 `track(points:600)` 都攞足。static vs api：point-count mismatch 0、point-value mismatch 0，S-011 冇惡化。
+
+效能：240 個 request 零錯誤，P95 ≤ 76 ms；300/300 連續 full-cap request 無 budget 洩漏；最壞 request 174 ms —— 對 Vercel 15 s 有 **86 倍 headroom**。

@@ -1,6 +1,6 @@
 # 項目文件索引 — Run365Days
 
-**最後更新**：2026-09-14（AU-047 修正輪 review pass 91/100 → QA；CLAUDE.md）
+**最後更新**：2026-09-14（AU-047 review pass 91/100 + QA pass 0 Critical；CLAUDE.md）
 
 > 本目錄為 ai-dev-team 產出文件嘅 Single Source of Truth。
 > 每次有新文件輸出，必須喺此更新條目同頂部日期。
@@ -37,7 +37,8 @@
 | 優先級 | 項目 | Finding | 狀態 |
 |---|---|---|---|
 | P0 | 4 條 Critical（AU-001 ~ AU-004） | AU-001 ~ AU-004 | ✅ 已修（PR #11 merge 入 `develop`） |
-| P1 | `Activity.track` 單次請求成本冇 bound（rows 同 round trips 兩個維度） | AU-047 | ✅ 兩輪修復完成，review **pass 91/100**、0 Critical；QA 進行中 |
+| P1 | `Activity.track` 單次請求成本冇 bound（rows 同 round trips 兩個維度） | AU-047 | ✅ **完成** —— review pass 91/100、QA pass 0 Critical、static JSON byte-identical |
+| P1 | `ActivityView` 將 track 載入失敗誤報成「Activity not found.」 | CUI-0016 | pending（AU-050 之前要修） |
 | P2 | Client 輸入錯誤一律以 `ValueError` + 完整 traceback 記入 ERROR log | S-018 | pending（AU-047 review 分拆） |
 | P2 | 測試常數 / docstring 嘅 claim 收窄（`MAX_SQL_PER_REQUEST` 命名、fail-closed pin 加牙等） | W-015, S-019 ~ S-022 | pending（AU-047 review 第二輪，全部非 blocking） |
 | P2 | 非 track 嘅 `year` fan-out 係 post-fix 最貴合法請求（330 SQL / 1.58 s） | S-023 | pending（AU-047 之前已存在，範圍外） |
@@ -58,8 +59,8 @@
 |---|---|---|
 | Ticket registry（AU / C-W-S / CUI 全部） | [`tickets.md`](tickets.md) | ✅ 現行 SSoT |
 | Code review 報告 | [`reviews/2026-09-13_review_p0-batch.md`](reviews/2026-09-13_review_p0-batch.md)（84/100 pass）<br>[`reviews/2026-09-14_review_au-047.md`](reviews/2026-09-14_review_au-047.md)（66/100 **fail**，1 🔴）<br>[`reviews/2026-09-14_review_au-047_round2.md`](reviews/2026-09-14_review_au-047_round2.md)（91/100 **pass**，0 🔴） | ✅ 已建立 |
-| QA 報告 | [`qa/2026-09-14_qa_p0-batch.md`](qa/2026-09-14_qa_p0-batch.md) | ✅ 已建立（0 Critical，regression 通過） |
-| CUI ticket 檔案 | `.tickets/pending/0001-0200/` | ✅ CUI-0001 ~ 0015 |
+| QA 報告 | [`qa/2026-09-14_qa_p0-batch.md`](qa/2026-09-14_qa_p0-batch.md)（0 Critical）<br>[`qa/2026-09-14_qa_au-047.md`](qa/2026-09-14_qa_au-047.md)（0 Critical / 1 Major / 2 Minor，369/370 byte-identical） | ✅ 已建立 |
+| CUI ticket 檔案 | `.tickets/pending/0001-0200/` | ✅ CUI-0001 ~ 0018 |
 | 項目 `CLAUDE.md` | repo root | ✅ 2026-09-14 建立（項目速覽 / layout / 指令 / branch 同部署 / conventions / 已知陷阱 / 文件 SSoT） |
 | Functional spec | `.proj-docs/specs/` | ❌ 未建立 |
 | Technical spec | `.proj-docs/specs/` | ❌ 未建立 |
