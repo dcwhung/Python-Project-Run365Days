@@ -843,6 +843,10 @@ def test_the_document_that_does_out_token_the_parser_aliases_parents(year_client
     assert _token_count(flood) == 1218 > MAX_QUERY_TOKENS
     assert "token" in gql_errors(year_client, flood).lower()
 
+    # The boundary the MAX_TRACK_FIELDS_PER_REQUEST docstring quotes: 52 of
+    # these parse (and are served -- see DOCUMENTED_WORST_CASES), 53 do not.
+    assert _token_count(_parent_flood(53)) == 1009 > MAX_QUERY_TOKENS
+
 
 def test_the_alias_flood_issues_no_more_statements_than_the_field_cap_allows(
     year_client, sql_count

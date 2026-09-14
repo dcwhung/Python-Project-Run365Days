@@ -90,31 +90,39 @@ warnings for ``activities``, a get plus its warnings for ``activity(id:)`` --
 and it pays them whether the ``track`` under it is served or refused. That
 half of the cost is bounded by :data:`MAX_QUERY_TOKENS` alone.
 
-Measured against a 365-activity, 600-point export through the Flask client:
+Measured through the Flask client against the ``year_db`` fixture in
+``tests/test_api.py``: 365 activities, of which one carries a full 600-point
+track -- 600 track rows in the database, not 365 x 600. Statement counts do
+not depend on that; the wall-clock readings below do, and are one machine's
+reading rather than a bound:
 
-* Saturating this cap takes one list field. ``activities(limit: 64)
-  { track(points: 1) }`` issues 130 statements (2 + 64 x 2) in ~0.1 s, and
-  ``limit: 65`` issues the same 130 before refusing the 65th -- the cap holds
-  on a refused request, which is the point of charging before the SQL.
+* The shortest way to saturate this cap is one list field -- not the only
+  way. ``activities(limit: 64) { track(points: 1) }`` is 19 tokens and issues
+  130 statements (2 + 64 x 2) in ~0.03 s, and ``limit: 65`` issues the same
+  130 before refusing the 65th -- the cap holds on a refused request, which
+  is the point of charging before the SQL. Aliasing 64 ``track`` fields under
+  a single parent reaches the same 130 for 714 tokens, and its 65th field is
+  refused by this cap too: that route is longer in tokens, not out of reach.
 * Spending the document on *parents* instead reaches further. Of the two
   shapes that carry one track each, ``activity(id:)`` and
   ``activities(limit: 1)``, the token limit admits 52 -- 990 of
-  :data:`MAX_QUERY_TOKENS`, where 53 no longer parses. Both are legal, fully
-  served, and issue 208 statements (52 x 2 + 52 x 2) in 0.11-0.20 s: more
-  than the cap alone would suggest, and still some 75x inside the 15 s
-  Vercel function at the slowest reading.
+  :data:`MAX_QUERY_TOKENS`, where 53 lexes to 1009 and no longer parses. Both
+  are legal, fully served, and issue 208 statements (52 x 2 + 52 x 2) in
+  0.13-0.21 s: more than the cap alone would suggest, and still some 70x
+  inside the 15 s Vercel function at the slowest reading.
 
 A document that takes no ``track`` at all spends neither budget and is not
 bounded here at all: 166 aliased ``activities`` fields fit the token limit at
 998 tokens and are served, issuing 332 statements in ~2 s. That cost belongs
 to the list fan-out, and wants its own answer; it is not what this cap is for.
 
-Every token and statement count above is asserted by
-``test_the_documented_worst_cases_still_measure_as_documented`` in
-``tests/test_api.py``, so a change to either limit turns it red here rather
-than leaving this prose quietly wrong. The wall-clock figures are the
-exception: they are one machine's reading, not a bound, because asserting a
-wall time in CI buys a flaky test rather than a guarantee.
+Every token and statement count above is asserted in ``tests/test_api.py``: the
+served worst cases by
+``test_the_documented_worst_cases_still_measure_as_documented``, and the alias
+route and the 52/53 boundary by the tests beside it. A change to either limit
+turns those red rather than leaving this prose quietly wrong. The wall-clock
+figures are the exception: they are one machine's reading, not a bound,
+because asserting a wall time in CI buys a flaky test rather than a guarantee.
 
 Batching the per-activity queries (AU-050) would let this number be raised on
 its own, without reopening the points budget.
@@ -226,15 +234,23 @@ def _charge_track_field(info: Info, points: int) -> int:
     still pays 1000, which keeps the bound conservative rather than exact.
 
     Both charges land before the resolver touches its session, so a field that
-    overruns either budget is refused having issued no SQL at all. What that
-    costs the fields after it differs by budget, because a refusal writes
-    neither counter back: the field budget is sticky, since it stops at 0 and
-    every later ``track`` field then charges it below 0 too, while the points
-    budget is not -- it keeps whatever was left, and refuses each later field
-    on that field's own cost. Measured: after a field asking 1000 points is
-    refused with 500 left, a following ``track(points: 500)`` is still served.
-    Leaving the remainder intact is deliberate; charging a refused field would
-    make an over-large field poison the cheap ones behind it.
+    overruns either budget is refused having issued no SQL at all. Neither
+    counter is written back on a refusal -- the raises below both come before
+    the two assignments -- and that single fact reads differently for the two
+    budgets.
+
+    The field budget is sticky. Nothing is stored below 0: the count stops
+    there and stays, and it is the arithmetic that latches, not the counter,
+    since every later ``track`` field still costs 1, computes -1 locally, and
+    is refused in turn. Exhausting it therefore refuses the whole rest of the
+    operation, which ``test_the_track_field_cap_is_the_boundary`` pins.
+
+    The points budget is not sticky: it keeps whatever was left and refuses
+    each later field on that field's own cost. Measured: after a field asking
+    1000 points is refused with 500 left, a following ``track(points: 500)``
+    is still served. Leaving the remainder intact is deliberate; charging a
+    refused field would make an over-large field poison the cheap ones behind
+    it.
 
     Args:
         info: Resolver info carrying this request's context.
