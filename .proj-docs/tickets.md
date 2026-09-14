@@ -563,3 +563,43 @@ Repo 外：GitHub `github-pages` environment deployment branch｜Vercel Producti
 呢句**只喺當時度嗰個 shape（732 條固定 query）成立**。C-001 證明咗 query 條數本身先係冇 bound 嗰樣嘢：同一個 10,000 點預算，喺 alias flood 之下係 19,764 條 SQL / 14 s，round trip 佔 99.9% 成本。兩句被否證嘅結論（連「10,000 rows costs about 0.37 s」）必須喺修正輪刪走。
 
 **AU-050 嘅價值因此上調**：batching 做完之後，每個 `track` field 由 2 條 SQL 變成攤分一條批次查詢，`MAX_TRACK_FIELDS_PER_REQUEST` 可以獨立放寬而唔使郁 points budget。
+
+### AU-047 Review 第二輪（2026-09-14）—— ✅ pass 91/100
+
+來源：[`reviews/2026-09-14_review_au-047_round2.md`](reviews/2026-09-14_review_au-047_round2.md)
+審閱 `830d0a0` + `6a040f1` + `c42ed6a`｜**0 Critical**｜next_action `merge_develop`
+
+四個 blocking item 全部經 reviewer 獨立實驗核實關閉：
+
+| Item | 裁決 | 關鍵證據 |
+|---|---|---|
+| C-001 | ✅ closed | 原條 alias flood：**19,764 SQL / 14.68 s → 130 SQL / 0.15 s**。窮舉過 alias 寬度（1/2/27/28/52/53/100/200）、page window（64/65/365/1000）、offset paging、每 activity 多個 aliased track、nested `year→personalBests→track`、`activity(id:)`×alias、fragment / inline fragment / `__typename` —— **冇任何合法 document 超出 64 個 track field**。被拒請求同樣只燒 130 條（上一輪被拒都燒 20,056 條 / 13 s） |
+| W-012 | ✅ closed | 新理據逐句核實對得上前端源碼；兩句被否證嘅結論全 repo `grep` 零命中 |
+| W-013 | ✅ closed | 9 種 context 形狀全部 fail-closed；`RuntimeError` 訊息唔再洩漏 internal key |
+| W-014 | ✅ closed | 5 個 runtime mutant 全部被捉（M1 `.get()` fallback → 1 failed / 297 passed） |
+
+### 新開（AU-047 review 第二輪，全部非 blocking）
+
+| ID | 級別 | 標題 | 狀態 |
+|---|---|---|---|
+| **W-015** | 🟡 Warning | `tests/test_api.py` 嘅 `MAX_SQL_PER_REQUEST = 182` 推導乾淨（唔係 magic number），但常數名同測試名 claim 咗一個唔成立嘅全域性質 —— 實測有合法、被服務、零 error 嘅 document 去到 **208 SQL**（`52 × activities(limit:1){track(points:1)}`）。同 W-012 同一類缺陷（claim 大過實測支持嘅範圍），只係今次喺測試碼。建議改名做 `ALIAS_FLOOD_MAX_SQL` | pending |
+| **S-019** | 🟢 Suggestion | `test_track_fails_closed_when_the_context_cannot_be_seeded` 過唔到自己個註解：喺 `.get()` fallback mutant 之下照樣綠，而綠嘅真正原因係 `'mappingproxy' object does not support item assignment`，唔係註解講嘅 missing key。加 `assert "not seeded" in ...` 就有牙（同一標準亦套落姊妹測試） | pending |
+| **S-020** | 🟢 Suggestion | 「every `track` field after the one that overran it is refused in constant time」只對 field budget 成立 —— field budget sticky，points budget 唔 sticky（overrun 後仲剩 999 點，`track(points: 500)` 會被服務）。行為冇問題，句子要收窄 | pending |
+| **S-021** | 🟢 Suggestion | 「64 is the ceiling the points budget already implied … `10000 // 150` is 66」同一句兩個數對唔上。建議明寫「66, rounded down to 64」 | pending |
+| **S-022** | 🟢 Suggestion | `_cheap_tracks(n)` 用 `n` 做 `activities(limit:)`，而 `MAX_PAGE_SIZE = 1000`。`MAX_TRACK_FIELDS_PER_REQUEST` docstring 明寫 AU-050 之後要調高呢個數 —— 一旦 ≥ 1000，三條測試會因為一個同 track budget 無關嘅 `limit` 錯誤紅起，訊號誤導。建議改用 alias 砌 fan-out，或加 `assert MAX_TRACK_FIELDS_PER_REQUEST < MAX_PAGE_SIZE` | pending |
+| **S-023** | 🟢 Suggestion | **AU-047 範圍外**：非 track 嘅 `year` fan-out 而家先係最貴嘅合法請求 —— `110 × year{trainingLoad{ctl}}` = 330 SQL / 1.58 s / errors=0。每個 `year` alias 都重新 materialise 成年 365 條 activity 再行 full stats，track budget 完全睇唔到佢。真機換算約 3.5 s，仍然安全，而且 AU-047 之前就存在 | pending（建議另開 audit ticket，同 AU-050 並列） |
+
+### AU-047 最終狀態
+
+| 輪次 | Commit | Review |
+|---|---|---|
+| 第一輪 | `2adf6ba` `e088a1b` | ❌ fail 66/100（C-001） |
+| 第二輪 | `830d0a0` `6a040f1` `c42ed6a` | ✅ **pass 91/100，0 Critical** |
+
+**最終效果**（365 activities × 600 points 嘅 production-shaped DB）：
+
+| 形狀 | AU-047 之前 | 之後 |
+|---|---|---|
+| `activities(365){track(1000)}` | 732 SQL / 8.29 s / 219,000 rows | 22 SQL / 0.22 s（被 points budget 拒） |
+| 27 alias × `activities(365){track(1)}` | 19,764 SQL / 14 s / HTTP 200 | **130 SQL / 0.15 s**（被 field cap 拒） |
+| `activity(id){track(600)}`（前端真實路徑） | 4 SQL / 0.02 s / 600 點 | **4 SQL / 0.02 s / 600 點**（零回歸） |
