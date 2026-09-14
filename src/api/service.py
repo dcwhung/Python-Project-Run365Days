@@ -144,7 +144,15 @@ def _even_positions(total: int, points: int) -> list[int]:
         points: Samples wanted, assumed to be below *total*.
 
     Returns:
-        Strictly increasing positions, first and last row included.
+        Strictly increasing positions, first and last row included -- except in
+        the degenerate case below.
+
+    Note:
+        ``points < 2`` leaves no room for both ends, and returns the final row
+        alone rather than the first. That is not an oversight to tidy up:
+        :func:`~run365days.dashboard.builder.downsample` resolves the same tie
+        the same way, and this function exists to agree with it sample for
+        sample. Changing it here alone would split the two data modes apart.
     """
     if points < 2:
         return [total - 1]

@@ -336,6 +336,23 @@ def test_track_points_above_the_maximum_are_rejected(year_client):
     assert str(MAX_TRACK_POINTS) in gql_errors(year_client, query)
 
 
+# ── CUI-0004: `points: 1` is a documented degenerate case, not an accident ──
+def test_track_with_one_point_returns_the_final_sample(year_session):
+    rows = service.track(year_session, TRACKED_ACTIVITY_ID, 1)
+    assert [r["sec"] for r in rows] == [STORED_TRACK_POINTS - 1]
+
+
+def test_single_point_track_matches_the_builder_downsample(year_session):
+    """The degenerate case is shared with the dashboard, not local to the API."""
+    rows = service.track(year_session, TRACKED_ACTIVITY_ID, 1)
+    assert [r["sec"] for r in rows] == downsample(list(range(STORED_TRACK_POINTS)), 1)
+
+
+def test_graphql_accepts_one_point_and_returns_the_final_sample(year_client):
+    d = gql(year_client, '{ activity(id: "r0") { track(points: 1) { sec } } }')
+    assert [p["sec"] for p in d["activity"]["track"]] == [STORED_TRACK_POINTS - 1]
+
+
 # ── AU-001: query depth and token limits ───────────────────────────────────
 def test_deepest_client_query_is_within_the_depth_limit(client):
     assert gql(client, DEEPEST_CLIENT_QUERY)["year"] is not None
