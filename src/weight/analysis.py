@@ -78,11 +78,24 @@ def parse_weight_file(
     return records
 
 
+def _column(daily: list[WeightRecord | None], field: str) -> list[float]:
+    """Read one field off each day's weigh-in, ``NaN`` for a day without one."""
+    return [getattr(record, field) if record is not None else np.nan for record in daily]
+
+
 def build_dataframe(
     records: list[WeightRecord],
     year: int | None = None,
 ) -> pd.DataFrame:
     """Expand weigh-ins into a full-year table with one row per day.
+
+    ``Weight_(kg)`` and ``BMI`` are the values :func:`parse_weight_file`
+    already derived, not a second calculation. Re-deriving them here meant a
+    second copy of the height and the pound-to-kilogram factor, and the copy
+    could not see the ``height_cm`` the caller passed to the parse step, so a
+    non-default height produced two different BMIs for one weigh-in (AU-006).
+    This step therefore takes no height at all: there is nothing left to
+    configure in two places.
 
     Args:
         records: Parsed weigh-ins.
@@ -98,14 +111,14 @@ def build_dataframe(
         year = datetime.today().year
 
     date_range = pd.date_range(f"{year}-01-01", f"{year}-12-31")
-    weight_by_date = {r.date: r.weight_lbs for r in records}
-    weights = [weight_by_date.get(d.strftime("%Y-%m-%d")) for d in date_range]
+    by_date = {r.date: r for r in records}
+    daily = [by_date.get(d.strftime("%Y-%m-%d")) for d in date_range]
 
     df = pd.DataFrame(
         {
             "Day": range(1, len(date_range) + 1),
             "Date": date_range,
-            "Weight_(lbs)": weights,
+            "Weight_(lbs)": _column(daily, "weight_lbs"),
         }
     )
     df["Month"] = df["Date"].dt.month
@@ -113,12 +126,8 @@ def build_dataframe(
         lambda row: f"{row['Date'].weekday()} - {row['Date'].strftime('%A').upper()[:3]}",
         axis=1,
     )
-    df["Weight_(kg)"] = df["Weight_(lbs)"].apply(
-        lambda x: round(x * 0.454, 2) if pd.notna(x) else np.nan
-    )
-    df["BMI"] = df["Weight_(kg)"].apply(
-        lambda x: round(x / ((_HEIGHT_CM_DEFAULT / 100) ** 2), 2) if pd.notna(x) else np.nan
-    )
+    df["Weight_(kg)"] = _column(daily, "weight_kg")
+    df["BMI"] = _column(daily, "bmi")
     df["+/-"] = (
         df["Weight_(lbs)"]
         .diff()

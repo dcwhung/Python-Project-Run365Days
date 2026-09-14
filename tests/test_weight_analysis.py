@@ -61,3 +61,20 @@ class TestBuildDataframe:
         assert df.iloc[1]["+/-"] == "-"
         # day 2 to day 3: 153.6 -> 154.2 = increase (+)
         assert df.iloc[2]["+/-"] == "+"
+
+    def test_carries_the_parsed_kg_and_bmi_at_a_non_default_height(self, tmp_path):
+        # The two steps of the pipeline must agree: parse_weight_file is told the
+        # height, so build_dataframe may not quietly re-derive BMI at another one.
+        f = tmp_path / "tall.txt"
+        f.write_text(_SAMPLE_WEIGHT_DATA)
+        records = parse_weight_file(f, year=2021, height_cm=180)
+        df = build_dataframe(records, year=2021)
+        assert [df.iloc[i]["BMI"] for i in range(len(records))] == [r.bmi for r in records]
+        assert [df.iloc[i]["Weight_(kg)"] for i in range(len(records))] == [
+            r.weight_kg for r in records
+        ]
+
+    def test_leaves_a_day_without_a_weigh_in_blank(self, weight_file):
+        df = build_dataframe(parse_weight_file(weight_file, year=2021), year=2021)
+        assert df.iloc[6]["Weight_(kg)"] == "/"
+        assert df.iloc[6]["BMI"] == "/"
