@@ -1,6 +1,7 @@
 """Abstract base class shared by the TCX, GPX and KML parsers."""
 
 import logging
+import math
 import xml.etree.ElementTree as ET
 from abc import ABC, abstractmethod
 from pathlib import Path
@@ -74,9 +75,12 @@ def optional_float(parent: ET.Element, path: str, namespaces: dict[str, str]) ->
     if text is None:
         return None
     try:
-        return float(text)
+        value = float(text)
     except ValueError:
         return None
+    # "nan" / "inf" / "-inf" are valid float literals but never valid readings:
+    # nan silently poisons any sum and inf poisons any min/max (W-005).
+    return value if math.isfinite(value) else None
 
 
 def optional_int(parent: ET.Element, path: str, namespaces: dict[str, str]) -> int | None:

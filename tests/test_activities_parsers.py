@@ -3,7 +3,12 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
-from run365days.activities.parsers.base import ActivityParseError, ActivitySkipped
+from run365days.activities.parsers.base import (
+    ActivityParseError,
+    ActivitySkipped,
+    optional_float,
+    optional_int,
+)
 from run365days.activities.parsers.gpx import GPXParser
 from run365days.activities.parsers.kml import KMLParser
 from run365days.activities.parsers.tcx import TCXParser
@@ -115,7 +120,7 @@ class TestKMLParser:
 class TestParseAllDoesNotSilentlyDrop:
     def test_should_keep_activity_missing_optional_tag(self, fixtures_dir):
         ids = [a.activity_id for a in TCXParser(CHALLENGE_YEAR).parse_all(fixtures_dir)]
-        assert ids == ["1001", "1002"]
+        assert ids == ["1001", "1002", "1004"]
 
     def test_should_keep_gpx_activity_missing_optional_tag(self, fixtures_dir):
         ids = [a.activity_id for a in GPXParser(CHALLENGE_YEAR).parse_all(fixtures_dir)]
@@ -202,3 +207,46 @@ class TestExportDataZeroRecordGuard:
 
         assert exc.value.code != 0
         assert not (tmp_path / "static").exists()
+
+
+class TestGuardedHelpers:
+    """W-005: nan / inf are valid floats but not valid ints, and must not escape."""
+
+    @staticmethod
+    def _element(text: str) -> ET.Element:
+        parent = ET.Element("parent")
+        child = ET.SubElement(parent, "value")
+        child.text = text
+        return parent
+
+    @pytest.mark.parametrize("text", ["nan", "inf", "-inf", "Infinity", "NaN"])
+    def test_should_return_none_when_optional_int_is_not_finite(self, text):
+        assert optional_int(self._element(text), "value", {}) is None
+
+    @pytest.mark.parametrize("text", ["nan", "inf", "-inf"])
+    def test_should_return_none_when_optional_float_is_not_finite(self, text):
+        assert optional_float(self._element(text), "value", {}) is None
+
+    def test_should_return_truncated_int_when_value_is_finite(self):
+        assert optional_int(self._element("12.7"), "value", {}) == 12
+
+    def test_should_return_none_when_text_is_not_a_number(self):
+        assert optional_float(self._element("abc"), "value", {}) is None
+        assert optional_int(self._element("abc"), "value", {}) is None
+
+    def test_should_return_none_when_element_absent(self):
+        assert optional_float(ET.Element("parent"), "value", {}) is None
+        assert optional_int(ET.Element("parent"), "value", {}) is None
+
+    def test_should_not_crash_parse_all_when_a_reading_is_infinite(self, fixtures_dir):
+        # int(float("inf")) raises OverflowError, which parse_all does not catch:
+        # one corrupt file used to take the whole export down with it.
+        ids = [a.activity_id for a in TCXParser(CHALLENGE_YEAR).parse_all(fixtures_dir)]
+        assert "1004" in ids
+
+    def test_should_drop_non_finite_readings_from_the_parsed_activity(self, fixtures_dir):
+        act = TCXParser(CHALLENGE_YEAR).parse(fixtures_dir / "activity_1004.tcx")
+        assert act.calories == 0  # "nan" Calories reads as absent, not as poison
+        assert all(tp.cadence is None for tp in act.track_points)
+        assert act.track_points[0].speed is None
+        assert act.track_points[0].elevation is None
