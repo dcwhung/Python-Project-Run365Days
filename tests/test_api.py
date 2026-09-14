@@ -9,10 +9,12 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
+from graphql import GraphQLSyntaxError, parse
 from run365days.api import db, service
 from run365days.api.app import GRAPHQL_PATH, HEALTH_PATH, create_app
 from run365days.api.schema import (
     MAX_PAGE_SIZE,
+    MAX_QUERY_TOKENS,
     MAX_TRACK_FIELDS_PER_REQUEST,
     MAX_TRACK_POINTS,
     MAX_TRACK_POINTS_PER_REQUEST,
@@ -576,6 +578,9 @@ with ``points`` -- which is exactly why the points budget cannot bound it.
 SQL_PER_LIST_FIELD = 2
 """Statements one ``activities`` field issues: the list, then its warnings."""
 
+SQL_PER_ACTIVITY_FIELD = 2
+"""Statements one ``activity(id:)`` field issues: the get, then its warnings."""
+
 CHEAP_TRACK = "track(points: 1) { sec }"
 """The cheapest ``track`` field there is: one point, so it spends fields not points."""
 
@@ -612,11 +617,24 @@ def _document(*fields: str) -> str:
 def _page_field(activities: int, selection: str) -> str:
     """One list field of *activities* rows, each taking *selection*.
 
-    One list field rather than a fan-out of aliases because a fan-out cannot
-    reach the field cap at all: 64 aliased ``track`` fields lex to 1218 tokens,
-    over MAX_QUERY_TOKENS, so the parser refuses the document before the cap is
-    consulted. Only a page window can put that many tracks in one operation,
-    which couples every caller here to MAX_PAGE_SIZE -- hence the assertion.
+    One list field rather than a fan-out of aliases because the page window is
+    the *shortest* way to put many tracks in one operation, not the only one.
+    Measured: ``_cheap_tracks`` builds a 19-token document whatever
+    *activities* says, while 64 ``track`` fields aliased under a single parent
+    is 714 -- some 11 tokens per track, so the alias route buys tracks more
+    cheaply than this one and sits well inside MAX_QUERY_TOKENS.
+
+    That alias route reaches the cap, and the cap is what stops it: 64 aliased
+    tracks are served, and 65 (725 tokens) are refused by the field cap, not by
+    the parser. 1218 tokens is a different shape -- 64 aliased *parents* each
+    carrying one track, which the parser does refuse. An earlier version of
+    this docstring hung that figure on aliased ``track`` fields and concluded
+    the alias route could not reach the cap at all; it can, and
+    ``test_aliased_track_fields_under_one_parent_reach_the_field_cap`` covers
+    it, since nothing did while that claim stood.
+
+    So what the page window buys here is brevity, not reach -- and it couples
+    every caller to MAX_PAGE_SIZE, hence the assertion.
     """
     # AU-050 raising the field cap is already written down as expected, and a
     # cap at or above MAX_PAGE_SIZE would turn these tests red on a `limit`
@@ -638,6 +656,53 @@ def _one_page(activities: int, selection: str) -> str:
 def _cheap_tracks(activities: int) -> str:
     """One list field taking the cheapest track it can, to spend fields not points."""
     return _one_page(activities, CHEAP_TRACK)
+
+
+def _aliased_tracks(tracks: int, activity_id: str = TRACKED_ACTIVITY_ID) -> str:
+    """*tracks* aliased ``track`` fields under one parent: the fan-out route.
+
+    The shape C-001 was filed as, reduced to one parent. It spends no page
+    window at all, so it is the route ``_page_field`` does not take.
+    """
+    fields = " ".join(f"t{n}: {CHEAP_TRACK}" for n in range(tracks))
+    return _document(f'activity(id: "{activity_id}") {{ {fields} }}')
+
+
+def _parent_flood(parents: int, activity_id: str = TRACKED_ACTIVITY_ID) -> str:
+    """*parents* aliased ``activity(id:)`` fields, one cheap ``track`` each."""
+    fields = " ".join(
+        f'a{n}: activity(id: "{activity_id}") {{ {CHEAP_TRACK} }}' for n in range(parents)
+    )
+    return _document(fields)
+
+
+def _parses_within(document: str, max_tokens: int) -> bool:
+    """Whether graphql-core will parse *document* under a *max_tokens* ceiling."""
+    try:
+        parse(document, max_tokens=max_tokens)
+    except GraphQLSyntaxError:
+        return False
+    return True
+
+
+def _token_count(document: str) -> int:
+    """Tokens MaxTokensLimiter charges *document*.
+
+    The smallest ceiling graphql-core will parse it under, which is by
+    definition the number the limiter compares against MAX_QUERY_TOKENS --
+    rather than a re-implementation of the lexer that could drift from it.
+    """
+    high = 2
+    while not _parses_within(document, high):
+        high *= 2
+    low = high // 2
+    while low < high:
+        mid = (low + high) // 2
+        if _parses_within(document, mid):
+            high = mid
+        else:
+            low = mid + 1
+    return low
 
 
 def _alias_flood(aliases: int = ALIAS_FLOOD_ALIASES, points: int = 1) -> str:
@@ -685,6 +750,49 @@ def test_the_track_field_cap_is_the_boundary(year_client):
 
     over = gql_errors(year_client, _cheap_tracks(MAX_TRACK_FIELDS_PER_REQUEST + 1))
     assert str(MAX_TRACK_FIELDS_PER_REQUEST) in over
+
+
+def test_aliased_track_fields_under_one_parent_reach_the_field_cap(year_client, sql_count):
+    # The route _page_field does not take, and the one C-001 was filed as.
+    # It had no test while _page_field's docstring said it could not exist:
+    # 64 aliased tracks lex to 714 tokens, not the 1218 that docstring quoted,
+    # so the parser lets them through and the field cap is what answers.
+    fits = _aliased_tracks(MAX_TRACK_FIELDS_PER_REQUEST)
+    assert _token_count(fits) == 714 < MAX_QUERY_TOKENS
+
+    served = gql(year_client, fits)
+    assert len(served["activity"]) == MAX_TRACK_FIELDS_PER_REQUEST
+    assert sql_count[0] == (
+        SQL_PER_ACTIVITY_FIELD + MAX_TRACK_FIELDS_PER_REQUEST * SQL_PER_TRACK_FIELD
+    )
+
+    over = _aliased_tracks(MAX_TRACK_FIELDS_PER_REQUEST + 1)
+    assert _token_count(over) == 725 < MAX_QUERY_TOKENS, "the parser must not be the one refusing"
+    assert str(MAX_TRACK_FIELDS_PER_REQUEST) in gql_errors(year_client, over)
+
+
+def test_the_parser_never_gets_to_refuse_an_aliased_track_flood(year_client):
+    # The cap has to hold across the whole token budget, not just at 65:
+    # aliases are cheap enough that the widest fan-out MAX_QUERY_TOKENS admits
+    # is far past the cap, so the parser refuses none of the documents the cap
+    # is there for. Found by growing the shape rather than hard-coding the
+    # width, so this stays true if either limit moves.
+    widest = MAX_TRACK_FIELDS_PER_REQUEST
+    while _token_count(_aliased_tracks(widest + 1)) <= MAX_QUERY_TOKENS:
+        widest += 1
+
+    assert widest > MAX_TRACK_FIELDS_PER_REQUEST, "the token limit must not pre-empt the cap"
+    assert str(MAX_TRACK_FIELDS_PER_REQUEST) in gql_errors(year_client, _aliased_tracks(widest))
+
+
+def test_the_document_that_does_out_token_the_parser_aliases_parents(year_client):
+    # Where 1218 actually comes from: one parent per track, not one parent
+    # carrying many. Each parent repeats the whole `activity(id: "r0")` head,
+    # so a track costs ~19 tokens here against ~11 as a bare alias.
+    flood = _parent_flood(MAX_TRACK_FIELDS_PER_REQUEST)
+
+    assert _token_count(flood) == 1218 > MAX_QUERY_TOKENS
+    assert "token" in gql_errors(year_client, flood).lower()
 
 
 def test_the_alias_flood_issues_no_more_statements_than_the_field_cap_allows(
