@@ -16,7 +16,6 @@ export function act(overrides: Partial<Activity> & { id: string; date: string })
     elevationMaxM: null,
     ascentM: null,
     hasGps: true,
-    numPoints: 0,
     weather: null,
     warnings: [],
     ...overrides,
@@ -46,7 +45,6 @@ export const STATIC_ACTIVITY: StaticActivity = {
   elevation_max_m: 339,
   ascent_m: 9,
   has_gps: true,
-  num_points: 10,
   weather: { description: "Clear weather", temp_c: 19, humidity_pct: 65, wind_kmh: 10 },
   warnings: ["RED FIRE DANGER WARNING"],
 };

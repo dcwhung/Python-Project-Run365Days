@@ -14,7 +14,6 @@ type Activity {
   elevationMaxM: Float
   ascentM: Float
   hasGps: Boolean!
-  numPoints: Int!
   weather: RunWeather
   warnings: [String!]!
 

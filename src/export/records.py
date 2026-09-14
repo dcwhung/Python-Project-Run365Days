@@ -87,7 +87,7 @@ def activity_record(
         A dict with snake_case keys: ``id``, ``date``, ``start_time``,
         ``day_of_year``, ``distance_km``, ``duration_sec``, ``pace_sec_per_km``,
         ``calories``, ``avg_cadence``, ``avg_temp_c``, ``elevation_min_m``,
-        ``elevation_max_m``, ``ascent_m``, ``has_gps``, ``num_points``,
+        ``elevation_max_m``, ``ascent_m``, ``has_gps``,
         ``weather`` (nested dict or ``None``) and ``warnings`` (list).
     """
     start = datetime.strptime(activity.date, _TIMESTAMP_FORMAT)
@@ -117,7 +117,6 @@ def activity_record(
         "elevation_max_m": round_or_none(max(elevations), 0) if elevations else None,
         "ascent_m": round_or_none(total_ascent(elevations), 0),
         "has_gps": any(p.lat is not None for p in points),
-        "num_points": len(points),
         "weather": _weather_record(hourly),
         "warnings": list(warnings),
     }

@@ -26,7 +26,6 @@ _ACTIVITY_COLUMNS = (
     "elevation_max_m",
     "ascent_m",
     "has_gps",
-    "num_points",
 )
 
 

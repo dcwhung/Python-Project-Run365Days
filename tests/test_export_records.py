@@ -34,7 +34,11 @@ def test_activity_record_shape(sample_records):
     assert a["elevation_min_m"] == 330
     assert a["elevation_max_m"] == 339
     assert a["has_gps"] is True
-    assert a["num_points"] == 10
+
+
+# ── CUI-0019: the pre-downsample point count is gone from the record ───────
+def test_activity_record_carries_no_point_count(sample_records):
+    assert "num_points" not in sample_records.activities[0]
 
 
 def test_nearest_hourly_weather_is_nested(sample_records):
