@@ -25,7 +25,7 @@
 | ID | 優先 | 標題 | 來源 |
 |---|---|---|---|
 | **AU-047** | P1 | `Activity.track` N+1 fan-out 仍未解決 | Lane C 申報，main agent 核實 `src/api/schema.py:137-139` |
-| **AU-048** | P1 | epoch-ms path 語義錯 8 小時；測試常數係捏造 | Lane B 申報，證據見下 |
+| **AU-048** | P1 | epoch-ms path 語義錯 8 小時；測試常數係捏造 | ✅ **Done** `9f856a7` |
 | **AU-049** | P2 | `create_app(..., graphiql: bool = True)` 預設仍然開 | Lane C 申報 |
 
 #### AU-047 — `Activity.track` N+1 fan-out
@@ -142,7 +142,7 @@ Lane D 為 `ActivitySkipped` 加咗 `# noqa: N818`。ruff 嘅 `N818` 要求 exce
 | CUI-0003 | 🟢 Minor | depth limit 實際永遠唔會觸發（schema 最深 4 層，limiter 要 `max_depth=3` 先拒） | pending |
 | CUI-0004 | 🟢 Minor | `track(points: 1)` 只回最後一點，同 docstring 承諾不符 | pending |
 | CUI-0005 | 🟢 Minor | `app.test_client()` 過 ~130 request 洩漏 session（已確認係 test client artifact，真 WSGI server 400/400 正常） | pending |
-| **CUI-0006** | 🟢 Low | `parse_datetime` 嘅 ISO-with-offset 分支無視 `timezone` 參數 | pending（新開） |
+| **CUI-0006** | 🟢 Low | `parse_datetime` 嘅 ISO-with-offset 分支無視 `timezone` 參數 | ✅ **Done** `323fba9` |
 
 ### CUI-0002 修復摘要
 
@@ -493,3 +493,63 @@ Repo 外：GitHub `github-pages` environment deployment branch｜Vercel Producti
 | **CUI-0015** | 🟢 Low | `docs/architecture.md:142` 嘅 CI 描述**同一 session 內過時兩次**，應改為自動同步 | pending |
 
 呢段喺 AU-004 之後由 W-001 修好，W-011 之後**又再過時**。根本問題係一段描述 CI 行為嘅文字同 `pages.yml` 之間冇任何同步機制。建議參考本 repo 已經證明有效嘅 `run365-schema --check frontend/schema.graphql` pattern。
+
+---
+
+## AU-048 + CUI-0006 修復摘要（2026-09-14）
+
+Tests **283 → 294**（+11）｜TOTAL 94%｜static JSON byte-identical（`activities.json` 同抽樣 track 檔逐 byte 相同 — main agent 獨立確認）。
+
+### 捏造常數：由「上手同事聲稱」升級為「實測證實」
+
+我要求 developer 自己複核而唔好信 ticket。佢冇抽樣，係 parse 咗成個真實檔案：`data/raw/garmin/summarized_activities.json` 有 **660 個** `beginTimestamp`，`1634422256000` 係其中第一個，而 `1634451056000` **一個都冇**。
+
+Main agent 再獨立 grep 確認：真常數出現 1 次，捏造常數 **0 次**。
+
+差額啱啱好 28,800,000 ms = 8.0 小時。`1634422256000` → UTC `22:10:56` → HK `06:10:56+08:00`；`1634451056000` → UTC `06:10:56` → HK `14:10:56+08:00`。**測試作者將 HK 牆鐘當成 UTC 編碼，令貼標籤式實作睇落係啱。**
+
+### Epoch path 死碼三重確認（唔係靠估）
+
+1. `grep -rn parse_datetime src api` → 只有三個 parser，全部餵 XML text
+2. `grep -rn SUMMARIZED_ACTIVITIES_JSON` → 一個 hit，就係 `config.py:23` 嘅宣告本身（AU-036）
+3. **全語料掃描**而唔係抽樣：`grep -rlE "<(Id|time|when|begin)>[0-9]{13}<"` 過晒 1095 個 raw 檔 → 零 match。TCX/GPX 餵 `…Z` 毫秒，KML 餵 `+08:00`
+
+### 負 offset 判別做得準
+
+`"+" in rec_time` 確實漏咗 `-05:00`（實測 raise `ValueError`）。但 `-` 亦出現喺日期部分，唔可以簡單加。Developer 嘅做法：
+
+```python
+_ISO_OFFSET_PATTERN = re.compile(r"[+-]\d{2}(?::?\d{2})?$")
+...
+elif _ISO_OFFSET_PATTERN.search(rec_time.split("T", 1)[1]):
+```
+
+**只對 `T` 之後嘅時間部分做 match**，日期嘅 `-` 永遠唔喺範圍內。佢仲主動指出：呢個 pattern 如果套喺成個字串會 match 到 `2021-10-17`，正正就係要 post-`T` 嘅原因。
+
+### 修復後五條 path（main agent 獨立實測）
+
+| Input | HK / NY / UTC 三個參數下嘅絕對時刻 |
+|---|---|
+| `2021-10-16T22:10:56.000Z` | 全部 `22:10:56Z` |
+| `2021-10-17T06:10:56+08:00` | 全部 `22:10:56Z`（修復前 NY/UTC **無視參數**） |
+| `2021-10-17T06:10:56-05:00` | 全部 `11:10:56Z`（修復前三個都 **`ValueError`**） |
+| `1634422256000` | 全部 `22:10:56Z`（修復前 HK 係 `14:10:56Z`，**早 8 小時**） |
+| `2021-10-17 06:10:56`（naive） | 隨 zone 變（`22:10:56Z` / `10:10:56Z` / `06:10:56Z`）—— **正確**，naive 本質就係 zone-relative |
+
+四條絕對時刻 path 而家喺任何 `timezone` 參數下都落喺同一瞬間。
+
+### 釘死測試已按其 docstring 指示更新
+
+`TestParseDateTimeWallClockUnchanged` 原 docstring 明文寫住「AU-048 must update this class in the same change — a red test is the expected outcome, not a regression to revert」。Developer 照做：常數換成真值，兩段「刻意釘死錯誤行為」嘅文字刪走，改成「四種 input 編碼同一瞬間，所以每條 path 都要落喺同一個 HK 牆鐘」。`time.py` 入面嘅 `KNOWN INCORRECT` 註解一併移除。另外兩處用咗捏造常數嘅測試同 docstring 例子亦一併改正。
+
+---
+
+## 新開
+
+| ID | 級別 | 標題 | 狀態 |
+|---|---|---|---|
+| **CUI-0016** | 🟢 Low | `parse_datetime` 唔接受冇毫秒嘅 ISO UTC（`2021-10-17T06:10:56Z`） | pending |
+
+**同 CUI-0006 同一類缺口但唔同條件**：CUI-0006 係「有 offset 但係負數」，呢條係「係 UTC 但冇毫秒」（第一個分支要求 `"." in rec_time`）。兩者都係**分支條件用表面特徵代替真正判別**。
+
+建議唔好再加 `elif` —— 五種形態用四個特徵條件去分已經證明會漏。應改為先試 `isoparse()` / `fromisoformat()`，由 library 認 ISO 變體，失敗先落 fallback 處理 epoch-ms。目前唔可達（1095 個 raw 檔零 match），但 `…Z` 冇毫秒係好常見嘅合法 ISO 形態。
