@@ -1034,9 +1034,13 @@ frontend/src/data/api/source.ts:20   DEFAULT_TRACK_POINTS = 600   （api mode �
 
 ---
 
-## 兩個仍然只有人手保證嘅項目（本 session 由頭到尾未確認過）
+## 兩個只有人手保證嘅項目 —— ✅ 用戶已確認（2026-09-14）
 
-1. GitHub → Settings → Environments → `github-pages` → Deployment branches 要容許 `develop`
-2. Vercel → Settings → Git → Production Branch 應為 `develop`
+| 項目 | 狀態 |
+|---|---|
+| GitHub → Settings → Environments → `github-pages` → Deployment branches 容許 `develop` | ✅ 用戶已檢查，容許 |
+| Vercel → Settings → Git → Production Branch | ✅ 用戶已檢查，已經係 `develop` |
 
-`run365-ci-docs` 明確講明佢覆蓋唔到呢兩樣（喺 dashboard，checkout 讀唔到）。
+`run365-ci-docs` 明確講明佢覆蓋唔到呢兩樣（喺 dashboard，checkout 讀唔到），所以呢個確認**冇任何自動化承接**
+—— 一旦有人改咗 dashboard 設定，repo 入面唔會有嘢紅。`docs/deployment.md` 嘅切換 checklist 仍然將佢哋列為人手項目，
+呢點維持不變。
