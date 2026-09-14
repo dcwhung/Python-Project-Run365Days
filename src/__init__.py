@@ -2,7 +2,7 @@
 
 Features are organised as sub-packages:
 
-- ``activities`` - Garmin TCX / GPX / KML parsing, activity model, MET metrics
+- ``activities`` - Garmin TCX / GPX / KML parsing and the activity model
 - ``weather``    - Hong Kong Observatory and freemeteo collectors and models
 - ``weight``     - daily body-weight parsing and derived metrics
 - ``dashboard``  - builds the payload for the static web dashboard

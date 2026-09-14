@@ -1,1 +1,1 @@
-"""Garmin activity parsing, activity model and running metrics."""
+"""Garmin activity parsing and the activity model."""
