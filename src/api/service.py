@@ -159,6 +159,54 @@ def _even_positions(total: int, points: int) -> list[int]:
     return [round(i * step) for i in range(points)]
 
 
+_TRACK_TOTALS = "run365_track_totals"
+"""Session key holding ``{activity_id: stored track rows}`` counted so far."""
+
+_TRACK_TOTALS_BATCHED = "run365_track_totals_batched"
+"""Session key marking the counts above as covering every track in the database."""
+
+
+def _count_track_rows(session: Session, activity_id: str | None) -> dict[str, int]:
+    """Return ``{activity_id: rows}`` for one track, or for every track when ``None``."""
+    stmt = select(models.TrackPoint.activity_id, func.count()).group_by(
+        models.TrackPoint.activity_id
+    )
+    if activity_id is not None:
+        stmt = stmt.where(models.TrackPoint.activity_id == activity_id)
+    return dict(session.execute(stmt).all())
+
+
+def _track_total(session: Session, activity_id: str) -> int:
+    """Return the rows stored for *activity_id*, counting at most twice per session.
+
+    Sampling needs the row count before it can pick positions, and asking per
+    activity made ``{ activities { track } }`` cost two round trips per run. The
+    counts are cached on the session instead: the API opens its database
+    read-only and never writes through the session, so a count cannot go stale
+    within one request.
+
+    The first track counted is counted alone, which keeps a single-run query at
+    one indexed lookup rather than a scan of every other run's points. A second,
+    different track means a list is being resolved, so one grouped scan answers
+    every remaining activity and no further counting happens.
+
+    Args:
+        session: Open read-only session.
+        activity_id: Track owner.
+
+    Returns:
+        Rows stored for the track, or ``0`` when the run has none.
+    """
+    totals = session.info.get(_TRACK_TOTALS)
+    if totals is None:
+        totals = _count_track_rows(session, activity_id)
+        session.info[_TRACK_TOTALS] = totals
+    elif activity_id not in totals and not session.info.get(_TRACK_TOTALS_BATCHED):
+        totals.update(_count_track_rows(session, None))
+        session.info[_TRACK_TOTALS_BATCHED] = True
+    return totals.get(activity_id, 0)
+
+
 def _even_sample_filter(session: Session, activity_id: str, points: int) -> ColumnElement | None:
     """Return a ``seq`` predicate keeping exactly *points* even samples, or ``None``.
 
@@ -171,11 +219,7 @@ def _even_sample_filter(session: Session, activity_id: str, points: int) -> Colu
         A predicate selecting the wanted rows, or ``None`` when the track
         already fits in *points* rows.
     """
-    total = session.scalar(
-        select(func.count())
-        .select_from(models.TrackPoint)
-        .where(models.TrackPoint.activity_id == activity_id)
-    )
+    total = _track_total(session, activity_id)
     if total <= points:
         return None
     # Positions, not seq arithmetic: row_number stays evenly spaced even if a
