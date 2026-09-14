@@ -78,6 +78,15 @@ testpaths = ["tests"]
 line-length = 100
 target-version = "py310"
 src = ["src", "tests", "api"]
+# legacy/ holds reference-only v1 scripts that are deliberately outside the
+# quality system: no tests, never imported by src/, not built or deployed by CI.
+# .pre-commit-config.yaml already excludes them, but that exclusion only applies
+# to the hook. Stating it here is what makes a bare `ruff check .` usable: without
+# it the command reports 531 pre-existing errors, all of them in legacy/, so it can
+# never be green on any commit and every real finding in src/, tests/ and api/
+# hides behind the noise. Excluding the directory in one place lets the tool answer
+# "is this repository clean?" instead of only "is this path list clean?".
+extend-exclude = ["legacy"]
 
 [tool.ruff.lint]
 select = [
@@ -110,3 +119,10 @@ known-first-party = ["run365days"]
 
 [tool.ruff.format]
 quote-style = "double"
+# ruff formats Python code blocks embedded in Markdown. Review reports and tickets
+# quote fragments on purpose -- deliberately broken code, partial expressions, a
+# before/after pair -- and the formatter rewrites them as if they were whole
+# programs: one quoted `time=parse_datetime(...)` argument came back as
+# `time = (parse_datetime(...),)`, which is a different statement. Evidence must
+# survive verbatim, so prose is not the formatter's business.
+exclude = ["*.md"]
