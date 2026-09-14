@@ -1,6 +1,6 @@
 # Ticket Registry — Run365Days
 
-**最後更新**：2026-09-14（P0 + Warning + CUI-0002 / 0001 / 0007 / 0010 / 0009 完成）
+**最後更新**：2026-09-14（P0 + Warning + CUI-0001/0002/0007/0009/0010/0011/0012 + AU-013/014/048/049 + W-011 + CUI-0006 完成）
 
 > 由 `/audit`（AU-NNN）同 `/review`（C/W/S-NNN）產生嘅 ticket 集中登記處。
 > 編號全局唯一、永不重用。已完成嘅保留紀錄，只改狀態。
@@ -327,7 +327,7 @@ exporter 會讀嘅欄位，`DailyWeather` 完全冇宣告（同 AU-037 係同一
 | ID | 級別 | 標題 | 狀態 |
 |---|---|---|---|
 | **CUI-0011** | 🔴 Critical（latent） | Collector 寫出嘅 schema 同 exporter 讀嘅唔夾，重新採集即炸 pipeline | ✅ **Done** `755fdd5` `7092964`（方案 C） |
-| **CUI-0012** | 🟡 Medium | 三處無防護 `.find()`：`hourly.py:57` 硬崩、`warnings.py:55` **靜默錯**、`warnings.py:70` 硬崩 | pending |
+| **CUI-0012** | 🟡 Medium | 三處無防護 `.find()`：`hourly.py:57` 硬崩、`warnings.py:55` **靜默錯**、`warnings.py:70` 硬崩 | ✅ **Done** `f392d19` `ce8c4ff` |
 | **CUI-0013** | 🟢 Low | `collect_weather.py` 0% 覆蓋 + `print()`；`_REQUEST_TIMEOUT` 三份重複；magic index | pending |
 
 **CUI-0012 之中 `warnings.py:55` 最陰險**：`html.find(marker)` 搵唔到返 `-1`，加 `len(marker)` 之後變 `31` ——
@@ -553,3 +553,67 @@ elif _ISO_OFFSET_PATTERN.search(rec_time.split("T", 1)[1]):
 **同 CUI-0006 同一類缺口但唔同條件**：CUI-0006 係「有 offset 但係負數」，呢條係「係 UTC 但冇毫秒」（第一個分支要求 `"." in rec_time`）。兩者都係**分支條件用表面特徵代替真正判別**。
 
 建議唔好再加 `elif` —— 五種形態用四個特徵條件去分已經證明會漏。應改為先試 `isoparse()` / `fromisoformat()`，由 library 認 ISO 變體，失敗先落 fallback 處理 epoch-ms。目前唔可達（1095 個 raw 檔零 match），但 `…Z` 冇毫秒係好常見嘅合法 ISO 形態。
+
+---
+
+## CUI-0012 + AU-049 修復摘要（2026-09-14）
+
+Tests **294 → 310**（CUI-0012 +11、AU-049 +5）｜三個 collector 連新 helper 全部 **100%**｜**TOTAL 95%**｜static JSON byte-identical。
+
+> ⚠️ **Test count 記錄慣例**：本檔案早期喺多處硬寫 test 數（其中「185」過時咗好耐，被兩條唔同 lane 各自指出一次）。由今次起，**test count 只記喺呢個「最新狀態」表**，唔再散落各段。
+
+| 指標 | 目前 |
+|---|---|
+| Tests | **310 passed** |
+| Coverage TOTAL | **95%** |
+| Static JSON vs 基準 `1896778` | **byte-identical**（6,857,102 bytes / 370 files，只差 `generated_at`） |
+
+### CUI-0012 — marker 嗰個「靜默錯」有咗實證
+
+Developer 嘅 red evidence 直接證明咗 ticket 講嘅「靜靜攞返錯資料」：marker 缺失時，**舊 code 回一個完整成形嘅 warning**（由 offset-31 切片 scrape 出嚟）：
+
+```
+E  assert [WeatherWarning(date='2021-01-01', warning_type='Unknown',
+           warning_signal='COLD WEATHER WARNING', ...)] == []
+```
+
+Main agent 獨立重現：fixture 確實冇 marker，舊 code 確實由**第 31 個字元**開始 parse，修復後回 `[]` 並記 WARNING 講明日期同缺失標題。
+
+**決定：明確空結果 + WARNING，唔 raise。** 條線同 AU-013 一致（回應到咗但用唔到 = 數據問題）。Developer 加咗一個我冇諗到嘅論據：`fetch_range()` 逐日呼叫 `fetch_day()`，raise 會令**第一個改版頁面就賠上全部 365 日** —— 正正就係呢張票開頭 #1 講緊嗰種 all-or-nothing 失敗。
+
+### 新 helper 放位有論證
+
+新開 `src/weather/collectors/html_reads.py`（`child_string` / `child_attr`，兩者對「唔存在」都回 `None`，由 caller 決定缺失代表乜）。
+
+- **唔放 `src/common/`**：bs4 會違反 `tests/test_api_imports.py` 釘死嘅輕依賴約束（同 `common/numeric.py` 嘅 stdlib-only 約束同源）。Main agent 已驗證該測試仍然 1 passed。
+- **同 `base.py` 嗰套唔同**：`xml.etree` 只有一個失敗模式（`find()` 回 None）；BeautifulSoup 有兩個 —— `find()` 回 None，**或者**回一個 `.string` 本身係 None 嘅 Tag。
+- **冇加 `required_*` raising variant**：呢三處全部係 degrade 而唔係 reject。
+
+Developer 仲更正咗自己第一版嘅錯誤假設：佢原本以為 mixed-children 嘅 `<script>` 會令 `.string` 係 None，實測 bs4 4.15 之下 `html.parser` 將 script 內容當 raw text 處理，`.string` 係 non-None。測試改為 empty-`<script>` 個 case。
+
+### 一個超越行覆蓋率嘅檢查
+
+`child_string` 嘅「存在但空」同 `child_attr` 嘅「存在但冇 attribute」兩條分支，喺 **line 同 branch coverage 都係 100%** 嘅情況下**其實從未被真正行過**（單行 guard）。Developer 冇收貨，直接釘死兩者並做 mutation check：拆走任一 guard 就有對應測試變紅，裝返就 6 條全綠。
+
+### AU-049 — 採用方案 (b) 而非 ticket 原文建議
+
+Ticket 原文建議「翻轉預設值為 `False`」。最終採用 **(b)**：`graphiql: bool | None = None`，`None` 跟 `RUN365_GRAPHIQL`。
+
+理由（developer 提出，main agent 接納）：
+1. `src/api/schema.py:60-63` 已經明文寫住「One variable, not two」—— `create_app(graphiql=...)` 正正就係第二個變數，(a) 令呢句 docstring 繼續講大話
+2. (a) 完全冇處理**反方向 desync**：`create_app(graphiql=True)` + env 未設 = 服務一個 introspection 被封嘅**廢 IDE**，QA 已實測記錄
+3. **有真實 caller 依賴預設值**：`README.md:132` 記錄嘅 `flask --app run365days.api.app:create_app run` 唔傳參數，(a) 會令佢靜靜雞冇咗 IDE
+
+Main agent 獨立實測四個組合全部符合預期，同一 process 內翻 env 得 `(404, 200)`（確認冇喺 import 凍結），introspection 行為（W-008）逐字未變。
+
+`README.md:132` 因本改動而變錯，已喺**同一條 branch** 補返（amend 而非另開 commit —— 原 body 寫住「README 唔喺本 lane」，補做後嗰句變假話）。
+
+---
+
+## 新開
+
+| ID | 級別 | 標題 | 狀態 |
+|---|---|---|---|
+| **CUI-0017** | 🟢 Low | `hourly.py` script 字串切割兩個 `str.find()` 可返 `-1`；`_load_signal_metadata()` 無防護索引 | pending |
+
+**同 CUI-0012 嘅 marker 完全同一類** —— `str.find()` 返 `-1` 被當成有效位置。呢個 pattern 喺本 repo 已經出事一次，ticket 明確建議**唔好再用 `str.find()` + slice**，改用 regex 並喺 match 唔到時明確回 `None`。
