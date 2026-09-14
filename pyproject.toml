@@ -7,27 +7,44 @@ name = "run365days"
 version = "3.0.0"
 description = "Personal running analytics: Garmin activity parsing, weather correlation, weight tracking and a dashboard"
 requires-python = ">=3.10"
+# Every runtime dependency carries a lower bound at the tested release line and
+# an upper bound at the next major. The lower bounds matter as much as the caps:
+# the numeric results this project asserts differ between pandas 2 and 3, so an
+# unbounded "pandas" on a fresh machine can install a version the tests never ran
+# against. Caps bound the blast radius of a future major; they are not a lock
+# file, and reproducing an exact set still needs one (see docs follow-up).
 dependencies = [
-    "numpy",
-    "pandas",
-    "python-dateutil",
+    "numpy>=2.4,<3",
+    "pandas>=3.0,<4",
+    "python-dateutil>=2.9,<3",
     # zoneinfo ships no data. It reads the host database and only then falls back
     # to this package, so hosts without /usr/share/zoneinfo (slim and distroless
     # containers, minimal base images, Windows) need it to resolve any zone.
-    "tzdata",
-    "requests",
-    "beautifulsoup4",
-    "lxml",
-    "sqlalchemy>=2.0",
-    "flask>=3",
-    "strawberry-graphql>=0.250",
+    # Calendar-versioned pure data with no API, so it takes a floor and no cap:
+    # a cap would expire every year and block timezone corrections.
+    "tzdata>=2025.1",
+    "requests>=2.32,<3",
+    "beautifulsoup4>=4.13,<5",
+    "lxml>=6.1,<7",
+    "sqlalchemy>=2.0,<3",
+    "flask>=3.1,<4",
+    # Pre-1.0, so a minor may break the schema; the ceiling is a pragmatic one
+    # that still admits routine minors rather than a strict semver reading.
+    "strawberry-graphql>=0.327,<0.400",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=7",
-    "ruff>=0.5",
-    "pre-commit>=3",
+    "pytest>=8,<10",
+    # A ruff minor can add or change lint rules, which turns a green checkout red
+    # without a code change. `ruff check` is a required gate, so this one is
+    # capped to patches and moved deliberately.
+    "ruff>=0.16,<0.17",
+    "pre-commit>=4,<5",
+    # Coverage runs are not part of CI, but `pytest --cov` is used often enough
+    # that leaving it undeclared means it only works where it happens to be
+    # preinstalled -- the same undeclared-dependency defect as the bounds above.
+    "pytest-cov>=7,<8",
 ]
 
 [project.scripts]
