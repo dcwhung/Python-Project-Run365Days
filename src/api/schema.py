@@ -29,7 +29,16 @@ DEFAULT_TRACK_POINTS = 150
 """Track points returned per activity unless the query asks for more."""
 
 MAX_TRACK_POINTS = 1000
-"""Ceiling for ``track(points:)``, above the 600 samples the export stores per run."""
+"""Ceiling for ``track(points:)``.
+
+Deliberately above 600, the most track rows the export stores for one run
+(``run365-export --points``, whose default is ``DEFAULT_POINT_LIMIT``), so a
+client asking for the maximum always gets the whole stored track back.
+
+Not to be read as a bound on ``Activity.num_points``: that field counts the
+raw samples the source file held *before* the export downsampled them, so it
+runs past 600 for the occasional long run and the two numbers do diverge.
+"""
 
 MAX_TRACK_POINTS_PER_REQUEST = 10000
 """Track points one operation may ask for, summed over every ``track`` field in it.
