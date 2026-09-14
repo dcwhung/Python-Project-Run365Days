@@ -5,6 +5,7 @@ Usage
     run365-weather --source hourly
     run365-weather --source warnings
     run365-weather --source hko-daily --year 2021
+    run365-weather --source sun-moon --year 2021
     run365-weather --source all
 
 or, without installing the package::
@@ -47,8 +48,8 @@ from datetime import datetime
 from pathlib import Path
 
 from run365days.common import config
-from run365days.weather.collectors import hko_daily, hourly, warnings
-from run365days.weather.models import DailyWeather, HourlyWeather, WeatherWarning
+from run365days.weather.collectors import hko_daily, hourly, sun_moon, warnings
+from run365days.weather.models import DailyWeather, HourlyWeather, SunMoon, WeatherWarning
 
 
 def _sources() -> dict:
@@ -77,11 +78,16 @@ def _sources() -> dict:
             config.HKO_DAILY_JSON,
             lambda start, end, year: hko_daily.fetch_year(str(year)),
         ),
+        "sun-moon": (
+            "sun and moon rise/set history",
+            config.SUN_MOON_JSON,
+            lambda start, end, year: sun_moon.fetch_year(str(year)),
+        ),
     }
 
 
 def _write_jsonl(
-    records: Sequence[DailyWeather | HourlyWeather | WeatherWarning], out_path: Path
+    records: Sequence[DailyWeather | HourlyWeather | SunMoon | WeatherWarning], out_path: Path
 ) -> None:
     """Write weather records as JSON Lines in the raw scraper column names.
 
