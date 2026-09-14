@@ -18,7 +18,9 @@ type Activity {
   weather: RunWeather
   warnings: [String!]!
 
-  """GPS track, evenly downsampled to at most `points` samples."""
+  """
+  GPS track, evenly downsampled to at most `points` samples. One request may read at most 64 `track` fields, totalling 10000 points. Both are counted across every `track` field in the request; points are charged on `points` as asked for, not on the rows a track turns out to hold. The field limit applies however small `points` is, because each `track` field costs the same query either way.
+  """
   track(points: Int! = 150): [TrackPoint!]!
 }
 

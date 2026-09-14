@@ -1,6 +1,6 @@
 # Ticket Registry — Run365Days
 
-**最後更新**：2026-09-14（P0 + Warning + CUI-0002 / 0001 / 0007 / 0010 / 0009 完成）
+**最後更新**：2026-09-14（AU-047 實測 + 修復；更正 Lane E 嘅 `num_points` 假設；分拆 AU-050）
 
 > 由 `/audit`（AU-NNN）同 `/review`（C/W/S-NNN）產生嘅 ticket 集中登記處。
 > 編號全局唯一、永不重用。已完成嘅保留紀錄，只改狀態。
@@ -27,6 +27,7 @@
 | **AU-047** | P1 | `Activity.track` N+1 fan-out 仍未解決 | Lane C 申報，main agent 核實 `src/api/schema.py:137-139` |
 | **AU-048** | P1 | epoch-ms path 語義錯 8 小時；測試常數係捏造 | Lane B 申報，證據見下 |
 | **AU-049** | P2 | `create_app(..., graphiql: bool = True)` 預設仍然開 | Lane C 申報 |
+| **AU-050** | P2 | `{ activities { track } }` 仍然係 2N round-trip（AU-047 加咗 budget 但冇 batch） | 2026-09-14 AU-047 實測分拆 |
 
 #### AU-047 — `Activity.track` N+1 fan-out
 
@@ -37,7 +38,25 @@ AU-001 修好咗**每次 query 嘅讀取放大**（SQL 層 stride，唔再讀晒
 
 單次請求資料量降咗一個數量級，但 500 次 query 嘅 round-trip 仍然要喺 15 秒 function 入面行完。
 
-**建議解法**：Strawberry DataLoader（keyed by `activity_id`），或 field-level complexity extension 去 bound `activities × points` 個乘積。
+**原建議解法**：Strawberry DataLoader（keyed by `activity_id`），或 field-level complexity extension 去 bound `activities × points` 個乘積。
+
+##### 2026-09-14 實測 —— 推翻「fan-out 係主因」
+
+建一個同真實 export 同形狀嘅 DB（365 activities × 600 stored points，17.1 MB SQLite），逐條 query 用 SQLAlchemy `before_cursor_execute` 數語句：
+
+| Query | SQL 語句數 | 耗時 | Track rows |
+|---|---|---|---|
+| `activities(limit: 365) { id }` | 2 | 0.01 s | 0 |
+| `+ track(points: 5)` | 732 | 0.60 s | 1,825 |
+| `+ track(points: 150)`（default） | 732 | 1.81 s | 54,750 |
+| `+ track(points: 1000)`（`MAX_TRACK_POINTS`） | **732** | **8.29 s** | **219,000** |
+| `activity(id) { track(points: 1000) }`（前端真實路徑） | 4 | 0.03 s | 600 |
+
+第 2 行同第 5 行係同一組 732 條 query、但差 217,175 行：**730 條額外 query 嘅 round-trip 成本只係 0.60 s，8.29 s 入面 93% 係 row materialisation。** 即係話 DataLoader 就算做到完美（732 → 2 條），最壞情況仍然 ~7.7 s，貼住 Vercel 15 秒 function 上限；真正冇 bound 嘅係 `activities × points` 個乘積本身。
+
+**採用方案（2026-09-14 用戶拍板）**：per-request track point budget（`MAX_TRACK_POINTS_PER_REQUEST`），喺 `Activity.track` resolver 按 requested points 扣數，扣爆即拒。直接 bound 最壞情況，零 SQL 取樣語義改動。DataLoader batching 另開 follow-up（見 AU-050）。
+
+**前端零影響**：`frontend/src/data/api/queries.ts` 由頭到尾冇發過 `activities { track }` —— `TrackQuery` 係單 activity。呢條係敵意 query 曝險，唔係 client 路徑。
 
 #### AU-048 — epoch-ms path 語義錯 8 小時（含捏造測試常數）
 
@@ -119,11 +138,27 @@ TCX 對同樣 8 個 id 全部解析成功（365/365），而 dashboard 係由 TC
 
 ### AU-047 補充（Lane E 發現）
 
-除咗 N+1 fan-out，`{ activities { track } }` 而家係 **2N** query —— 每個 activity 一個 COUNT 加一個 SELECT。`models.Activity.num_points` 已經存住該數目，可以直接消走個 COUNT；徹底解法係 window function。
+除咗 N+1 fan-out，`{ activities { track } }` 而家係 **2N** query —— 每個 activity 一個 COUNT 加一個 SELECT。~~`models.Activity.num_points` 已經存住該數目，可以直接消走個 COUNT~~；徹底解法係 window function。
+
+> ⛔ **2026-09-14 更正：「用 `num_points` 消走 COUNT」呢個假設係錯嘅，唔好照做。**
+>
+> `src/export/records.py:120` 嘅 `num_points = len(points)` 係 **downsample 之前**嘅原始點數，而 `records.py:230` 存落 DB 嘅係 `downsample(track_rows(...), point_limit)` 之後嘅行數（`run365-export` 預設 `DEFAULT_POINT_LIMIT = 600`，`src/cli/export_data.py:27`）。兩者只喺原始點數 ≤ 600 嗰陣先啱。
+>
+> **實測 365 個真實 TCX 嘅 `<Trackpoint>` 數**：min 250、median 366、**max 1,250**、**2 個 activity > 600**。即係話照做會令嗰批 activity 嘅 `_even_positions(total, points)` 用一個大過實際行數嘅 `total` 去計位置，downsample 位置全錯而且**唔會拋錯**（`seq IN (...)` 只係撈唔到嘢），係靜默資料錯誤。
+>
+> 要消個 COUNT 嘅話得兩條路：export 時另存一個 `stored_points` 欄位，或者用 `count(*) OVER (PARTITION BY activity_id)` 喺同一句 SQL 計。兩條都要先過 `test_track_samples_match_the_reference_downsampler`（佢將 SQL 取樣同 `dashboard.builder.downsample` 釘到完全一致）。實測顯示呢個 COUNT 只值成個最壞情況嘅 ~7%，唔值得為咗佢冒語義風險 —— 撥入 AU-050。
 
 ### AU-049 補充（實測確認）
 
 W-008 令 flag 喺 `schema.py` 讀取之後，`src/api/app.py:28` 嘅 `create_app(graphiql=True)` 成為**唯一一條可以喺 introspection 關閉之下仍然服務 IDE 嘅路徑**。實測：`create_app(graphiql=False)` GET → 404（生產路徑）；`create_app()` GET → **200**（預設值路徑）。目前潛伏 —— `api/graphql.py` 係唯一 production caller 且傳 `graphiql_enabled()`。
+
+### AU-050 — `{ activities { track } }` 嘅 2N round-trip（AU-047 分拆）
+
+AU-047 用 per-request budget 封住咗最壞情況嘅資料量，但冇改 fan-out 本身：每個 activity 仍然係 1 個 COUNT + 1 個 SELECT。實測值 0.60 s / 730 條額外 query（見 AU-047 實測表），即最壞情況嘅 ~7%。
+
+**點解唔喺 AU-047 一次過做**：唯一乾淨嘅 batch 寫法係 `row_number() OVER (PARTITION BY activity_id ORDER BY seq)` 加 `count(*) OVER (PARTITION BY activity_id)` 一句過；但 `_even_positions()` 嘅 `round(i * step)` 係 Python 層計，搬入 SQL 要保證 SQLite 嘅 rounding 同 Python round-half-even 完全一致，否則撞爆 `test_track_samples_match_the_reference_downsampler`（byte-level 釘死）。風險同工作量都遠高於佢慳嘅 7%。
+
+**做嘅時候順帶**：同一句 window function 可以一併消走 `_even_sample_filter()` 嗰個 COUNT（見上面「AU-047 補充」嘅更正 —— 唔可以用 `num_points` 代替）。
 
 ### `ActivitySkipped` 命名（需團隊決定）
 
@@ -493,3 +528,210 @@ Repo 外：GitHub `github-pages` environment deployment branch｜Vercel Producti
 | **CUI-0015** | 🟢 Low | `docs/architecture.md:142` 嘅 CI 描述**同一 session 內過時兩次**，應改為自動同步 | pending |
 
 呢段喺 AU-004 之後由 W-001 修好，W-011 之後**又再過時**。根本問題係一段描述 CI 行為嘅文字同 `pages.yml` 之間冇任何同步機制。建議參考本 repo 已經證明有效嘅 `run365-schema --check frontend/schema.graphql` pattern。
+
+---
+
+## C/W/S-NNN — 來自 AU-047 Review（2026-09-14）
+
+來源：[`reviews/2026-09-14_review_au-047.md`](reviews/2026-09-14_review_au-047.md)
+審閱 `2adf6ba` + `e088a1b`｜評分 **66/100**｜結果 ❌ **fail**（1 🔴）｜next_action `invoke_developer`
+
+| ID | 級別 | 標題 | 狀態 |
+|---|---|---|---|
+| **C-001** | 🔴 Critical | budget 扣 points 唔扣 round trip：27 alias × `activities(365){track(points:1)}` = 9,855 點（合法）→ **19,764 SQL / 13-14 s**，換算真機約 30 s，爆 15 s Vercel limit | 🔧 修正輪處理中 |
+| **W-012** | 🟡 Warning | `10000` 嘅理據引用咗前端發唔出嘅 document（`ActivityFields` fragment 冇 `track`，`YearQuery` 消耗 0 點；真實上限係 `TrackQuery` 嘅 600 點） | 🔧 修正輪處理中 |
+| **W-013** | 🟡 Warning | `isinstance(context, MutableMapping)` guard 守得住，但註解講嘅理由錯（read-only `Mapping` 去到 `track`，真正安全網係扣數函數嘅 `KeyError`）；client 收到裸 internal key | 🔧 修正輪處理中 |
+| **W-014** | 🟡 Warning | 刻意選擇嘅 fail-closed 行為零測試 —— 加句 `.get(KEY, MAX_...)` 291 條測試全部照綠 | 🔧 修正輪處理中 |
+| **S-014** | 🟢 Suggestion | 被拒請求喺 ERROR log 留完整 traceback（既有行為，非本次引入） | ➡️ 轉 **S-018** 整批處理 |
+| **S-015** | 🟢 Suggestion | 兩處測試斷言／註解偏鬆 | 🔧 修正輪一併修 |
+| **S-016** | 🟢 Suggestion | 「per-request」實為「per-operation」，相等性靠 Strawberry batching 預設熄咗 | 🔧 修正輪一併修 |
+| **S-017** | 🟢 Suggestion | `on_operation` 缺 return annotation；`# Factories, not instances` 註解同下面第四個（class）唔完全對應 | 🔧 修正輪一併修 |
+| **S-018** | 🟢 Suggestion | Client 輸入錯誤（`_page` / `_track_points` / track budget）一律以 `ValueError` + 完整 traceback 記入 ERROR log。應引入 `ClientError` + Strawberry `process_errors` override 整批降級 | pending（**唔喺 AU-047 範圍**） |
+
+### C-001 採用方案
+
+`MAX_TRACK_FIELDS_PER_REQUEST = 64`，同 points budget **正交**嘅第二個 counter。
+
+64 唔係憑空定：points budget 喺 default `points=150` 之下**已經隱含**咗 `10000 // 150 = 66` 個 track field 嘅上限，攻擊就係靠將 `points` 壓到 1 去繞過呢個隱含限制。顯式定 64 對現有合法用法接近零影響，但令「平 budget 換貴 round trip」呢條路徑收窄到最壞 64 × 2 = 128 條 SQL。
+
+未採用：`cost = max(points, K)`（一條公式收兩樣嘢，SDL 難解釋）；淨係調低 budget（攻擊成本同 budget 成線性 —— budget 1000 仍然 2,006 SQL / 1.44 s，只係縮細個洞）。
+
+### ⛔ 連帶更正：AU-050 唔可以再引用「batching 只值 7%」
+
+`MAX_TRACK_POINTS_PER_REQUEST` 原本個 docstring 寫「The cost is building the rows, not the per-activity round trips, so batching the queries would not have bought the headroom back」。
+
+呢句**只喺當時度嗰個 shape（732 條固定 query）成立**。C-001 證明咗 query 條數本身先係冇 bound 嗰樣嘢：同一個 10,000 點預算，喺 alias flood 之下係 19,764 條 SQL / 14 s，round trip 佔 99.9% 成本。兩句被否證嘅結論（連「10,000 rows costs about 0.37 s」）必須喺修正輪刪走。
+
+**AU-050 嘅價值因此上調**：batching 做完之後，每個 `track` field 由 2 條 SQL 變成攤分一條批次查詢，`MAX_TRACK_FIELDS_PER_REQUEST` 可以獨立放寬而唔使郁 points budget。
+
+### AU-047 Review 第二輪（2026-09-14）—— ✅ pass 91/100
+
+來源：[`reviews/2026-09-14_review_au-047_round2.md`](reviews/2026-09-14_review_au-047_round2.md)
+審閱 `830d0a0` + `6a040f1` + `c42ed6a`｜**0 Critical**｜next_action `merge_develop`
+
+四個 blocking item 全部經 reviewer 獨立實驗核實關閉：
+
+| Item | 裁決 | 關鍵證據 |
+|---|---|---|
+| C-001 | ✅ closed | 原條 alias flood：**19,764 SQL / 14.68 s → 130 SQL / 0.15 s**。窮舉過 alias 寬度（1/2/27/28/52/53/100/200）、page window（64/65/365/1000）、offset paging、每 activity 多個 aliased track、nested `year→personalBests→track`、`activity(id:)`×alias、fragment / inline fragment / `__typename` —— **冇任何合法 document 超出 64 個 track field**。被拒請求同樣只燒 130 條（上一輪被拒都燒 20,056 條 / 13 s） |
+| W-012 | ✅ closed | 新理據逐句核實對得上前端源碼；兩句被否證嘅結論全 repo `grep` 零命中 |
+| W-013 | ✅ closed | 9 種 context 形狀全部 fail-closed；`RuntimeError` 訊息唔再洩漏 internal key |
+| W-014 | ✅ closed | 5 個 runtime mutant 全部被捉（M1 `.get()` fallback → 1 failed / 297 passed） |
+
+### 新開（AU-047 review 第二輪，全部非 blocking）
+
+| ID | 級別 | 標題 | 狀態 |
+|---|---|---|---|
+| **W-015** | 🟡 Warning | `tests/test_api.py` 嘅 `MAX_SQL_PER_REQUEST = 182` 推導乾淨（唔係 magic number），但常數名同測試名 claim 咗一個唔成立嘅全域性質 —— 實測有合法、被服務、零 error 嘅 document 去到 **208 SQL**（`52 × activities(limit:1){track(points:1)}`）。同 W-012 同一類缺陷（claim 大過實測支持嘅範圍），只係今次喺測試碼。建議改名做 `ALIAS_FLOOD_MAX_SQL` | pending |
+| **S-019** | 🟢 Suggestion | `test_track_fails_closed_when_the_context_cannot_be_seeded` 過唔到自己個註解：喺 `.get()` fallback mutant 之下照樣綠，而綠嘅真正原因係 `'mappingproxy' object does not support item assignment`，唔係註解講嘅 missing key。加 `assert "not seeded" in ...` 就有牙（同一標準亦套落姊妹測試） | pending |
+| **S-020** | 🟢 Suggestion | 「every `track` field after the one that overran it is refused in constant time」只對 field budget 成立 —— field budget sticky，points budget 唔 sticky（overrun 後仲剩 999 點，`track(points: 500)` 會被服務）。行為冇問題，句子要收窄 | pending |
+| **S-021** | 🟢 Suggestion | 「64 is the ceiling the points budget already implied … `10000 // 150` is 66」同一句兩個數對唔上。建議明寫「66, rounded down to 64」 | pending |
+| **S-022** | 🟢 Suggestion | `_cheap_tracks(n)` 用 `n` 做 `activities(limit:)`，而 `MAX_PAGE_SIZE = 1000`。`MAX_TRACK_FIELDS_PER_REQUEST` docstring 明寫 AU-050 之後要調高呢個數 —— 一旦 ≥ 1000，三條測試會因為一個同 track budget 無關嘅 `limit` 錯誤紅起，訊號誤導。建議改用 alias 砌 fan-out，或加 `assert MAX_TRACK_FIELDS_PER_REQUEST < MAX_PAGE_SIZE` | pending |
+| **S-023** | 🟢 Suggestion | **AU-047 範圍外**：非 track 嘅 `year` fan-out 而家先係最貴嘅合法請求 —— `110 × year{trainingLoad{ctl}}` = 330 SQL / 1.58 s / errors=0。每個 `year` alias 都重新 materialise 成年 365 條 activity 再行 full stats，track budget 完全睇唔到佢。真機換算約 3.5 s，仍然安全，而且 AU-047 之前就存在 | pending（建議另開 audit ticket，同 AU-050 並列） |
+
+### AU-047 最終狀態
+
+| 輪次 | Commit | Review |
+|---|---|---|
+| 第一輪 | `2adf6ba` `e088a1b` | ❌ fail 66/100（C-001） |
+| 第二輪 | `830d0a0` `6a040f1` `c42ed6a` | ✅ **pass 91/100，0 Critical** |
+
+**最終效果**（365 activities × 600 points 嘅 production-shaped DB）：
+
+| 形狀 | AU-047 之前 | 之後 |
+|---|---|---|
+| `activities(365){track(1000)}` | 732 SQL / 8.29 s / 219,000 rows | 22 SQL / 0.22 s（被 points budget 拒） |
+| 27 alias × `activities(365){track(1)}` | 19,764 SQL / 14 s / HTTP 200 | **130 SQL / 0.15 s**（被 field cap 拒） |
+| `activity(id){track(600)}`（前端真實路徑） | 4 SQL / 0.02 s / 600 點 | **4 SQL / 0.02 s / 600 點**（零回歸） |
+
+---
+
+## CUI-NNNN — 來自 AU-047 QA（2026-09-14）
+
+來源：[`qa/2026-09-14_qa_au-047.md`](qa/2026-09-14_qa_au-047.md)
+✅ **pass**｜0 Critical / 1 Major / 2 Minor｜next_action `merge_develop`
+
+| ID | 級別 | 標題 | 狀態 |
+|---|---|---|---|
+| **CUI-0016** | 🟡 Major | `ActivityView` 將 track 載入失敗誤報成「Activity not found.」—— `ActivityView.tsx:70` 有 `all.isError` 處理但**冇** `track.isError`，所以 track 失敗跌落 `:71` 嗰條「唔存在」分支，連已經成功載入嘅 KPI／天氣一併丟棄。唔會白畫面（乾淨 early return，無需 ErrorBoundary），純粹係訊息報錯咗因 | pending |
+| **CUI-0017** | 🟢 Minor | `src/api/schema.py:84` 寫「Worst case is therefore 64 × 2 = 128 statements」，但實測 request 層面去到 **208**：每個 aliased `activity(id:)` parent 本身要 ~2 條語句（`session.get` + `selectinload`），而且個 track 就算被拒都照收 —— 呢半邊唔受 field cap 約束，只受 token limiter 約束。Bound 本身冇問題（86 倍 headroom），純文件準確性 | pending |
+| **CUI-0018** | 🟢 Minor | Budget 拒絕嘅 GraphQL error 得 `['locations','message','path']`，**冇 `extensions.code`**，client 只能 match 由常數 f-string 砌出嚟嘅字串（常數一改就靜靜哋失效）。另外 non-null propagation 令一個被拒 track 清空成個 `data`（連成功嘅 sibling `meta` 都冇）。今日不可達，AU-050 之前應處理 | pending |
+
+> ✅ Response **零洩漏**：177 bytes、無 stacktrace、無絕對路徑、無 context key 名。W-013 特登唔講出 `track_points_remaining` 係啱嘅。
+
+### CUI-0016 / CUI-0018 嘅共同前提
+
+兩者**今日都不可達**：全 codebase 只有一個 `useTrack` call site，600 點 × 1 個 field，離 budget 好遠。但 AU-047 為呢兩條路徑各新增咗一個成因，所以 **AU-050 加 batch track field 之前要修**，否則第一個用到嘅人就會撞。
+
+### ⚠️ 同一類缺陷第四次出現
+
+`CUI-0017` 同 `C-001` docstring、`W-012`、`W-015` 係**同一個失敗模式**：**寫低嘅 claim 闊過實測支持嘅範圍**。
+
+| # | 位置 | Claim | 實測 |
+|---|---|---|---|
+| 1 | `MAX_TRACK_POINTS_PER_REQUEST` docstring（已修） | 「batching would not have bought the headroom back」 | alias flood 之下 round trip 佔 99.9% 成本 |
+| 2 | 同上，W-012（已修） | 「twice the most expensive document the dashboard can send」 | 該 document 消耗 0 點 |
+| 3 | `MAX_SQL_PER_REQUEST`，W-015（pending） | 名為 per-request 上限 | 有合法、被服務、零 error 嘅 document 去到 208 |
+| 4 | `MAX_TRACK_FIELDS_PER_REQUEST` docstring，CUI-0017（pending） | 「Worst case is therefore 64 × 2 = 128 statements」 | request 層面 208 |
+
+第 3 同第 4 其實係**同一個 208** 由兩個唔同角度撞到。修嘅時候應該一次過處理：講清楚 field cap bound 嘅係 **track 語句**，而 request 總語句數仲有 parent field 嗰半邊（由 `MAX_QUERY_TOKENS` 封頂）。
+
+### QA 建議補測（developer 執行）
+
+| 優先 | 測試 | 理由 |
+|---|---|---|
+| **高** | E5 跨 budget fail-closed（points 耗盡後平價 alias 全部要拒） | QA 實測：而家改壞 `_charge_track_field` 嘅收費順序，**298 條測試全部照綠** |
+| 中 | E1 具名 fragment / E2 inline fragment | 兩個都過咗，但冇測試釘住 |
+| 中 | E6 `@skip` 唔誤收費 | 同上 |
+
+### Regression：byte-identical 守住
+
+QA 用 `git archive origin/develop` 抽基準（冇切 branch），以 `PYTHONPATH` shadow 掉 editable install，並核實 baseline 真係跑舊 code（`hasattr(schema, "MAX_TRACK_FIELDS_PER_REQUEST") == False`）。
+
+| 指標 | 基準 | HEAD | |
+|---|---|---|---|
+| Activities | 365 | 365 | ✅ |
+| SQLite | 11,460 KB | 11,460 KB | ✅ |
+| Static JSON bytes | 6,857,102 | 6,857,102 | ✅ |
+| Static JSON files | 370 | 370 | ✅ |
+
+md5 逐檔對拍 **369/370 完全相同**，唯一差異係 `meta.json` 嘅 `generated_at`。
+
+### 前端 gates（reviewer 冇跑過，QA 補齊）
+
+```
+npm run lint          → eslint 零輸出，exit 0
+npx vitest run        → 19 files / 87 tests passed
+npm run build         → 292 modules, 657.73 kB
+npm run build:static  → 292 modules, 657.69 kB
+```
+
+真實前端 8 條 document 打真 Flask + 真 `run365.db`：全部 200 / `errors=[]`；`TrackQuery` 攞足 390 點；**`YearQuery` 收費 0 個 track field**（直接 patch `_charge_track_field` 數出嚟，核實 reviewer 講法）；全 365 條 track 嘅 `track(points:600)` 都攞足。static vs api：point-count mismatch 0、point-value mismatch 0，S-011 冇惡化。
+
+效能：240 個 request 零錯誤，P95 ≤ 76 ms；300/300 連續 full-cap request 無 budget 洩漏；最壞 request 174 ms —— 對 Vercel 15 s 有 **86 倍 headroom**。
+
+---
+
+## AU-047 Review 第三輪（2026-09-14，收窄範圍驗證）—— ⚠️ warn 87/100
+
+來源：[`reviews/2026-09-14_review_au-047_round3.md`](reviews/2026-09-14_review_au-047_round3.md)
+審閱 `9cd1125` + `5ff91d3` + `3ce2bd5`（cleanup 輪）｜0 Critical｜next_action `invoke_developer`
+
+Cleanup 輪嘅六條全部關閉（CUI-0017 / W-015 / S-019 / S-020 / S-021 ✅），**除咗 S-022 ❌ still open** —— 佢嘅理由本身就係新一個 over-claim。
+
+| ID | 級別 | 標題 | 狀態 |
+|---|---|---|---|
+| **W-016** ✅ | 🟡 Warning | `tests/test_api.py:613-620` `_page_field` docstring 三句斷言都錯：「a fan-out cannot reach the field cap at all」「64 aliased `track` fields lex to 1218 tokens」「Only a page window can put that many tracks in one operation」。實測單一 parent 加 64 個 aliased `track` = **714 tokens，完全服務**；65 個 = 725 tokens，被 **field cap**（唔係 parser）拒；90 個先啱啱好貼 `MAX_QUERY_TOKENS`。`1218` 只屬「64 個 aliased **parent** 各帶一個 track」嗰個讀法。**連帶令 `activity(id:)` + aliased track 呢條真實可達路徑零測試覆蓋 —— 而嗰條就係 C-001 原本嘅攻擊面** | ✅ **Done** |
+| **W-017** ✅ | 🟡 Warning | 八個新量度數字（`130 / 208 / 990 / 1009 / 1218 / 332 / 166 / 0.11–0.20 s`）**只以 docstring 散文存在，零 assert 釘住**。改動 `MAX_QUERY_TOKENS`、`SQL_PER_TRACK_FIELD` 或 warnings query 之後會靜靜咁腐爛。**呢個就係 AU-047 重複五次同一個錯嘅結構成因** | ✅ **Done** |
+| **S-024** ✅ | 🟢 Suggestion | `src/api/schema.py:97`「Saturating this cap takes one list field.」讀落似必要條件 | ✅ **Done** |
+| **S-025** ✅ | 🟢 Suggestion | `src/api/schema.py:225-227`「charges it below 0 too」：拒收唔會寫回，儲存值永遠停 0，只有 local 值計到 −1 | ✅ **Done** |
+| **S-026** ✅ | 🟢 Suggestion | `src/api/schema.py:93`「Measured against a 365-activity, 600-point export」同 `year_db` fixture 唔符（fixture 只有 `r0` 有 track，共 600 rows 唔係 219,000）。**冇一個數字係錯**，只係描述誤導 | ✅ **Done** |
+
+### ⚠️ 同一類缺陷第五次 —— 而且係喺專門修佢嘅 commit 入面
+
+| # | 位置 | Claim | 實測 | 狀態 |
+|---|---|---|---|---|
+| 1 | budget docstring | 「batching would not have bought the headroom back」 | round trip 佔 99.9% | ✅ 已修 |
+| 2 | 同上（W-012） | 「twice the most expensive document the dashboard can send」 | 消耗 0 點 | ✅ 已修 |
+| 3 | `MAX_SQL_PER_REQUEST`（W-015） | 名為 per-request 上限 | 208 | ✅ 已修 |
+| 4 | field cap docstring（CUI-0017） | 「64 × 2 = 128 statements」 | 208 | ✅ 已修 |
+| 5 | `_page_field` docstring（W-016） | 「alias fan-out cannot reach the field cap」 | 714 tokens，服務 | ✅ **Done** |
+
+**W-017 係呢五次嘅共同成因**：每次都係「散文寫咗一個冇 gate 嘅數」。修 W-017（將 headline 數字變成 assert）比逐個修 claim 更根本 —— 呢個係本 ticket 最有價值嘅一項。
+
+> ⚠️ 留意 W-016 嘅方向：field cap 嘅實際保護面**比 docstring 講嘅闊**（佢真係擋到 alias fan-out，fails safe）。出事嘅係描述，唔係 bound。零 runtime 影響。
+
+
+### W-016 / W-017 修復結果（`b127a7e` `57317e9` `bab3858`）
+
+測試 **303 → 309**。`src/api/schema.py` 經 AST 證明**只改咗 docstring**。
+
+**W-017 嗰條測試真係有牙** —— developer 試咗三種漂移，每次都紅，還原後回綠：
+
+| 改動 | 結果 |
+|---|---|
+| `MAX_TRACK_FIELDS_PER_REQUEST` 64 → 32 | 紅：`statement cost drifted: saturating the cap takes one list field` / `assert 66 == 130` |
+| `MAX_QUERY_TOKENS` 1000 → 900 | 紅：兩條闊 row 變 `Document contains more than 900 tokens` |
+| `SQL_PER_TRACK_FIELD` 2 → 3 | 紅：`assert 130 == (2 + (64 * 3))` |
+
+`_token_count()` helper 用二分搜尋揾 graphql-core 肯 parse 嘅最細 `max_tokens` —— 即係**定義上** `MaxTokensLimiter` 攞嚟同 `MAX_QUERY_TOKENS` 比嗰個數，而唔係重寫一個會自己漂嘅 lexer。
+
+Alias route（原本零覆蓋）而家有三條測試，其中 `test_the_parser_never_gets_to_refuse_an_aliased_track_flood` **唔 hardcode 90**，而係由 64 開始長大直到 parser 肯收嘅最闊 fan-out，再 assert 佢仍然係 cap 拒 —— 兩個常數點郁都仲係啱。
+
+### Developer 差啲犯第 6 次，自己捉返
+
+寫 S-024 嗰陣佢加咗「53 lexes to 1009」—— 一個冇 gate 嘅新數字，正正係 W-017 要斬嘅 pattern。自己捉返、補咗 assertion 先 commit。
+
+### 兩個 reviewer 表未 cover 嘅數字更正
+
+| 原本寫 | 實測 |
+|---|---|
+| page window `~0.1 s` | **0.026–0.039 s**（差 3 倍） |
+| `75x inside the 15 s Vercel function` | 用返實測最慢值 0.209 s → **~70x** |
+
+### 新開（W-016 修復過程發現）
+
+| ID | 級別 | 標題 | 狀態 |
+|---|---|---|---|
+| **S-027** | 🟢 Suggestion | `_page_field` 個 `MAX_PAGE_SIZE` assertion 嘅理由弱咗一半：原本立論係「fan-out 根本唔可能」所以 page window 係唯一出路；而家已知 alias route 可行，所以呢個 helper 揀 page window 純粹係短。AU-050 抬高 field cap 時重建佢嘅選項多過一個 | pending |
+| **S-028** | 🟢 Suggestion | `from graphql import ...` 被 ruff 排入 first-party block（`run365days` 隔籬），即使 `pyproject.toml` 寫住 `known-first-party = ["run365days"]`。放第三方 block 會被 `I001` 拒。ruff 自己嘅判決、CI 一致，但讀落怪 —— 可能同 repo root 有個 `api/graphql.py` 有關 | pending |
