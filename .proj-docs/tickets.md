@@ -104,7 +104,7 @@ TCX 對同樣 8 個 id 全部解析成功（365/365），而 dashboard 係由 TC
 
 | ID | 優先 | 標題 | 來源 |
 |---|---|---|---|
-| **W-011** | P1 | `workflow_dispatch` 由任何 branch 都會做 production Pages 部署 | Lane F 申報 |
+| **W-011** | P1 | `workflow_dispatch` 由任何 branch 都會做 production Pages 部署 | ✅ **Done** `12ad224`（隨 AU-004 調整一併關閉） |
 | **S-005** | P2 | `src/cli/process_activities.py:55-58` 寫 0 行 JSONL 仍然 exit 0 | Lane D |
 | **S-007** | P2 | `_SUMMARY_ROW_COLSPAN` 喺 `kml.py` 身兼三個無關語義（:130 colspan、:132 min cells、:148 min coordinate parts） | Lane D |
 | **S-009** | P3 | KML 時間戳被解析兩次 | Lane D |
@@ -421,3 +421,75 @@ Developer 冇求其揀一邊，佢揾到決定性證據：
 **AU-037 升級理由**：排除 sunrise/sunset 之後，一次重新採集會寫出一個冇 sun/moon 欄位嘅 `hko_daily_weather_extract.json`，令 export 出嘅 sunrise/sunset 變 `None`。資料唔會損壞、export 亦唔會爆，但 dashboard 會失去呢兩個欄位，直到 `SunMoon` collector 移植好為止。**呢個係排除決定嘅誠實代價，唔係新引入嘅 regression** —— collector 從來都冇呢啲值。
 
 **CUI-0014**：`from_raw_row()` 將缺失嘅 string 欄位預設做 `""`，舊 code 出 `None`（hourly `Description`；warning `Type` / `Start_Time` / `End_Time`）。目的係令 dataclass annotation 保持誠實嘅 `str` 而唔使將五個欄位放寬成 `str | None`。實務上不可達 —— developer 掃過全部 17,984 個 hourly 同 461 個 warning 已 commit 行，**每個檔案 key set 完全劃一**。對 byte-identical 零影響。值得 reviewer 睇一眼。
+
+---
+
+## AU-004 調整 + W-011 關閉（2026-09-14，用戶改變決定）
+
+用戶決定：「暫時 deployment branch 我都仲想係 develop branch 做嘢先，到無晒問題先再決定去 master branch」。
+
+AU-004 原本將 CI 全轉 `master`。就咁擺會令 develop 嘅 push **完全冇 CI** —— 原本個 bug 方向調轉。已調整為：
+
+| Job | 行為 |
+|---|---|
+| `lint-test`、`frontend` | push 同 PR 到 **`develop` + `master` 兩條**都跑 |
+| `build`、`deploy` | **只喺 `refs/heads/develop`** |
+
+咁樣 develop 有 CI 接住、`github-pages` environment 設定唔使郁，而 AU-004 換返嚟嘅嘢（master PR 有 gate，PR #10 個洞唔會翻疊）亦保住。順帶關閉 **W-011**。
+
+### Concurrency 喺雙 branch 之下係真 bug，唔係 formality
+
+W-002 嘅 group 用 **event name** 做判別：
+
+```yaml
+group: pages-${{ github.event_name == 'pull_request' && github.ref || 'deploy' }}
+```
+
+雙 branch 之後，`master` 嘅 push 係 `push` event → 落 `pages-deploy` group，即使佢根本唔部署。兩個實際傷害：
+
+1. 純 CI 嘅 master run 佔住 deploy group，develop 嘅真部署要等佢跑完 lint-test + frontend 先開始
+2. **更嚴重**：GitHub 每個 group 只保留一個 pending run。develop 部署跑緊 + develop 部署 A 排緊隊 + 一個 master push 到 → **A 被踢走並報 "cancelled"（唔係 "failed"，冇 alert）**。W-002 明明就係為咗「部署唔會被 cancel」而做，卻被第二條 branch 由側面打爆
+
+修法：判別 key 由 event name 改成 **ref**，即「呢個 run 究竟部唔部署」：
+
+```yaml
+group: pages-${{ github.ref == 'refs/heads/develop' && 'deploy' || github.ref }}
+cancel-in-progress: ${{ github.ref != 'refs/heads/develop' }}
+```
+
+W-002 兩個性質原封不動：會部署嘅 run 共用一個 group、永不 cancel、排隊唔互殺；唔部署嘅 run 各自 per-ref group 兼 cancel-in-progress（即 runner saving）。
+
+### `workflow_dispatch` 決定
+
+Gate 改成 `github.ref == 'refs/heads/develop'`，即**只准喺 develop 手動部署**。理由：手動重新部署係真需求（transient failure 後重推同一 commit），完全禁止會迫人用 empty commit 去觸發 —— 反而更差。W-011 個 bug 唔係「有得手動部署」，而係「任何側枝手動觸發都會做 production 部署」。
+
+副作用（正面）：`github.ref` 對 pull_request event 係 `refs/pull/<n>/merge`，永遠唔等於 `refs/heads/develop`，所以同一個條件已經排除 PR，唔使再疊 `event_name != 'pull_request'`。
+
+### README 七處逐一處理，兩處刻意保留
+
+| # | 處理 |
+|---|---|
+| 1 CI badge | 改返 `develop` |
+| 2 CI 描述 | **改寫**而唔係還原：兩條 branch 都 gated、只有 develop 部署 |
+| 3 Vercel production branch | 改返 develop，但 **S-001 加嘅謹慎措辭原句保留** |
+| 4 Versioning `(tag only) \| v1.0.0` | **保留** —— 事實更正，v1.0.0 由 tag 持有、冇 branch head 指住，同 branch 之爭無關 |
+| 5 Versioning `\| v3.0.0` | 改返 develop，冇加多一行 master（內容一樣，加行會令人以為係兩份嘢） |
+| 6 Release 敘述 | 改返 develop，保留「PR 有 CI gate」（而家兩條都真），補一句講 master 角色 |
+| 7 Privacy | **保留** —— 已唔再提 branch，係純事實表述 |
+
+### 新增切換 checklist
+
+`docs/deployment.md` 新增 `## Switching the deploy source from develop to master`：**六件事、四個地方、兩件喺 repo 外面睇唔到亦驗唔到**。
+
+Repo 內：pages.yml 觸發清單｜pages.yml 嘅 build/deploy `if:` **同埋** concurrency 嘅 group + cancel-in-progress（四處都寫住 `refs/heads/develop`，**最易漏**）｜tag-release.yml default｜README 四處。
+Repo 外：GitHub `github-pages` environment deployment branch｜Vercel Production Branch。
+
+---
+
+## 新開
+
+| ID | 級別 | 標題 | 狀態 |
+|---|---|---|---|
+| **CUI-0015** | 🟢 Low | `docs/architecture.md:142` 嘅 CI 描述**同一 session 內過時兩次**，應改為自動同步 | pending |
+
+呢段喺 AU-004 之後由 W-001 修好，W-011 之後**又再過時**。根本問題係一段描述 CI 行為嘅文字同 `pages.yml` 之間冇任何同步機制。建議參考本 repo 已經證明有效嘅 `run365-schema --check frontend/schema.graphql` pattern。
