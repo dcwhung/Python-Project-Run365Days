@@ -1,6 +1,7 @@
 import sys
 import zoneinfo
-from datetime import timedelta
+from datetime import datetime, timedelta
+from datetime import timezone as dt_timezone
 
 import pytest
 
@@ -60,6 +61,40 @@ class TestParseDateTimeOffset:
     def test_explicit_timezone_argument_returns_plus_eight_offset(self):
         dt = parse_datetime("2021-10-17 06:10:56", timezone="Asia/Hong_Kong")
         assert dt.utcoffset() == timedelta(hours=8)
+
+
+class TestParseDateTimeIsoWithOffset:
+    """The ISO-with-offset path must honour ``timezone`` and accept negative offsets."""
+
+    @pytest.mark.parametrize(
+        ("timezone", "expected"),
+        [
+            ("Asia/Hong_Kong", "2021-10-17T06:10:56+08:00"),
+            ("America/New_York", "2021-10-16T18:10:56-04:00"),
+            ("UTC", "2021-10-16T22:10:56+00:00"),
+        ],
+    )
+    def test_should_convert_to_the_requested_zone_when_offset_is_positive(self, timezone, expected):
+        dt = parse_datetime("2021-10-17T06:10:56+08:00", timezone)
+        assert dt.isoformat() == expected
+
+    @pytest.mark.parametrize(
+        ("timezone", "expected"),
+        [
+            ("Asia/Hong_Kong", "2021-10-17T19:10:56+08:00"),
+            ("America/New_York", "2021-10-17T07:10:56-04:00"),
+            ("UTC", "2021-10-17T11:10:56+00:00"),
+        ],
+    )
+    def test_should_convert_to_the_requested_zone_when_offset_is_negative(self, timezone, expected):
+        dt = parse_datetime("2021-10-17T06:10:56-05:00", timezone)
+        assert dt.isoformat() == expected
+
+    @pytest.mark.parametrize("timezone", ["Asia/Hong_Kong", "America/New_York", "UTC"])
+    def test_should_keep_the_same_instant_whatever_the_requested_zone(self, timezone):
+        # Converting must only restate the instant in another zone, never move it.
+        dt = parse_datetime("2021-10-17T06:10:56+08:00", timezone)
+        assert dt == datetime(2021, 10, 16, 22, 10, 56, tzinfo=dt_timezone.utc)
 
 
 class TestParseDateTimeEpochMilliseconds:
