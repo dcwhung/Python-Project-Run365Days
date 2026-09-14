@@ -40,13 +40,24 @@ whole year in one request (the dashboard does) need no paging.
 MAX_PAGE_SIZE = 1000
 """Ceiling for ``limit``: the largest single-request page the API will serve."""
 
-MAX_QUERY_DEPTH = 5
-"""Deepest operation the API accepts.
+MAX_QUERY_DEPTH = 4
+"""Deepest operation the API accepts: tight to the schema, deliberately not padded.
 
-The deepest document the dashboard sends is ``YearQuery`` at depth 4
-(year -> personalBests -> longest -> weather -> leaf), which is also the
-deepest the acyclic type graph allows today; 5 leaves one level of headroom
-for a new nested field without reopening the limit question.
+Depth is counted the way ``QueryDepthLimiter`` counts it: a field carrying a
+selection set adds a level, a leaf field adds none, and introspection fields
+are exempt -- so tightening this does not break GraphiQL, whose own query is
+far deeper than anything below.
+
+Four is the deepest document the acyclic type graph allows
+(year -> personalBests -> longest -> weather -> leaf), and also the deepest
+the dashboard sends. The alternative was to pad the value for headroom, which
+is what it used to do at 5: no document a client can write reaches five
+levels, so the limiter could never reject anything and the protection was
+decorative. Tight, it rejects at the first level past the schema, and it is
+ready for the change that actually matters -- a field making some type
+reachable from itself, after which the graph bounds nothing and this number is
+the only bound left. The depth-limit tests fail if the graph ever deepens, so
+the value gets re-argued instead of quietly drifting out of contact.
 """
 
 MAX_QUERY_TOKENS = 1000
