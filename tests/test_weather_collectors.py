@@ -13,11 +13,13 @@ from pathlib import Path
 
 import pytest
 import requests
+from bs4 import BeautifulSoup
 
 from run365days.cli.collect_weather import _write_jsonl
 from run365days.dashboard.builder import hourly_at, load_jsonl, warnings_by_date
 from run365days.export.records import daily_weather_record, warning_record
 from run365days.weather.collectors import hko_daily, hourly, warnings
+from run365days.weather.collectors.html_reads import child_attr, child_string
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "weather"
 
@@ -32,6 +34,8 @@ HKO_FEB_URL = "https://www.weather.gov.hk/cis/dailyExtract/dailyExtract_202102.x
 HKO_MAR_URL = "https://www.weather.gov.hk/cis/dailyExtract/dailyExtract_202103.xml"
 
 HKO_DAILY_LOGGER = "run365days.weather.collectors.hko_daily"
+HOURLY_LOGGER = "run365days.weather.collectors.hourly"
+WARNINGS_LOGGER = "run365days.weather.collectors.warnings"
 
 
 def read_fixture(name: str) -> str:
@@ -94,6 +98,41 @@ def hko_routes(*, feb=None, mar=None) -> dict:
         HKO_FEB_URL: month_body if feb is None else feb,
         HKO_MAR_URL: "" if mar is None else mar,
     }
+
+
+class TestGuardedHtmlReads:
+    """The two guards CUI-0012 turned three chained ``.find()`` reads into.
+
+    ``fetch_day`` only ever reaches the "element absent" branch, so the two
+    "element present but unreadable" branches are pinned here directly -- both
+    are real BeautifulSoup shapes, and both used to raise.
+    """
+
+    @staticmethod
+    def cell(markup: str):
+        return BeautifulSoup(markup, "html.parser")
+
+    def test_child_string_returns_none_when_the_tag_is_absent(self):
+        assert child_string(self.cell("<td>&nbsp;</td>"), "script") is None
+
+    def test_child_string_returns_none_when_the_tag_is_present_but_empty(self):
+        # An emitted-but-empty <script> is the second way this read used to
+        # break: ``find()`` hands back a Tag, and ``.string`` on it is None.
+        assert child_string(self.cell("<td><script></script></td>"), "script") is None
+
+    def test_child_string_returns_the_tags_only_string(self):
+        assert child_string(self.cell("<td><script>icon(7)</script></td>"), "script") == "icon(7)"
+
+    def test_child_attr_returns_none_when_the_tag_is_absent(self):
+        assert child_attr(self.cell("<td>&nbsp;</td>"), "img", "src") is None
+
+    def test_child_attr_returns_none_when_the_tag_lacks_the_attribute(self):
+        assert child_attr(self.cell('<td><img alt="cold" /></td>'), "img", "src") is None
+
+    def test_child_attr_returns_the_attribute_value(self):
+        cell = self.cell('<td><img src="/images_e/cold.gif" /></td>')
+
+        assert child_attr(cell, "img", "src") == "/images_e/cold.gif"
 
 
 class TestHkoDailyFetchYear:
@@ -251,15 +290,32 @@ class TestHourlyFetchDay:
 
         assert_bounded_timeout(recorder.calls[0]["timeout"])
 
-    def test_a_row_without_a_weather_script_still_crashes(self, monkeypatch):
-        # Documents the unguarded ``tds[9].find("script").string`` read; out of
-        # scope for CUI-0010 / AU-013 / AU-014 and reported as a follow-up.
+    def test_skips_a_row_without_a_weather_script_and_keeps_the_others(self, monkeypatch):
+        # Replaces the CUI-0010 pinning test that nailed the AttributeError from
+        # the unguarded ``tds[9].find("script").string``. One malformed cell used
+        # to take the whole day's data down with it (CUI-0012).
         install_fake_get(
             monkeypatch, hourly, {hourly._URL: read_fixture("freemeteo_no_script.html")}
         )
 
-        with pytest.raises(AttributeError):
+        records = hourly.fetch_day("2021-01-01")
+
+        assert [r.time for r in records] == ["00:30"]
+        assert records[0].description == "Cloudy skies"
+
+    def test_logs_the_row_it_dropped_for_a_missing_weather_script(self, monkeypatch, caplog):
+        install_fake_get(
+            monkeypatch, hourly, {hourly._URL: read_fixture("freemeteo_no_script.html")}
+        )
+
+        with caplog.at_level(logging.WARNING, logger=HOURLY_LOGGER):
             hourly.fetch_day("2021-01-01")
+
+        dropped = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(dropped) == 1
+        message = dropped[0].getMessage()
+        assert "2021-01-01" in message
+        assert "00:00" in message
 
 
 class TestHourlyFetchRange:
@@ -361,6 +417,43 @@ class TestWarningsFetchDay:
         meta = warnings._load_signal_metadata()
 
         assert warnings.fetch_day("2021-01-01", meta) == []
+
+    def test_returns_no_records_when_the_tropical_cyclone_marker_is_absent(self, monkeypatch):
+        # ``str.find`` answers -1, and -1 + len(marker) used to land the slice on
+        # character 31 of the whole page -- close enough to parse, so a renamed
+        # HKO heading quietly yielded rows scraped from the wrong table (CUI-0012).
+        install_fake_get(monkeypatch, warnings, warning_routes("hko_warning_no_marker.html"))
+
+        assert warnings.fetch_day("2021-01-01", {}) == []
+
+    def test_logs_a_warning_when_the_tropical_cyclone_marker_is_absent(self, monkeypatch, caplog):
+        install_fake_get(monkeypatch, warnings, warning_routes("hko_warning_no_marker.html"))
+
+        with caplog.at_level(logging.WARNING, logger=WARNINGS_LOGGER):
+            warnings.fetch_day("2021-01-01", {})
+
+        skipped = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(skipped) == 1
+        assert "2021-01-01" in skipped[0].getMessage()
+
+    def test_keeps_a_warning_row_whose_signal_icon_is_missing(self, monkeypatch):
+        install_fake_get(monkeypatch, warnings, warning_routes("hko_warning_no_icon.html"))
+
+        records = warnings.fetch_day("2021-01-01", {})
+
+        assert [r.warning_signal for r in records] == ["COLD WEATHER WARNING"]
+        assert records[0].start_time == "2020-12-29 16:20:00"
+        assert records[0].icon_url == ""
+
+    def test_logs_a_warning_for_a_row_whose_signal_icon_is_missing(self, monkeypatch, caplog):
+        install_fake_get(monkeypatch, warnings, warning_routes("hko_warning_no_icon.html"))
+
+        with caplog.at_level(logging.WARNING, logger=WARNINGS_LOGGER):
+            warnings.fetch_day("2021-01-01", {})
+
+        iconless = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(iconless) == 1
+        assert "COLD WEATHER WARNING" in iconless[0].getMessage()
 
     def test_queries_the_requested_day(self, monkeypatch):
         recorder = install_fake_get(monkeypatch, warnings, warning_routes())
