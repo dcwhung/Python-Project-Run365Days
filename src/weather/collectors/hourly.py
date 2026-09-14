@@ -8,6 +8,7 @@ import requests
 from bs4 import BeautifulSoup
 from bs4.element import Tag
 
+from run365days.common import config
 from run365days.common.numeric import to_float
 from run365days.weather.collectors.html_reads import child_string
 from run365days.weather.models import HourlyWeather
@@ -42,14 +43,6 @@ _DESCRIPTION_CODE_RE = re.compile(r"n\(\s*(?P<code>[^,()]+?)\s*,\s*'CurrentWeath
 # The unit is part of the pattern, not a character count: "Variable at 20 mph"
 # used to lose a digit to [:-5] and report 2.0 Km/h.
 _WIND_SPEED_RE = re.compile(r"(?:\w+°|Variable at)\s*(?P<speed>\d+(?:\.\d+)?)\s*Km/h")
-
-# A socket with no timeout can hang forever, and fetch_range() pays that cost
-# once per day -- 365 times for a full year. Five seconds is generous for a TCP
-# handshake to a reachable host, so an unreachable one fails fast; thirty covers
-# freemeteo's slowest day page without stalling the rest of the range (AU-014).
-_CONNECT_TIMEOUT_SEC = 5
-_READ_TIMEOUT_SEC = 30
-_REQUEST_TIMEOUT = (_CONNECT_TIMEOUT_SEC, _READ_TIMEOUT_SEC)
 
 # Column order of the freemeteo daily-history table. Naming them keeps the
 # guarded read below readable and makes a future column shuffle a one-line edit.
@@ -169,7 +162,7 @@ def fetch_day(date_str: str) -> list[HourlyWeather]:
         history table.
     """
     html = requests.get(
-        _URL, params={**_PARAMS_BASE, "date": date_str}, timeout=_REQUEST_TIMEOUT
+        _URL, params={**_PARAMS_BASE, "date": date_str}, timeout=config.HTTP_TIMEOUT
     ).text
     soup = BeautifulSoup(html, "html.parser")
     tables = soup.find_all("table", {"class": "daily-history"})

@@ -48,6 +48,27 @@ BODY_HEIGHT_CM: float = 170.0
 # Challenge defaults
 DEFAULT_YEAR = 2021
 
+# Scraper HTTP timeouts, as the ``(connect, read)`` pair ``requests`` expects.
+#
+# A socket with no timeout can hang forever, and the collectors pay that cost
+# once per request in a loop: hourly and warnings issue one per day -- 365 for a
+# full year -- and the HKO daily extract up to 13 in sequence. Five seconds is
+# generous for a TCP handshake to a reachable host, so an unreachable one fails
+# fast; thirty covers the slowest of the three payloads without letting one
+# stalled socket dominate the whole run (AU-014).
+#
+# One owner, three callers. The pair lived in all three collector modules at
+# once because AU-014 was scoped to that package; three copies of a tunable is
+# how two get raised and the third quietly keeps the old ceiling (CUI-0013).
+# It sits here rather than in the collector package because this module is
+# already where a deployment-tunable constant is looked for, and because these
+# are plain numbers: no import of ``requests`` follows them in, so the
+# stdlib-only footprint that keeps the API importable without the parsing stack
+# is unchanged (``tests/test_api_imports.py``).
+HTTP_CONNECT_TIMEOUT_SEC = 5
+HTTP_READ_TIMEOUT_SEC = 30
+HTTP_TIMEOUT = (HTTP_CONNECT_TIMEOUT_SEC, HTTP_READ_TIMEOUT_SEC)
+
 
 def daily_weight_file(year: int) -> Path:
     """Return the raw daily-weight text file for *year*."""

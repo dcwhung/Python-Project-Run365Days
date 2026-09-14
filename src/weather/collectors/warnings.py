@@ -9,6 +9,7 @@ import requests
 from bs4 import BeautifulSoup
 from bs4.element import Tag
 
+from run365days.common import config
 from run365days.weather.collectors.html_reads import cells, child_attr
 from run365days.weather.models import WeatherWarning
 
@@ -16,14 +17,6 @@ logger = logging.getLogger(__name__)
 
 _SIGNALS_URL = "https://www.hko.gov.hk/en/wxinfo/climat/warndb/warndba.shtml"
 _HISTORY_URL = "https://www.hko.gov.hk//cgi-bin/climat/warndb_ea.pl"
-
-# A socket with no timeout can hang forever, and fetch_range() pays that cost
-# once per day -- 365 times for a full year. Five seconds is generous for a TCP
-# handshake to a reachable host, so an unreachable one fails fast; thirty covers
-# the slowest warndb query without stalling the rest of the range (AU-014).
-_CONNECT_TIMEOUT_SEC = 5
-_READ_TIMEOUT_SEC = 30
-_REQUEST_TIMEOUT = (_CONNECT_TIMEOUT_SEC, _READ_TIMEOUT_SEC)
 
 # The warndb page repeats its layout above and below this heading; everything
 # before it belongs to a previous query and must not be scraped.
@@ -59,7 +52,7 @@ def _load_signal_metadata() -> dict[str, dict]:
     Returns:
         One entry per legend icon, keyed by its title-cased alt text.
     """
-    bs = BeautifulSoup(requests.get(_SIGNALS_URL, timeout=_REQUEST_TIMEOUT).text, "html.parser")
+    bs = BeautifulSoup(requests.get(_SIGNALS_URL, timeout=config.HTTP_TIMEOUT).text, "html.parser")
     result = {}
     for position, table in enumerate(bs.find_all(class_="self_row2_table")):
         tds = cells(table, _LEGEND_ROW_CELLS)
@@ -166,7 +159,7 @@ def fetch_day(date_str: str, signal_meta: dict[str, dict]) -> list[WeatherWarnin
     html = requests.get(
         _HISTORY_URL,
         params={"start_ym": datetime.strptime(date_str, "%Y-%m-%d").strftime("%Y%m%d")},
-        timeout=_REQUEST_TIMEOUT,
+        timeout=config.HTTP_TIMEOUT,
     ).text
 
     rows_html = _rows_after_marker(html, date_str)

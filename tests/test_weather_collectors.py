@@ -16,6 +16,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from run365days.cli.collect_weather import _write_jsonl
+from run365days.common import config
 from run365days.dashboard.builder import hourly_at, load_jsonl, warnings_by_date
 from run365days.export.records import daily_weather_record, warning_record
 from run365days.weather.collectors import hko_daily, hourly, warnings
@@ -625,6 +626,52 @@ class TestWarningsFetchRange:
 
         for timeout in recorder.timeouts:
             assert_bounded_timeout(timeout)
+
+
+class TestCollectorTimeoutsHaveOneOwner:
+    """The timeout pair is one value, not three copies that can drift apart.
+
+    ``assert_bounded_timeout`` above states the *requirement* -- a bounded pair,
+    a fast connect, a capped read -- and deliberately says nothing about the
+    numbers. These tests state the other half: whatever the numbers are, all
+    three collectors read them from the same place, so a future change to the
+    ceiling cannot be applied to two scrapers and forgotten in the third.
+    """
+
+    def test_config_owns_the_pair_the_collectors_send(self):
+        assert config.HTTP_TIMEOUT == (
+            config.HTTP_CONNECT_TIMEOUT_SEC,
+            config.HTTP_READ_TIMEOUT_SEC,
+        )
+        assert_bounded_timeout(config.HTTP_TIMEOUT)
+
+    def test_hko_daily_sends_the_configured_pair(self, monkeypatch):
+        recorder = install_fake_get(monkeypatch, hko_daily, hko_routes())
+
+        hko_daily.fetch_year("2021")
+
+        assert recorder.timeouts
+        # Identity, not equality: an equal tuple built locally would still be a
+        # second copy of the numbers, which is the thing being removed.
+        assert all(timeout is config.HTTP_TIMEOUT for timeout in recorder.timeouts)
+
+    def test_hourly_sends_the_configured_pair(self, monkeypatch):
+        recorder = install_fake_get(
+            monkeypatch, hourly, {hourly._URL: read_fixture("freemeteo_day.html")}
+        )
+
+        hourly.fetch_day("2021-01-01")
+
+        assert recorder.timeouts
+        assert all(timeout is config.HTTP_TIMEOUT for timeout in recorder.timeouts)
+
+    def test_warnings_sends_the_configured_pair(self, monkeypatch):
+        recorder = install_fake_get(monkeypatch, warnings, warning_routes())
+
+        warnings.fetch_range("2021-01-01", "2021-01-02")
+
+        assert recorder.timeouts
+        assert all(timeout is config.HTTP_TIMEOUT for timeout in recorder.timeouts)
 
 
 class TestCollectThenExport:
