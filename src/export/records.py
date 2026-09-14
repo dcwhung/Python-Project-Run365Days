@@ -4,12 +4,12 @@ Everything here is plain Python (dicts, lists, dataclasses) so the writers
 stay trivial and the shape can be unit-tested without touching disk.
 """
 
-import math
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import datetime
 
 from run365days.activities.models import Activity
+from run365days.common.numeric import finite, round_or_none, to_float
 from run365days.dashboard.builder import (
     TRACK_POINT_LIMIT,
     downsample,
@@ -62,33 +62,6 @@ class ExportRecords:
     warnings: list[dict] = field(default_factory=list)
 
 
-def _finite(value):
-    """Return *value* when it is a finite number, otherwise ``None``.
-
-    The parsers already reject nan and ±inf, so reaching here means a guard
-    leaked. The two writers answer such a value differently -- ``json.dumps``
-    refuses it while SQLite stores ``Infinity`` -- so this shared layer settles
-    it once and both deployment targets stay in step (CUI-0001).
-    """
-    try:
-        return value if math.isfinite(value) else None
-    except TypeError:
-        return None
-
-
-def _round(value, ndigits: int = 1):
-    if _finite(value) is None:
-        return None
-    return round(float(value), ndigits)
-
-
-def _to_float(value):
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
 def activity_record(
     activity: Activity,
     gpx: Activity | None,
@@ -120,22 +93,22 @@ def activity_record(
     ]
     # distance_km and duration_sec are NOT NULL in the SQLite schema, so a
     # non-finite reading has to degrade to a number here rather than to None.
-    km = _finite(activity.distance_km) or _finite(activity.distance_by_coord_km) or 0.0
-    total_sec = _finite(activity.total_sec) or 0.0
+    km = finite(activity.distance_km) or finite(activity.distance_by_coord_km) or 0.0
+    total_sec = finite(activity.total_sec) or 0.0
     return {
         "id": activity.activity_id,
         "date": start.strftime("%Y-%m-%d"),
         "start_time": start.strftime("%H:%M"),
         "day_of_year": start.timetuple().tm_yday,
-        "distance_km": _round(km, 2),
+        "distance_km": round_or_none(km, 2),
         "duration_sec": int(round(total_sec)),
         "pace_sec_per_km": int(round(total_sec / km)) if km else None,
         "calories": activity.calories,
-        "avg_cadence": _round(sum(cadences) / len(cadences), 0) if cadences else None,
-        "avg_temp_c": _round(gpx.avg_temp, 1) if gpx else None,
-        "elevation_min_m": _round(min(elevations), 0) if elevations else None,
-        "elevation_max_m": _round(max(elevations), 0) if elevations else None,
-        "ascent_m": _round(total_ascent(elevations), 0),
+        "avg_cadence": round_or_none(sum(cadences) / len(cadences), 0) if cadences else None,
+        "avg_temp_c": round_or_none(gpx.avg_temp, 1) if gpx else None,
+        "elevation_min_m": round_or_none(min(elevations), 0) if elevations else None,
+        "elevation_max_m": round_or_none(max(elevations), 0) if elevations else None,
+        "ascent_m": round_or_none(total_ascent(elevations), 0),
         "has_gps": any(p.lat is not None for p in points),
         "num_points": len(points),
         "weather": _weather_record(hourly),
@@ -168,12 +141,12 @@ def daily_weather_record(row: dict) -> dict:
     """Shape one HKO daily-extract row (raw scraper column names) for storage."""
     return {
         "date": row["Date"],
-        "max_temp_c": _to_float(row.get("Max. Temp")),
-        "avg_temp_c": _to_float(row.get("Avg. Temp")),
-        "min_temp_c": _to_float(row.get("Min. Temp")),
-        "humidity_pct": _to_float(row.get("Humidity (%)")),
-        "rainfall_mm": _to_float(row.get("Total Rainfall (mm)")),
-        "wind_kmh": _to_float(row.get("Avg. Wind Speed (km/h)")),
+        "max_temp_c": to_float(row.get("Max. Temp")),
+        "avg_temp_c": to_float(row.get("Avg. Temp")),
+        "min_temp_c": to_float(row.get("Min. Temp")),
+        "humidity_pct": to_float(row.get("Humidity (%)")),
+        "rainfall_mm": to_float(row.get("Total Rainfall (mm)")),
+        "wind_kmh": to_float(row.get("Avg. Wind Speed (km/h)")),
         "sunrise": row.get("Sunrise"),
         "sunset": row.get("Sunset"),
     }

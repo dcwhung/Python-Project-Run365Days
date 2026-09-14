@@ -7,37 +7,18 @@ JSON), but the calculations that shape a run are still done here so that
 """
 
 import json
-import math
 from collections.abc import Iterable, Sequence
 from datetime import datetime
 from pathlib import Path
 
 from run365days.activities.models import Activity, TrackPoint
+from run365days.common.numeric import finite, round_or_none, to_float
 
 TRACK_POINT_LIMIT = 150
 """Default number of track points kept per run when downsampling."""
 
 
 # ── helpers ────────────────────────────────────────────────────────────────
-def _num(value, ndigits: int = 1):
-    """Round a number for JSON, mapping None/NaN to None."""
-    if value is None:
-        return None
-    try:
-        if math.isnan(value):
-            return None
-    except TypeError:
-        return None
-    return round(value, ndigits)
-
-
-def _to_float(value) -> float | None:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
 def downsample(points: Sequence, limit: int = TRACK_POINT_LIMIT) -> list:
     """Return at most *limit* evenly spaced items, always keeping first and last."""
     n = len(points)
@@ -104,13 +85,15 @@ def track_rows(activity: Activity, temps: dict[str, float]) -> list[list]:
         rows.append(
             [
                 int(sec),
-                _num(p.lat, 5),
-                _num(p.lon, 5),
-                _num(p.elevation, 1),
-                _num(p.distance_m, 0),
-                _num(p.speed, 2),
-                p.cadence,
-                _num(temps.get(p.time), 1),
+                round_or_none(p.lat, 5),
+                round_or_none(p.lon, 5),
+                round_or_none(p.elevation, 1),
+                round_or_none(p.distance_m, 0),
+                round_or_none(p.speed, 2),
+                # cadence is an INTEGER column, so it keeps its own type rather
+                # than going through the rounding helper.
+                finite(p.cadence),
+                round_or_none(temps.get(p.time), 1),
             ]
         )
     return rows
@@ -150,9 +133,9 @@ def hourly_at(rows: list[dict], date: str, time_hhmm: str) -> dict | None:
         return None
     return {
         "desc": best.get("Description"),
-        "temp": _to_float(best.get("Temperature (°C)")),
-        "hum": _to_float(best.get("Humidity (%)")),
-        "wind": _to_float(best.get("Wind (Km/h)")),
+        "temp": to_float(best.get("Temperature (°C)")),
+        "hum": to_float(best.get("Humidity (%)")),
+        "wind": to_float(best.get("Wind (Km/h)")),
     }
 
 

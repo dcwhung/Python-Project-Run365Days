@@ -1,3 +1,5 @@
+import pytest
+
 from run365days.activities.models import Activity, TrackPoint
 from run365days.dashboard.builder import (
     downsample,
@@ -75,6 +77,18 @@ class TestTrackRows:
     def test_no_gps_gives_null_coords(self):
         rows = track_rows(_activity(2, gps=False), {})
         assert rows[0][1] is None and rows[0][2] is None
+
+    # CUI-0007: ±inf used to slip past the nan-only guard and reach the writers,
+    # where json.dumps refuses it and SQLite happily stores Infinity.
+    @pytest.mark.parametrize("bad", [float("inf"), float("-inf"), float("nan")])
+    def test_non_finite_point_values_become_null(self, bad):
+        point = _pt(0, lat=bad, lon=bad, ele=bad, cad=bad, speed=bad)
+        point.distance_m = bad
+        activity = _activity(1)
+        activity.track_points = [point]
+        row = track_rows(activity, {"2021-01-08 12:00:00": bad})
+        assert row[0][1:] == [None] * 7
+        assert row[0][0] == 0  # sec is NOT NULL and stays a number
 
 
 class TestWeather:

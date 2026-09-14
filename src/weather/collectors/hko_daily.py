@@ -4,16 +4,10 @@ import json
 
 import requests
 
+from run365days.common.numeric import to_float
 from run365days.weather.models import DailyWeather
 
 _BASE_URL = "https://www.weather.gov.hk/cis/dailyExtract/dailyExtract_"
-
-
-def _safe(value: str):
-    try:
-        return float(value)
-    except (ValueError, TypeError):
-        return None
 
 
 def fetch_year(year: str) -> list[DailyWeather]:
@@ -53,12 +47,12 @@ def fetch_year(year: str) -> list[DailyWeather]:
             records.append(
                 DailyWeather(
                     date=date_str,
-                    max_temp_c=_safe(data[2]),
-                    avg_temp_c=_safe(data[3]),
-                    min_temp_c=_safe(data[4]),
-                    mean_humidity_pct=_safe(data[6]),
-                    total_rainfall_mm=_safe(data[8]),
-                    mean_wind_kmh=_safe(data[11]),
+                    max_temp_c=to_float(data[2]),
+                    avg_temp_c=to_float(data[3]),
+                    min_temp_c=to_float(data[4]),
+                    mean_humidity_pct=to_float(data[6]),
+                    total_rainfall_mm=to_float(data[8]),
+                    mean_wind_kmh=to_float(data[11]),
                 )
             )
     return records
