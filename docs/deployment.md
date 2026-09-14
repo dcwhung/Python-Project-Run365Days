@@ -1,8 +1,10 @@
 # Deployment
 
-The same React app is deployed twice from `develop`: in **API mode** on
-Vercel and in **static mode** on GitHub Pages. Both builds run
-`run365-export` first, so no generated data is ever committed.
+The same React app is deployed twice from the deploy branch: in **API
+mode** on Vercel and in **static mode** on GitHub Pages. Both builds run
+`run365-export` first, so no generated data is ever committed. The
+[GitHub Pages](#github-pages) section below names that branch, generated
+from the workflow.
 
 | | Vercel | GitHub Pages |
 |---|---|---|
@@ -10,7 +12,7 @@ Vercel and in **static mode** on GitHub Pages. Both builds run
 | Data mode | `api`: React queries `/api/graphql` | `static`: React fetches `/data/*.json` |
 | Backend | `api/graphql.py`, a Python serverless function running the Flask + Strawberry app over the bundled SQLite file | none |
 | Build | `scripts/vercel-build.sh` via `vercel.json` | `.github/workflows/pages.yml` |
-| Trigger | every push to `develop` (production branch) | every push to `develop`, after lint and tests |
+| Trigger | every push to the Vercel production branch | every push to the deploy branch, after lint and tests |
 
 ## Vercel
 
@@ -58,19 +60,29 @@ failure is readable in the browser.
 
 ## GitHub Pages
 
-The workflow has four jobs. The first two run on every push and pull
-request to **both** `develop` and `master`, so a pull request into either
-branch is gated by lint and tests. The last two are restricted to
-`develop` — `github.ref == 'refs/heads/develop'` — so every push to
-`develop` deploys the site, while `master` runs the checks and stops
-there. A manual `workflow_dispatch` follows the same rule: it re-deploys
-when run on `develop`, and is CI-only on any other branch.
+The workflow has four jobs. The first two are the checks and run wherever
+the workflow is triggered; the last two build and deploy the site and are
+restricted to one branch by a `github.ref` test. The rules are read out of
+`pages.yml` by `run365-ci-docs`, which job 1 runs in `--check` mode against
+this file, `README.md` and `docs/architecture.md`:
+
+<!-- ci-facts:start -->
+<!-- Generated from .github/workflows/pages.yml by `run365-ci-docs --write`.
+     Change the workflow, re-run the command, and commit both. -->
+- Lint, tests and the frontend checks run on every push and pull request to
+  `develop` and `master`.
+- The site is built and deployed from `develop` only; every other branch
+  stops after the checks.
+- A manual `workflow_dispatch` run follows the same rule: it re-deploys when
+  run on `develop`, and is checks-only elsewhere.
+<!-- ci-facts:end -->
 
 Only one branch can be the deploy source; two would race for the same
-Pages deployment. `develop` holds that role for now.
+Pages deployment.
 
-1. **Lint and test**: `ruff check`, `ruff format --check`, `pytest`, and
-   `run365-schema --check frontend/schema.graphql`.
+1. **Lint and test**: `ruff check`, `ruff format --check`, `pytest`,
+   `run365-schema --check frontend/schema.graphql`, and `run365-ci-docs
+   --check` on this file, `README.md` and `docs/architecture.md`.
 2. **Frontend**: `npm ci`, ESLint, codegen + `tsc`, Vitest, Vite build in
    both data modes.
 3. **Build dashboard (static mode)**: `run365-export --skip-db --static-dir
@@ -81,18 +93,19 @@ Pages deployment. `develop` holds that role for now.
 4. **Deploy to GitHub Pages**.
 
 The repository's `github-pages` environment must allow deployments from
-`develop` (Settings, Environments, Deployment branches). That rule lives
-in the repository settings, not in the workflow file, so it has to be
-updated in the same pass whenever the deploying branch in `pages.yml`
-changes — otherwise the deploy job is rejected at the environment gate
-even though the workflow itself ran.
+the deploy branch (Settings, Environments, Deployment branches). That rule
+lives in the repository settings, not in the workflow file, so no check in
+this repository can see it: `run365-ci-docs` keeps the documents honest,
+but the environment rule has to be updated by hand in the same pass
+whenever the deploying branch in `pages.yml` changes — otherwise the deploy
+job is rejected at the environment gate even though the workflow itself ran.
 
-## Switching the deploy source from `develop` to `master`
+## Switching the deploy source to another branch
 
-`develop` is the deploy source today. Moving it to `master` means changing
-six things in four places — two of them outside the repository, where a
-checkout can neither see nor verify them. Missing one leaves the setup
-half-switched, and the failure is usually silent. Do all six together.
+Moving the deploy source means changing six things in four places — two of
+them outside the repository, where a checkout can neither see nor verify
+them. Missing one leaves the setup half-switched, and the failure is
+usually silent. Do all six together.
 
 In the repository:
 
@@ -101,14 +114,17 @@ In the repository:
    once nothing is being worked on there.
 2. `.github/workflows/pages.yml` — the `if:` on the `build` and `deploy`
    jobs, plus the `concurrency` `group` and `cancel-in-progress`
-   expressions. All four test `refs/heads/develop`; each has to name the
-   new branch, or deploys stop happening and non-deploying runs start
-   sharing the deploy group.
-3. `.github/workflows/tag-release.yml` — the `ref` input default.
-4. `README.md` — the CI badge's `?branch=` query, the "Continuous
-   integration and deployment" section, the Vercel production-branch
-   sentence, and the "Versioning and branches" table with the paragraph
-   under it.
+   expressions. All four name the current deploy branch; each has to name
+   the new one, or deploys stop happening and non-deploying runs start
+   sharing the deploy group. `run365-ci-docs` refuses to run while these
+   disagree with each other, so a half-edited workflow fails CI rather
+   than deploying from nowhere.
+3. `.github/workflows/tag-release.yml` — the `ref` input default. Nothing
+   checks this one; `run365-ci-docs` only reads `pages.yml`.
+4. `README.md` — the CI badge's `?branch=` query, the Vercel
+   production-branch sentence, and the "Versioning and branches" table.
+   The badge query is checked against the workflow by `run365-ci-docs`;
+   the other two are prose about settings the workflow does not hold.
 
 Outside the repository, so neither readable nor changeable from a
 checkout:
@@ -121,8 +137,11 @@ checkout:
    deployments follow this setting, not the repository. Until this is done
    Pages and Vercel serve different commits.
 
-Then update this file: the intro, the trigger table, the Vercel section,
-the GitHub Pages section and this checklist.
+Then run `run365-ci-docs --write README.md docs/architecture.md
+docs/deployment.md` to regenerate the branch facts in the three documents,
+and re-read the prose around them: the intro here, the trigger table, the
+Vercel section and this checklist all describe settings that live outside
+`pages.yml`, so the generator cannot correct them.
 
 ## Tagging a release
 

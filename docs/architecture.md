@@ -136,9 +136,23 @@ in a container or against a different year's exports.
 - **pytest** covering geo and time helpers, MET metrics, weight parsing,
   every builder function, the year statistics, the export writers, the
   GraphQL API (Flask test client against a temporary database) and the
-  CLI serialiser (133 tests).
+  CLI serialiser.
 - **pre-commit** runs the same ruff checks locally.
-- **GitHub Actions** (`.github/workflows/pages.yml`) runs lint and tests on
-  every push and pull request to `master`, then builds and deploys the
-  static dashboard on pushes only. Vercel builds the API-mode deployment
-  from the same commits; both are described in [deployment.md](deployment.md).
+- **GitHub Actions** (`.github/workflows/pages.yml`) gates the repository
+  and publishes the static dashboard. The branch rules are read out of the
+  workflow by `run365-ci-docs`, which the workflow itself runs in `--check`
+  mode, so this list cannot fall behind the file it describes:
+
+  <!-- ci-facts:start -->
+  <!-- Generated from .github/workflows/pages.yml by `run365-ci-docs --write`.
+       Change the workflow, re-run the command, and commit both. -->
+  - Lint, tests and the frontend checks run on every push and pull request to
+    `develop` and `master`.
+  - The site is built and deployed from `develop` only; every other branch
+    stops after the checks.
+  - A manual `workflow_dispatch` run follows the same rule: it re-deploys when
+    run on `develop`, and is checks-only elsewhere.
+  <!-- ci-facts:end -->
+
+  Vercel builds the API-mode deployment from the same commits; both are
+  described in [deployment.md](deployment.md).
