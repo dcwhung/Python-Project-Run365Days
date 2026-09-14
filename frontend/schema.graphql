@@ -77,17 +77,37 @@ type Query {
   """Runs in start order, optionally filtered (dates inclusive)."""
   activities(fromDate: Date = null, toDate: Date = null, minKm: Float = null, hasGps: Boolean = null, limit: Int! = 500, offset: Int! = 0): [Activity!]!
 
+  """
+  Rows matching the same filters, ignoring `limit` and `offset`. A list shorter than this count was cut off by the page window.
+  """
+  activitiesCount(fromDate: Date = null, toDate: Date = null, minKm: Float = null, hasGps: Boolean = null): Int!
+
   """One run by Garmin activity id."""
   activity(id: ID!): Activity
 
   """Daily weigh-ins (dates inclusive)."""
   weight(fromDate: Date = null, toDate: Date = null, limit: Int! = 500, offset: Int! = 0): [WeightEntry!]!
 
+  """
+  Rows matching the same filters, ignoring `limit` and `offset`. A list shorter than this count was cut off by the page window.
+  """
+  weightCount(fromDate: Date = null, toDate: Date = null): Int!
+
   """HKO daily weather (dates inclusive)."""
   weather(fromDate: Date = null, toDate: Date = null, limit: Int! = 500, offset: Int! = 0): [DailyWeather!]!
 
+  """
+  Rows matching the same filters, ignoring `limit` and `offset`. A list shorter than this count was cut off by the page window.
+  """
+  weatherCount(fromDate: Date = null, toDate: Date = null): Int!
+
   """HKO warnings and signals (dates inclusive)."""
   warnings(fromDate: Date = null, toDate: Date = null, limit: Int! = 500, offset: Int! = 0): [WeatherWarning!]!
+
+  """
+  Rows matching the same filters, ignoring `limit` and `offset`. A list shorter than this count was cut off by the page window.
+  """
+  warningsCount(fromDate: Date = null, toDate: Date = null): Int!
 
   """Aggregates for the exported year (or a given year)."""
   year(year: Int = null): YearSummary!

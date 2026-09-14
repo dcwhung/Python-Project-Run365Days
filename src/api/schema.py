@@ -85,6 +85,18 @@ def _introspection_gate() -> SchemaExtension:
     return SchemaExtension() if graphiql_enabled() else DisableIntrospection()
 
 
+COUNT_DESCRIPTION = (
+    "Rows matching the same filters, ignoring `limit` and `offset`. "
+    "A list shorter than this count was cut off by the page window."
+)
+"""Description shared by the four count fields.
+
+A bare list gives a client no way to tell "these are all the rows" from
+"these are the first `limit` rows"; comparing its length against the count
+is that signal.
+"""
+
+
 def _iso(d: date_type | None) -> str | None:
     return d.isoformat() if d else None
 
@@ -325,6 +337,19 @@ class Query:
         )
         return [_activity(r) for r in rows]
 
+    @strawberry.field(description=COUNT_DESCRIPTION)
+    def activities_count(
+        self,
+        info: Info,
+        from_date: date_type | None = None,
+        to_date: date_type | None = None,
+        min_km: float | None = None,
+        has_gps: bool | None = None,
+    ) -> int:
+        return service.activities_count(
+            info.context["session"], _iso(from_date), _iso(to_date), min_km, has_gps
+        )
+
     @strawberry.field(description="One run by Garmin activity id.")
     def activity(self, info: Info, id: strawberry.ID) -> Activity | None:
         return _activity(service.activity(info.context["session"], str(id)))
@@ -344,6 +369,12 @@ class Query:
         )
         return [WeightEntry(**r) for r in rows]
 
+    @strawberry.field(description=COUNT_DESCRIPTION)
+    def weight_count(
+        self, info: Info, from_date: date_type | None = None, to_date: date_type | None = None
+    ) -> int:
+        return service.weight_count(info.context["session"], _iso(from_date), _iso(to_date))
+
     @strawberry.field(description="HKO daily weather (dates inclusive).")
     def weather(
         self,
@@ -359,6 +390,12 @@ class Query:
         )
         return [DailyWeather(**r) for r in rows]
 
+    @strawberry.field(description=COUNT_DESCRIPTION)
+    def weather_count(
+        self, info: Info, from_date: date_type | None = None, to_date: date_type | None = None
+    ) -> int:
+        return service.daily_weather_count(info.context["session"], _iso(from_date), _iso(to_date))
+
     @strawberry.field(description="HKO warnings and signals (dates inclusive).")
     def warnings(
         self,
@@ -373,6 +410,12 @@ class Query:
             info.context["session"], _iso(from_date), _iso(to_date), limit, offset
         )
         return [WeatherWarning(**r) for r in rows]
+
+    @strawberry.field(description=COUNT_DESCRIPTION)
+    def warnings_count(
+        self, info: Info, from_date: date_type | None = None, to_date: date_type | None = None
+    ) -> int:
+        return service.warnings_count(info.context["session"], _iso(from_date), _iso(to_date))
 
     @strawberry.field(description="Aggregates for the exported year (or a given year).")
     def year(self, info: Info, year: int | None = None) -> YearSummary:

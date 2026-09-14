@@ -390,3 +390,53 @@ def test_introspection_is_served_when_the_env_var_is_on(monkeypatch, client):
 def test_typename_still_resolves_when_introspection_is_off(monkeypatch, client):
     monkeypatch.delenv(GRAPHIQL_ENV, raising=False)
     assert gql(client, "{ meta { __typename year } }")["meta"]["__typename"] == "Meta"
+
+
+# ── W-009: counts let a client see rows the page window cut off ────────────
+def test_activities_count_reports_rows_beyond_the_page(year_client):
+    d = gql(year_client, "{ activities(limit: 10) { id } activitiesCount }")
+    assert len(d["activities"]) == 10
+    assert d["activitiesCount"] == YEAR_DAYS
+
+
+def test_activities_count_applies_the_same_filters_as_the_list(client):
+    d = gql(client, '{ activitiesCount(fromDate: "2021-01-09") }')
+    assert d["activitiesCount"] == 1
+    assert gql(client, "{ activitiesCount(minKm: 6) }")["activitiesCount"] == 0
+    assert gql(client, "{ activitiesCount(hasGps: false) }")["activitiesCount"] == 1
+
+
+def test_activities_count_ignores_limit_and_offset(year_client):
+    d = gql(year_client, '{ activitiesCount(fromDate: "2021-01-01", toDate: "2021-01-31") }')
+    assert d["activitiesCount"] == 31
+
+
+def test_weight_weather_and_warnings_expose_counts(year_client):
+    d = gql(
+        year_client,
+        """{
+            weight(limit: 5) { date }
+            weightCount
+            weather(limit: 5) { date }
+            weatherCount
+            warnings(limit: 5) { date }
+            warningsCount
+        }""",
+    )
+    assert len(d["weight"]) == 5 and d["weightCount"] == YEAR_DAYS
+    assert len(d["weather"]) == 5 and d["weatherCount"] == YEAR_DAYS
+    assert len(d["warnings"]) == 5 and d["warningsCount"] == YEAR_DAYS
+
+
+def test_dated_counts_honour_the_date_window(year_client):
+    d = gql(
+        year_client,
+        """{
+            weightCount(fromDate: "2021-01-01", toDate: "2021-01-10")
+            weatherCount(toDate: "2021-01-05")
+            warningsCount(fromDate: "2021-12-31")
+        }""",
+    )
+    assert d["weightCount"] == 10
+    assert d["weatherCount"] == 5
+    assert d["warningsCount"] == 1

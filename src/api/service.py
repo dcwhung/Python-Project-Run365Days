@@ -54,6 +54,42 @@ def _page(stmt: Select, limit: int | None, offset: int) -> Select:
     return stmt.limit(limit) if limit is not None else stmt
 
 
+def _dated(stmt: Select, column, date_from: str | None, date_to: str | None) -> Select:
+    """Apply an inclusive date window to *column*."""
+    if date_from:
+        stmt = stmt.where(column >= date_from)
+    if date_to:
+        stmt = stmt.where(column <= date_to)
+    return stmt
+
+
+def _activity_filters(
+    stmt: Select,
+    date_from: str | None,
+    date_to: str | None,
+    min_km: float | None,
+    has_gps: bool | None,
+) -> Select:
+    """Apply the activity filters.
+
+    Shared by the list and the count so the two can never disagree about what
+    a filter means -- a count that answers a different question than the list
+    it is compared against is worse than no count at all.
+    """
+    stmt = _dated(stmt, models.Activity.date, date_from, date_to)
+    if min_km is not None:
+        stmt = stmt.where(models.Activity.distance_km >= min_km)
+    if has_gps is not None:
+        stmt = stmt.where(models.Activity.has_gps.is_(has_gps))
+    return stmt
+
+
+def _count_dated(session: Session, model, date_from: str | None, date_to: str | None) -> int:
+    """Count rows of a date-keyed table inside an inclusive date window."""
+    stmt = _dated(select(func.count()).select_from(model), model.date, date_from, date_to)
+    return session.scalar(stmt) or 0
+
+
 def meta(session: Session) -> dict:
     """Return ``{year, generated_at}`` from the meta table."""
     rows = {m.key: m.value for m in session.scalars(select(models.Meta))}
@@ -71,16 +107,23 @@ def activities(
 ) -> list[dict]:
     """List activities in start order with optional filters (inclusive dates) and page window."""
     stmt = select(models.Activity).options(selectinload(models.Activity.warnings))
-    if date_from:
-        stmt = stmt.where(models.Activity.date >= date_from)
-    if date_to:
-        stmt = stmt.where(models.Activity.date <= date_to)
-    if min_km is not None:
-        stmt = stmt.where(models.Activity.distance_km >= min_km)
-    if has_gps is not None:
-        stmt = stmt.where(models.Activity.has_gps.is_(has_gps))
+    stmt = _activity_filters(stmt, date_from, date_to, min_km, has_gps)
     stmt = stmt.order_by(models.Activity.date, models.Activity.start_time)
     return [_activity_dict(row) for row in session.scalars(_page(stmt, limit, offset))]
+
+
+def activities_count(
+    session: Session,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    min_km: float | None = None,
+    has_gps: bool | None = None,
+) -> int:
+    """Count activities matching the filters, ignoring any page window."""
+    stmt = _activity_filters(
+        select(func.count()).select_from(models.Activity), date_from, date_to, min_km, has_gps
+    )
+    return session.scalar(stmt) or 0
 
 
 def activity(session: Session, activity_id: str) -> dict | None:
@@ -142,16 +185,17 @@ def weight(
     offset: int = 0,
 ) -> list[dict]:
     """List weigh-ins in date order with optional inclusive date filters and page window."""
-    stmt = select(models.WeightEntry)
-    if date_from:
-        stmt = stmt.where(models.WeightEntry.date >= date_from)
-    if date_to:
-        stmt = stmt.where(models.WeightEntry.date <= date_to)
+    stmt = _dated(select(models.WeightEntry), models.WeightEntry.date, date_from, date_to)
     stmt = _page(stmt.order_by(models.WeightEntry.date), limit, offset)
     return [
         {"date": w.date, "weight_lbs": w.weight_lbs, "weight_kg": w.weight_kg, "bmi": w.bmi}
         for w in session.scalars(stmt)
     ]
+
+
+def weight_count(session: Session, date_from: str | None = None, date_to: str | None = None) -> int:
+    """Count weigh-ins in the date window, ignoring any page window."""
+    return _count_dated(session, models.WeightEntry, date_from, date_to)
 
 
 def daily_weather(
@@ -162,11 +206,7 @@ def daily_weather(
     offset: int = 0,
 ) -> list[dict]:
     """List HKO daily rows in date order with optional date filters and page window."""
-    stmt = select(models.DailyWeather)
-    if date_from:
-        stmt = stmt.where(models.DailyWeather.date >= date_from)
-    if date_to:
-        stmt = stmt.where(models.DailyWeather.date <= date_to)
+    stmt = _dated(select(models.DailyWeather), models.DailyWeather.date, date_from, date_to)
     cols = (
         "date",
         "max_temp_c",
@@ -182,6 +222,13 @@ def daily_weather(
     return [{c: getattr(d, c) for c in cols} for d in session.scalars(stmt)]
 
 
+def daily_weather_count(
+    session: Session, date_from: str | None = None, date_to: str | None = None
+) -> int:
+    """Count HKO daily rows in the date window, ignoring any page window."""
+    return _count_dated(session, models.DailyWeather, date_from, date_to)
+
+
 def warnings(
     session: Session,
     date_from: str | None = None,
@@ -190,11 +237,14 @@ def warnings(
     offset: int = 0,
 ) -> list[dict]:
     """List HKO warnings in date order with optional date filters and page window."""
-    stmt = select(models.WeatherWarning)
-    if date_from:
-        stmt = stmt.where(models.WeatherWarning.date >= date_from)
-    if date_to:
-        stmt = stmt.where(models.WeatherWarning.date <= date_to)
+    stmt = _dated(select(models.WeatherWarning), models.WeatherWarning.date, date_from, date_to)
     cols = ("date", "type", "signal", "start_time", "end_time")
     stmt = _page(stmt.order_by(models.WeatherWarning.date, models.WeatherWarning.id), limit, offset)
     return [{c: getattr(w, c) for c in cols} for w in session.scalars(stmt)]
+
+
+def warnings_count(
+    session: Session, date_from: str | None = None, date_to: str | None = None
+) -> int:
+    """Count HKO warnings in the date window, ignoring any page window."""
+    return _count_dated(session, models.WeatherWarning, date_from, date_to)
