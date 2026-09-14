@@ -8,6 +8,15 @@ build/
 dist/
 .venv/
 
+# Coverage artifacts. `pytest --cov` writes .coverage on every run, and AU-033
+# made that run routine rather than occasional; parallel runs add .coverage.<host>
+# .<pid>.<random>, so the glob is not optional. frontend/.gitignore already
+# ignored its own coverage output, which is why only the Python side leaked.
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
 
 # OS
 .DS_Store

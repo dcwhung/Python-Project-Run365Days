@@ -10,6 +10,7 @@ import json
 import logging
 import socket
 from pathlib import Path
+from typing import NoReturn
 
 import pytest
 import requests
@@ -47,25 +48,25 @@ def read_fixture(name: str) -> str:
 def block_real_sockets(monkeypatch):
     """Make any unfaked outbound connection fail loudly instead of scraping."""
 
-    def refuse(*args, **kwargs):
+    def refuse(*args, **kwargs) -> NoReturn:
         raise AssertionError("a test tried to open a real network connection")
 
     monkeypatch.setattr(socket.socket, "connect", refuse)
 
 
 class FakeResponse:
-    def __init__(self, text: str):
+    def __init__(self, text: str) -> None:
         self.text = text
 
 
 class RequestRecorder:
     """A ``requests.get`` stand-in that answers from a URL -> body/exception map."""
 
-    def __init__(self, routes: dict):
+    def __init__(self, routes: dict) -> None:
         self.routes = routes
         self.calls: list[dict] = []
 
-    def __call__(self, url, params=None, timeout=None):
+    def __call__(self, url, params=None, timeout=None) -> FakeResponse:
         self.calls.append({"url": url, "params": params, "timeout": timeout})
         answer = self.routes[url]
         if isinstance(answer, Exception):
@@ -110,7 +111,7 @@ class TestGuardedHtmlReads:
     """
 
     @staticmethod
-    def cell(markup: str):
+    def cell(markup: str) -> BeautifulSoup:
         return BeautifulSoup(markup, "html.parser")
 
     def test_child_string_returns_none_when_the_tag_is_absent(self):

@@ -4,7 +4,7 @@ from run365days.export.records import TRACK_COLUMNS
 from run365days.export.static_json import write_static_json
 
 
-def _read(path):
+def _read(path) -> dict | list:
     return json.loads(path.read_text())
 
 

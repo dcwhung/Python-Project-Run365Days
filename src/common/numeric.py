@@ -11,9 +11,12 @@ dependency set, so nothing here may reach for pandas, numpy or lxml.
 """
 
 import math
+from typing import TypeVar
+
+_Value = TypeVar("_Value")
 
 
-def finite(value):
+def finite(value: _Value) -> _Value | None:
     """Return *value* when it is a finite number, otherwise ``None``.
 
     The parsers already reject nan and ±inf, so reaching here means a guard
@@ -33,7 +36,7 @@ def finite(value):
         return None
 
 
-def round_or_none(value, ndigits: int = 1) -> float | None:
+def round_or_none(value: object, ndigits: int = 1) -> float | None:
     """Round *value* for storage, mapping anything not finite to ``None``.
 
     The float cast is deliberate: the matching SQLite columns are REAL, so a
@@ -52,7 +55,7 @@ def round_or_none(value, ndigits: int = 1) -> float | None:
     return round(float(value), ndigits)
 
 
-def to_float(value) -> float | None:
+def to_float(value: object) -> float | None:
     """Return *value* as a float, or ``None`` when it cannot be read as one.
 
     Args:
@@ -67,7 +70,7 @@ def to_float(value) -> float | None:
         return None
 
 
-def finite_float(value) -> float | None:
+def finite_float(value: object) -> float | None:
     """Parse *value* as a float, keeping it only when the result is finite.
 
     ``to_float`` is deliberately permissive because ``"inf"``, ``"-inf"`` and

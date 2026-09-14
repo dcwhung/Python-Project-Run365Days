@@ -16,7 +16,7 @@ from run365days.dashboard.builder import (
 from run365days.weight.analysis import parse_weight_file
 
 
-def _pt(i, lat=22.3, lon=114.2, ele=330.0, cad=83, speed=2.7):
+def _pt(i, lat=22.3, lon=114.2, ele=330.0, cad=83, speed=2.7) -> TrackPoint:
     return TrackPoint(
         lat=lat,
         lon=lon,
@@ -28,7 +28,7 @@ def _pt(i, lat=22.3, lon=114.2, ele=330.0, cad=83, speed=2.7):
     )
 
 
-def _activity(n=10, gps=True):
+def _activity(n=10, gps=True) -> Activity:
     pts = [_pt(i, lat=22.3 if gps else None, lon=114.2 if gps else None) for i in range(n)]
     return Activity(
         activity_id="123",

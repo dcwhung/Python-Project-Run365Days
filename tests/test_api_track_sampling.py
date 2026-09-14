@@ -75,7 +75,7 @@ def counting_engine(track_db):
     engine.dispose()
 
 
-def _resolve_tracks(engine, activity_ids, points=SAMPLE_POINTS):
+def _resolve_tracks(engine, activity_ids, points=SAMPLE_POINTS) -> list[list[dict]]:
     """Resolve ``track`` for each id the way one GraphQL request would."""
     with Session(engine) as session:
         return [service.track(session, aid, points) for aid in activity_ids]

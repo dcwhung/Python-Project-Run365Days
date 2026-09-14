@@ -155,7 +155,7 @@ class BaseActivityParser(ABC):
 
     FORMAT: str = ""
 
-    def __init__(self, current_year: int):
+    def __init__(self, current_year: int) -> None:
         self.current_year = current_year
 
     @abstractmethod

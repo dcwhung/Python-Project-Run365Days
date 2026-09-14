@@ -6,6 +6,7 @@ and callers rely on ``distance_by_coord_km``.
 """
 
 import xml.etree.ElementTree as ET
+from collections.abc import Iterable
 from pathlib import Path
 
 import numpy as np
@@ -55,7 +56,11 @@ class GPXParser(BaseActivityParser):
                 or is not a running activity.
             ActivityParseError: If a mandatory element is missing.
         """
-        root = ET.parse(file_path).getroot()
+        # S314: the input is the user's own Garmin export on local disk
+        # (config.GPX_DIR), never a network fetch or an upload, so an
+        # entity-expansion bomb would have to be self-planted. Moving to
+        # defusedxml is a dependency change rather than a lint change.
+        root = ET.parse(file_path).getroot()  # noqa: S314
 
         activity_id = file_path.stem.rsplit("_", 1)[-1]
 
@@ -141,7 +146,7 @@ class GPXParser(BaseActivityParser):
         return (end - beg).total_seconds()
 
 
-def _describe(values) -> pd.Series:
+def _describe(values: Iterable[float | None]) -> pd.Series:
     """Return pandas summary statistics over *values*, ignoring ``None``."""
     kept = [v for v in values if v is not None]
     return pd.Series(kept, dtype="float64").describe()

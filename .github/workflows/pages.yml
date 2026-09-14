@@ -50,14 +50,23 @@ jobs:
       - name: Install package with dev extras
         run: pip install -e ".[dev]"
 
+      # No path list here on purpose. It used to read "src tests", which silently
+      # dropped api/ -- the Vercel production entry point -- even though
+      # pyproject.toml listed api/ in [tool.ruff] src and carried a per-file-ignore
+      # for it, so the config plainly considered it in scope. A path list kept in a
+      # second place is a copy that drifts, and this one had. pyproject.toml now
+      # owns what is linted (it excludes legacy/), and "." asks it.
       - name: Ruff lint
-        run: ruff check src tests
+        run: ruff check .
 
       - name: Ruff format check
-        run: ruff format --check src tests
+        run: ruff format --check .
 
-      - name: Pytest
-        run: pytest tests -q
+      # --cov carries no threshold here on purpose: fail_under lives in
+      # pyproject.toml so `pytest --cov` on a laptop fails on exactly what CI fails
+      # on. This step only asks for the measurement.
+      - name: Pytest with coverage gate
+        run: pytest tests -q --cov
 
       - name: GraphQL schema is in sync with frontend/schema.graphql
         run: run365-schema --check frontend/schema.graphql

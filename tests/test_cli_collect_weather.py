@@ -16,6 +16,7 @@ to it happily.
 import json
 import socket
 from datetime import datetime
+from typing import NoReturn
 
 import pytest
 
@@ -47,7 +48,7 @@ DAILY = DailyWeather(date="2021-01-01", max_temp_c=15.0, mean_temp_c=11.8)
 def block_real_sockets(monkeypatch):
     """Make any unfaked outbound connection fail loudly instead of scraping."""
 
-    def refuse(*args, **kwargs):
+    def refuse(*args, **kwargs) -> NoReturn:
         raise AssertionError("a test tried to open a real network connection")
 
     monkeypatch.setattr(socket.socket, "connect", refuse)
@@ -73,15 +74,15 @@ def install_collectors(
     """Replace the three collectors with fakes that record how they were called."""
     calls: dict[str, tuple] = {}
 
-    def fake_hourly(start, end):
+    def fake_hourly(start, end) -> list[HourlyWeather]:
         calls["hourly"] = (start, end)
         return list(hourly_rows)
 
-    def fake_warnings(start, end):
+    def fake_warnings(start, end) -> list[WeatherWarning]:
         calls["warnings"] = (start, end)
         return list(warning_rows)
 
-    def fake_daily(year):
+    def fake_daily(year) -> list[DailyWeather]:
         calls["hko-daily"] = (year,)
         return list(daily_rows)
 

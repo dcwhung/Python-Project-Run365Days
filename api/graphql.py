@@ -30,7 +30,15 @@ import json
 import os
 import sys
 import traceback
+from collections.abc import Callable, Iterable
 from pathlib import Path
+from typing import Any
+
+# Both builders can hand back either a Flask app or the bare WSGI function below,
+# and flask may itself be the thing that failed to import, so the shared type is
+# the WSGI contract they both satisfy rather than a Flask annotation this module
+# cannot always name.
+WSGIApp = Callable[..., Any]
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PACKAGE_NAME = "run365days"
@@ -52,7 +60,7 @@ def _load_package_from_source() -> None:
     spec.loader.exec_module(module)
 
 
-def _error_app(exc: BaseException):
+def _error_app(exc: BaseException) -> WSGIApp:
     """App that reports why the real app could not start (Flask if available, else raw WSGI)."""
     message = f"{type(exc).__name__}: {exc}"
     print(f"[run365days] start-up failed: {message}", file=sys.stderr)
@@ -64,21 +72,21 @@ def _error_app(exc: BaseException):
 
         @fallback.route("/", defaults={"path": ""})
         @fallback.route("/<path:path>")
-        def report(path):
+        def report(path: str) -> tuple[Any, int]:
             return jsonify({"status": "error", "error": message}), 500
 
         return fallback
     except Exception:  # noqa: BLE001 - flask itself missing
         payload = json.dumps({"status": "error", "error": message}).encode()
 
-        def app(environ, start_response):
+        def app(environ: dict[str, Any], start_response: Callable[..., Any]) -> Iterable[bytes]:
             start_response("500 Internal Server Error", [("Content-Type", "application/json")])
             return [payload]
 
         return app
 
 
-def _build_app():
+def _build_app() -> WSGIApp:
     """Create the real app, or the reporting fallback if start-up fails."""
     try:
         _load_package_from_source()

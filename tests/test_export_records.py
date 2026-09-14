@@ -8,6 +8,7 @@ from run365days.activities.models import TrackPoint
 from run365days.export import models
 from run365days.export.records import (
     TRACK_COLUMNS,
+    ExportRecords,
     activity_record,
     build_records,
     daily_weather_record,
@@ -149,7 +150,7 @@ def _poisoned_point(index: int) -> TrackPoint:
     )
 
 
-def _poisoned_records():
+def _poisoned_records() -> ExportRecords:
     """Records whose summary numbers *and* track points are non-finite."""
     from tests.conftest import make_activity
 
@@ -280,7 +281,7 @@ def _poisoned_hourly_row() -> dict:
     }
 
 
-def _weather_poisoned_records():
+def _weather_poisoned_records() -> ExportRecords:
     """A clean run joined to weather rows whose readings are non-finite literals."""
     from tests.conftest import make_activity
 

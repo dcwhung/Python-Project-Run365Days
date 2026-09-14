@@ -22,9 +22,11 @@ skipped without failing.
 import argparse
 import json
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+from run365days.activities.models import Activity
 from run365days.activities.parsers.gpx import GPXParser
 from run365days.activities.parsers.kml import KMLParser
 from run365days.activities.parsers.tcx import TCXParser
@@ -37,16 +39,20 @@ _PARSERS = {
 }
 
 
-def _to_builtin(value: Any) -> Any:
+# ANN401: this is the `default=` hook of json.dumps, which calls it with whatever
+# object it could not serialise and accepts whatever replacement comes back. The
+# stdlib types that parameter as Any for the same reason; naming a narrower type
+# here would claim a contract json.dumps does not offer.
+def _to_builtin(value: Any) -> Any:  # noqa: ANN401
     """JSON fallback: numpy scalars (int64, float64) become Python numbers."""
     if hasattr(value, "item"):
         return value.item()
     raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
 
 
-def _activities_to_jsonl(activities, out_path: Path) -> None:
+def _activities_to_jsonl(activities: Sequence[Activity], out_path: Path) -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(out_path, "w") as f:
+    with open(out_path, "w", encoding="utf-8") as f:
         for activity in activities:
             record = {k: v for k, v in activity.__dict__.items() if k != "track_points"}
             f.write(json.dumps(record, default=_to_builtin) + "\n")

@@ -6,7 +6,12 @@ build-backend = "setuptools.build_meta"
 name = "run365days"
 version = "3.0.0"
 description = "Personal running analytics: Garmin activity parsing, weather correlation, weight tracking and a dashboard"
-requires-python = ">=3.10"
+# 3.11, not 3.10. The dependency floors below decide this, not preference:
+# `pip install --python-version 3.10` cannot resolve `numpy>=2.4` at all (3.10's
+# newest numpy is 2.2.6) and pandas 3.0 likewise ships no 3.10 wheel. A 3.10 claim
+# was never reachable -- developers run 3.11 and CI runs 3.12, so nothing in the
+# project ever exercised the version it advertised.
+requires-python = ">=3.11"
 # Every runtime dependency carries a lower bound at the tested release line and
 # an upper bound at the next major. The lower bounds matter as much as the caps:
 # the numeric results this project asserts differ between pandas 2 and 3, so an
@@ -74,12 +79,61 @@ packages = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
+# The threshold lives here rather than as a --cov-fail-under flag in the workflow,
+# for the reason AU-010 exists: a number kept in CI is a number a developer running
+# the suite locally does not have, and the two drift. `pytest --cov` now enforces
+# exactly what CI enforces.
+[tool.coverage.run]
+source = ["src"]
+
+[tool.coverage.report]
+show_missing = true
+# 90, chosen against the measured distribution rather than by taste. The suite
+# covers 1733 of 1843 statements, 94.031%, and 78 of the 110 misses sit in two CLI
+# entry points (check_ci_docs, export_schema); the rest of src/ is at or near 100%.
+#
+# Not 94: the margin there is 0.03 percentage points, which is zero statements. The
+# first legitimate uncovered line -- a defensive branch, an error path -- turns CI
+# red, and a gate that fires on correct work gets lowered or deleted rather than
+# obeyed. That is a tripwire, not a gate.
+#
+# Not 80, the DoD floor: it would admit 259 uncovered statements, 149 more than
+# today, so the core could lose its tests entirely without the gate ever firing.
+# Restating a floor nothing approaches is not a check.
+#
+# 90 allows 184 misses, 74 more than today: about one substantial module merged
+# with no tests at all, which is the event worth catching, while absorbing the
+# handful of uncovered lines that normal work adds. It is also 10 points clear of
+# the DoD, so the DoD is satisfied with room rather than balanced on the edge.
+fail_under = 90
+
 [tool.ruff]
 line-length = 100
-target-version = "py310"
+# No target-version here. It used to say "py310" beside a requires-python of
+# ">=3.10", two copies of one fact, and a fix to either alone leaves the pair
+# disagreeing about which syntax is legal. ruff falls back to
+# project.requires-python when target-version is absent, so deleting it leaves a
+# single owner that cannot drift.
 src = ["src", "tests", "api"]
+# legacy/ holds reference-only v1 scripts that are deliberately outside the
+# quality system: no tests, never imported by src/, not built or deployed by CI.
+# .pre-commit-config.yaml already excludes them, but that exclusion only applies
+# to the hook. Stating it here is what makes a bare `ruff check .` usable: without
+# it the command reports 531 pre-existing errors, all of them in legacy/, so it can
+# never be green on any commit and every real finding in src/, tests/ and api/
+# hides behind the noise. Excluding the directory in one place lets the tool answer
+# "is this repository clean?" instead of only "is this path list clean?".
+extend-exclude = ["legacy"]
 
 [tool.ruff.lint]
+# PLW1514 (AU-015) is still a preview rule, and preview normally means "every
+# unstable rule in every selected prefix", which is not a trade worth making under
+# a ruff pin that only admits patches. explicit-preview-rules narrows it to preview
+# rules named by their exact code, so PLW1514 is the only one that arrives: with
+# these two set and PLW1514 removed, `ruff check .` is byte-for-byte the same run
+# as with preview off. Anything else preview-gated must be listed by code to apply.
+preview = true
+explicit-preview-rules = true
 select = [
     "E",   # pycodestyle errors
     "W",   # pycodestyle warnings
@@ -90,6 +144,27 @@ select = [
     "SIM", # flake8-simplify
     "N",   # pep8-naming
     "D",   # pydocstyle (Google convention)
+    "S",   # flake8-bandit (security)
+    # api/graphql.py already carried two `# noqa: BLE001` directives with written
+    # justifications, so a previous author expected this rule to be on. It was not,
+    # which made those directives dead text. Enabling it adds no new finding --
+    # those two sites are the only ones -- and makes their reasoning load-bearing.
+    "BLE", # flake8-blind-except
+    # Every `# noqa` must suppress something that is actually enabled. Without this
+    # a directive keeps looking like a considered decision long after the rule it
+    # names is gone, and a reader has no way to tell the live ones from the fossils.
+    "RUF100", # unused noqa directive
+    # AU-020 counted 20 unannotated functions by hand. Counting by hand is the
+    # defect: the number was stale before it was written down. ANN keeps it at zero
+    # without anyone tracking it.
+    "ANN",  # flake8-annotations
+    # AU-015 listed four open() calls missing encoding=. The rule finds eight,
+    # including two Path.write_text() calls the hand count could not have seen --
+    # one of them the static JSON export itself. That gap is the argument for the
+    # rule: text I/O without an explicit encoding follows the host locale, so the
+    # same input produces different bytes on different machines, and a reviewer
+    # has to notice every new call site forever to catch it.
+    "PLW1514", # open()/read_text()/write_text() without an explicit encoding
 ]
 ignore = [
     "D105", # magic methods need no docstring
@@ -97,10 +172,39 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["D"]                  # test names are the documentation
+# S101 only, never the whole "S" prefix: `assert` is how a pytest test states its
+# expectation, and pytest rewrites the statement to produce the failure message, so
+# banning it would ban testing. Every other security rule still applies to tests --
+# a hardcoded password or an unsafe deserialisation in a fixture is still a finding.
+"tests/*" = [
+    "D",     # test names are the documentation
+    "S101",  # assert is the idiom (see above)
+    # The annotation rules are split here rather than dropped wholesale. Measured
+    # on this tree: ANN001 fires 466 times and ANN201 409 times in tests/, and
+    # essentially all of it is `def test_x() -> None` plus fixture parameters whose
+    # types pytest already fixes (tmp_path, monkeypatch, parametrize arguments).
+    # Writing those 875 annotations buys a reader nothing -- pytest itself rejects a
+    # test that returns non-None -- while the diff is large enough to hide a real
+    # change inside it.
+    "ANN001", # fixture and parametrize parameters
+    "ANN002", # *args on test doubles
+    "ANN003", # **kwargs on test doubles
+    "ANN201", # test functions return None by pytest's own contract
+    # ANN202 and ANN205 are deliberately NOT ignored. A helper's return type is the
+    # one annotation a caller cannot infer by looking at the call, which is the
+    # whole reason AU-020 was raised; the 19 helpers in tests/ have it.
+]
 "src/cli/*" = ["D103"]             # main() is described by the module docstring
 "src/api/schema.py" = ["D101", "D102"]  # GraphQL types carry descriptions in the schema
 "api/*" = ["D"]
+
+[tool.ruff.lint.flake8-annotations]
+# A `**kwargs` that exists only to be forwarded to super() has no narrower honest
+# type than Any -- the accepted keywords are the parent's, and restating them here
+# would be a copy that goes stale the first time the parent changes. ANN003 still
+# applies, so the annotation cannot simply be left off. Return values and ordinary
+# arguments are unaffected: ANN401 still rejects Any there.
+allow-star-arg-any = true
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
@@ -110,3 +214,10 @@ known-first-party = ["run365days"]
 
 [tool.ruff.format]
 quote-style = "double"
+# ruff formats Python code blocks embedded in Markdown. Review reports and tickets
+# quote fragments on purpose -- deliberately broken code, partial expressions, a
+# before/after pair -- and the formatter rewrites them as if they were whole
+# programs: one quoted `time=parse_datetime(...)` argument came back as
+# `time = (parse_datetime(...),)`, which is a different statement. Evidence must
+# survive verbatim, so prose is not the formatter's business.
+exclude = ["*.md"]

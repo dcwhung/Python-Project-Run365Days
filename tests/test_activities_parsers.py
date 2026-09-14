@@ -2,6 +2,7 @@ import logging
 import sys
 import xml.etree.ElementTree as ET
 import zoneinfo
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -547,7 +548,7 @@ class TestKMLParsesEachTimestampOnce:
         calls = []
         real = kml.parse_datetime
 
-        def counting_parse_datetime(value, *args, **kwargs):
+        def counting_parse_datetime(value, *args, **kwargs) -> datetime:
             calls.append(value)
             return real(value, *args, **kwargs)
 

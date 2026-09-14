@@ -42,11 +42,13 @@ Three destinations, split by what the line is rather than by habit:
 import argparse
 import json
 import sys
+from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
 
 from run365days.common import config
 from run365days.weather.collectors import hko_daily, hourly, warnings
+from run365days.weather.models import DailyWeather, HourlyWeather, WeatherWarning
 
 
 def _sources() -> dict:
@@ -78,7 +80,9 @@ def _sources() -> dict:
     }
 
 
-def _write_jsonl(records, out_path: Path) -> None:
+def _write_jsonl(
+    records: Sequence[DailyWeather | HourlyWeather | WeatherWarning], out_path: Path
+) -> None:
     """Write weather records as JSON Lines in the raw scraper column names.
 
     ``record.to_raw_row()`` rather than ``record.__dict__``: the export layer
@@ -87,7 +91,7 @@ def _write_jsonl(records, out_path: Path) -> None:
     the daily extract, silently for the hourly and warning files (CUI-0011).
     """
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(out_path, "w") as f:
+    with open(out_path, "w", encoding="utf-8") as f:
         for record in records:
             f.write(json.dumps(record.to_raw_row()) + "\n")
     print(f"  Wrote {len(records)} records to {out_path}")
