@@ -120,7 +120,7 @@ def load_jsonl(path: Path) -> list[dict]:
     """Read a JSON Lines file, returning ``[]`` if it does not exist."""
     if not path.exists():
         return []
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         return [json.loads(line) for line in f if line.strip()]
 
 

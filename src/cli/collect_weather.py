@@ -91,7 +91,7 @@ def _write_jsonl(
     the daily extract, silently for the hourly and warning files (CUI-0011).
     """
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(out_path, "w") as f:
+    with open(out_path, "w", encoding="utf-8") as f:
         for record in records:
             f.write(json.dumps(record.to_raw_row()) + "\n")
     print(f"  Wrote {len(records)} records to {out_path}")

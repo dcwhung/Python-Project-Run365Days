@@ -52,7 +52,7 @@ def _to_builtin(value: Any) -> Any:  # noqa: ANN401
 
 def _activities_to_jsonl(activities: Sequence[Activity], out_path: Path) -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(out_path, "w") as f:
+    with open(out_path, "w", encoding="utf-8") as f:
         for activity in activities:
             record = {k: v for k, v in activity.__dict__.items() if k != "track_points"}
             f.write(json.dumps(record, default=_to_builtin) + "\n")

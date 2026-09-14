@@ -29,7 +29,7 @@ TRACKS_DIR = "tracks"
 
 
 def _dump(path: Path, payload: object) -> None:
-    path.write_text(json.dumps(payload, separators=(",", ":"), allow_nan=False))
+    path.write_text(json.dumps(payload, separators=(",", ":"), allow_nan=False), encoding="utf-8")
 
 
 def write_static_json(records: ExportRecords, out_dir: Path) -> None:

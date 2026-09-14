@@ -72,7 +72,7 @@ def parse_weight_file(
 
     records: list[WeightRecord] = []
     last_date: datetime | None = None
-    with open(file_path) as f:
+    with open(file_path, encoding="utf-8") as f:
         for line in f:
             weigh_in = _read_weigh_in(line, year, last_date)
             if weigh_in is None:

@@ -98,6 +98,14 @@ src = ["src", "tests", "api"]
 extend-exclude = ["legacy"]
 
 [tool.ruff.lint]
+# PLW1514 (AU-015) is still a preview rule, and preview normally means "every
+# unstable rule in every selected prefix", which is not a trade worth making under
+# a ruff pin that only admits patches. explicit-preview-rules narrows it to preview
+# rules named by their exact code, so PLW1514 is the only one that arrives: with
+# these two set and PLW1514 removed, `ruff check .` is byte-for-byte the same run
+# as with preview off. Anything else preview-gated must be listed by code to apply.
+preview = true
+explicit-preview-rules = true
 select = [
     "E",   # pycodestyle errors
     "W",   # pycodestyle warnings
@@ -122,6 +130,13 @@ select = [
     # defect: the number was stale before it was written down. ANN keeps it at zero
     # without anyone tracking it.
     "ANN",  # flake8-annotations
+    # AU-015 listed four open() calls missing encoding=. The rule finds eight,
+    # including two Path.write_text() calls the hand count could not have seen --
+    # one of them the static JSON export itself. That gap is the argument for the
+    # rule: text I/O without an explicit encoding follows the host locale, so the
+    # same input produces different bytes on different machines, and a reviewer
+    # has to notice every new call site forever to catch it.
+    "PLW1514", # open()/read_text()/write_text() without an explicit encoding
 ]
 ignore = [
     "D105", # magic methods need no docstring

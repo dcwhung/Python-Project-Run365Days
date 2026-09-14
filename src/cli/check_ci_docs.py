@@ -115,7 +115,7 @@ def _deploy_branch(lines: list[str], text: str) -> str:
 
 def read_facts(workflow: Path) -> CiFacts:
     """Read the branch behaviour out of the Pages workflow."""
-    text = workflow.read_text()
+    text = workflow.read_text(encoding="utf-8")
     lines = text.splitlines()
     on_lines = _section(lines, "on", 0)
     facts = CiFacts(
@@ -216,12 +216,12 @@ def _prose_problems(lines: list[str], facts: CiFacts, path: Path) -> list[str]:
 
 
 def _process(path: Path, facts: CiFacts, write: bool) -> list[str]:
-    original = path.read_text()
+    original = path.read_text(encoding="utf-8")
     lines = original.splitlines()
     updated = _expected(lines, facts, path)
     problems = _prose_problems(updated if write else lines, facts, path)
     if write:
-        path.write_text("\n".join(updated) + "\n")
+        path.write_text("\n".join(updated) + "\n", encoding="utf-8")
         return problems
     if updated != lines:
         problems.insert(0, f"{path}: the generated CI block is out of date.")
