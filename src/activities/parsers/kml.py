@@ -31,7 +31,14 @@ _TRACK_POINTS_FOLDER = "Track Points"
 _LAP_KEY = "Lap"
 _LAP_TIME_KEY = "Time"
 _LAP_DISTANCE_KEY = "Distance"
-_SUMMARY_ROW_COLSPAN = 2
+
+# Three unrelated bounds that happen to share the value 2. They are kept apart
+# on purpose (S-007): a lap table that grew a third column would otherwise also
+# redefine what counts as a coordinate, and every track point in the corpus
+# carries exactly two parts, so all of them would be dropped without a word.
+_LAP_TABLE_COLUMNS = 2  # a cell spanning them all is a title, not a statistic
+_LABEL_VALUE_CELLS = 2  # a statistic row needs a label cell and a value cell
+_LON_LAT_PARTS = 2  # a coordinate needs a longitude and a latitude
 
 
 class KMLParser(BaseActivityParser):
@@ -128,10 +135,10 @@ def _lap_table_cells(description: str) -> dict[str, str]:
         tds = tr.find_all("td")
         if not tds:
             continue
-        # A colspan=2 cell is the table's title row, not a statistic.
-        if tds[0].has_attr("colspan") and int(tds[0]["colspan"]) == _SUMMARY_ROW_COLSPAN:
+        # A cell spanning every column is the table's title row, not a statistic.
+        if tds[0].has_attr("colspan") and int(tds[0]["colspan"]) == _LAP_TABLE_COLUMNS:
             continue
-        if len(tds) < _SUMMARY_ROW_COLSPAN:
+        if len(tds) < _LABEL_VALUE_CELLS:
             continue
         cells[tds[0].text.replace(":", "").strip()] = tds[1].text.strip()
     return cells
@@ -152,7 +159,7 @@ def _parse_track_points(subfolder: ET.Element) -> list[TrackPoint]:
             continue
 
         lon_lat = raw.split(", ")[0].split(",")
-        if len(lon_lat) < _SUMMARY_ROW_COLSPAN:
+        if len(lon_lat) < _LON_LAT_PARTS:
             continue
 
         points.append(
