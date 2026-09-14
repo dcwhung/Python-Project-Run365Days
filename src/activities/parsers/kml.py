@@ -13,6 +13,7 @@ from bs4 import BeautifulSoup
 from run365days.activities.models import Activity, TrackPoint
 from run365days.activities.parsers.base import (
     ActivityParseError,
+    ActivitySkipped,
     BaseActivityParser,
     element_text,
 )
@@ -45,9 +46,10 @@ class KMLParser(BaseActivityParser):
             The parsed activity with lap totals and the coordinate track.
 
         Raises:
-            ValueError: If the file is not a running activity or is older
-                than ``current_year``.
-            ActivityParseError: If a mandatory element is missing.
+            ActivitySkipped: If the file is not a running activity or is
+                older than ``current_year``.
+            ActivityParseError: If a mandatory element is missing, or the file
+                carries no track points and therefore no start time.
         """
         root = ET.parse(file_path).getroot()
 
@@ -55,7 +57,7 @@ class KMLParser(BaseActivityParser):
         folder = root.find("ns:Folder", _NS)
 
         if folder is None or _RUNNING_NAME not in (element_text(folder, "ns:name", _NS) or ""):
-            raise ValueError(f"Not a running activity: {activity_id}")
+            raise ActivitySkipped(f"Not a running activity: {activity_id}")
 
         lap_rows: list[dict] = []
         track_points: list[TrackPoint] = []
@@ -67,9 +69,15 @@ class KMLParser(BaseActivityParser):
             elif name == _TRACK_POINTS_FOLDER:
                 track_points.extend(_parse_track_points(subfolder))
 
-        act_time = parse_datetime(track_points[0].time) if track_points else None
-        if act_time is None or act_time.year < self.current_year:
-            raise ValueError(f"Skipping activity: {activity_id}")
+        # A KML carries no timestamp outside its track points, so a file with
+        # none of them has no start time at all and cannot become an Activity.
+        # That is a data problem to report, not a deliberate year filter (W-004).
+        if not track_points:
+            raise ActivityParseError(f"no track points in {file_path.name}")
+
+        act_time = parse_datetime(track_points[0].time)
+        if act_time.year < self.current_year:
+            raise ActivitySkipped(f"Skipping old activity: {activity_id}")
 
         if not lap_rows:
             raise ActivityParseError(f"no laps found in {file_path.name}")

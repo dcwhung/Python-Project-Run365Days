@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Indoor (treadmill) run: real lap data, but the Track Points folder is
+     empty and the file carries no timestamp anywhere. Mirrors the eight real
+     exports 6055376813, 6055377172, 6055377549, 6055377879, 6055378214,
+     6067566088, 6067566456 and 6130263512. -->
+<kml xmlns="http://earth.google.com/kml/2.1">
+  <Folder>
+    <name>Running</name>
+    <Folder>
+      <name>Laps</name>
+      <description>Laps, start and end splits recorded in the activity.</description>
+      <Placemark>
+        <name>Lap 1</name>
+        <description>&lt;table width = "320"&gt;&lt;tr&gt;&lt;td&gt;Time:&lt;/td&gt;&lt;td&gt;00:05:00&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Distance:&lt;/td&gt;&lt;td&gt;1 Kilometers &lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Elevation Gain:&lt;/td&gt;&lt;td&gt;0 Meters &lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Max Speed:&lt;/td&gt;&lt;td&gt;11.62 Kilometers per Hour&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;</description>
+        <Point>
+          <coordinates>null,null</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>Lap 2</name>
+        <description>&lt;table width = "320"&gt;&lt;tr&gt;&lt;td&gt;Time:&lt;/td&gt;&lt;td&gt;00:05:00&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Distance:&lt;/td&gt;&lt;td&gt;1 Kilometers &lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Elevation Gain:&lt;/td&gt;&lt;td&gt;0 Meters &lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Max Speed:&lt;/td&gt;&lt;td&gt;10.91 Kilometers per Hour&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;</description>
+        <Point>
+          <coordinates>null,null</coordinates>
+        </Point>
+      </Placemark>
+    </Folder>
+    <Folder>
+      <name>Track Points</name>
+    </Folder>
+  </Folder>
+</kml>

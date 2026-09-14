@@ -13,6 +13,7 @@ import pandas as pd
 from run365days.activities.models import Activity, TrackPoint
 from run365days.activities.parsers.base import (
     ActivityParseError,
+    ActivitySkipped,
     BaseActivityParser,
     element_text,
     optional_float,
@@ -48,8 +49,8 @@ class TCXParser(BaseActivityParser):
             track (speed, cadence, altitude per point).
 
         Raises:
-            ValueError: If the activity is older than ``current_year`` or the
-                sport is not running.
+            ActivitySkipped: If the activity is older than ``current_year``
+                or the sport is not running.
             ActivityParseError: If a mandatory element is missing.
         """
         root = ET.parse(file_path).getroot()
@@ -62,10 +63,10 @@ class TCXParser(BaseActivityParser):
         act_time = parse_datetime(required_text(activity, "ns:Id", _NS))
 
         if act_time.year < self.current_year:
-            raise ValueError(f"Skipping old activity: {activity_id}")
+            raise ActivitySkipped(f"Skipping old activity: {activity_id}")
 
         if "Running" not in activity.get("Sport", ""):
-            raise ValueError(f"Not a running activity: {activity_id}")
+            raise ActivitySkipped(f"Not a running activity: {activity_id}")
 
         track_points: list[TrackPoint] = []
         lap_rows: list[dict] = []

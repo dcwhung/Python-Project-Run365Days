@@ -3,6 +3,7 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
+from run365days.activities.parsers.base import ActivityParseError, ActivitySkipped
 from run365days.activities.parsers.gpx import GPXParser
 from run365days.activities.parsers.kml import KMLParser
 from run365days.activities.parsers.tcx import TCXParser
@@ -47,8 +48,10 @@ class TestTCXParser:
         with pytest.raises(ET.ParseError):
             TCXParser(CHALLENGE_YEAR).parse(fixtures_dir / "activity_1003.tcx")
 
-    def test_should_raise_value_error_when_activity_predates_challenge_year(self, fixtures_dir):
-        with pytest.raises(ValueError, match="old activity"):
+    def test_should_raise_activity_skipped_when_activity_predates_challenge_year(
+        self, fixtures_dir
+    ):
+        with pytest.raises(ActivitySkipped, match="old activity"):
             TCXParser(CHALLENGE_YEAR + 1).parse(fixtures_dir / "activity_1001.tcx")
 
 
@@ -102,6 +105,12 @@ class TestKMLParser:
         with pytest.raises(ET.ParseError):
             KMLParser(CHALLENGE_YEAR).parse(fixtures_dir / "activity_3003.kml")
 
+    def test_should_raise_parse_error_when_no_track_points(self, fixtures_dir):
+        # W-004: an indoor run carries lap data but no timestamp of any kind,
+        # so it is a data problem to report, not a deliberate year filter.
+        with pytest.raises(ActivityParseError, match="no track points"):
+            KMLParser(CHALLENGE_YEAR).parse(fixtures_dir / "activity_3004.kml")
+
 
 class TestParseAllDoesNotSilentlyDrop:
     def test_should_keep_activity_missing_optional_tag(self, fixtures_dir):
@@ -120,6 +129,51 @@ class TestParseAllDoesNotSilentlyDrop:
         with caplog.at_level(logging.WARNING, logger="run365days.activities.parsers.base"):
             TCXParser(CHALLENGE_YEAR).parse_all(fixtures_dir)
         assert any("activity_1003.tcx" in record.getMessage() for record in caplog.records)
+
+
+class TestParseAllLogLevels:
+    """W-004: the log level must follow the exception type, not the other way round."""
+
+    @staticmethod
+    def _records_for(caplog, name: str) -> list[logging.LogRecord]:
+        return [r for r in caplog.records if name in r.getMessage()]
+
+    def test_should_log_debug_when_activity_deliberately_skipped(self, fixtures_dir, caplog):
+        with caplog.at_level(logging.DEBUG, logger="run365days.activities.parsers.base"):
+            TCXParser(CHALLENGE_YEAR + 1).parse_all(fixtures_dir)
+        records = self._records_for(caplog, "activity_1001.tcx")
+        assert records
+        assert all(r.levelno == logging.DEBUG for r in records)
+
+    def test_should_log_warning_when_kml_has_no_track_points(self, fixtures_dir, caplog):
+        with caplog.at_level(logging.WARNING, logger="run365days.activities.parsers.base"):
+            KMLParser(CHALLENGE_YEAR).parse_all(fixtures_dir)
+        records = self._records_for(caplog, "activity_3004.kml")
+        assert records
+        assert all(r.levelno == logging.WARNING for r in records)
+        assert "no track points" in records[0].getMessage()
+
+    def test_should_log_warning_when_a_generic_value_error_escapes_a_parser(
+        self, fixtures_dir, caplog, monkeypatch
+    ):
+        # A bad float() anywhere in a parser is a data problem, not a skip, so it
+        # must stay visible at the default log level.
+        parser = TCXParser(CHALLENGE_YEAR)
+        monkeypatch.setattr(
+            parser, "parse", lambda fp: (_ for _ in ()).throw(ValueError("could not convert"))
+        )
+        with caplog.at_level(logging.DEBUG, logger="run365days.activities.parsers.base"):
+            assert parser.parse_all(fixtures_dir) == []
+        assert caplog.records
+        assert all(r.levelno == logging.WARNING for r in caplog.records)
+
+    def test_should_raise_activity_skipped_when_gpx_is_not_running(self, fixtures_dir):
+        with pytest.raises(ActivitySkipped, match="Not a running activity"):
+            GPXParser(CHALLENGE_YEAR).parse(fixtures_dir / "activity_2004.gpx")
+
+    def test_should_raise_activity_skipped_when_kml_is_not_running(self, fixtures_dir):
+        with pytest.raises(ActivitySkipped, match="Not a running activity"):
+            KMLParser(CHALLENGE_YEAR).parse(fixtures_dir / "activity_3005.kml")
 
 
 class TestExportDataZeroRecordGuard:
