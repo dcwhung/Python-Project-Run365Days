@@ -28,7 +28,7 @@ class TestParseDateTime:
         assert dt.minute == 10
 
     def test_unix_ms(self):
-        dt = parse_datetime("1634451056000")
+        dt = parse_datetime("1634422256000")
         assert dt.year == 2021
 
     def test_naive_local(self):
@@ -50,7 +50,7 @@ class TestParseDateTimeOffset:
         assert dt.utcoffset() == timedelta(hours=8)
 
     def test_unix_ms_returns_plus_eight_offset(self):
-        dt = parse_datetime("1634451056000")
+        dt = parse_datetime("1634422256000")
         assert dt.utcoffset() == timedelta(hours=8)
 
     def test_naive_local_returns_plus_eight_offset(self):
@@ -62,17 +62,30 @@ class TestParseDateTimeOffset:
         assert dt.utcoffset() == timedelta(hours=8)
 
 
+class TestParseDateTimeEpochMilliseconds:
+    """The epoch-ms path must convert the instant, not relabel the UTC wall clock."""
+
+    def test_should_return_the_hong_kong_wall_clock_when_a_real_epoch_is_given(self):
+        # 1634422256000 is a real beginTimestamp from data/raw/garmin/summarized_activities.json.
+        dt = parse_datetime("1634422256000")
+        assert dt.isoformat() == "2021-10-17T06:10:56+08:00"
+
+    def test_should_return_eight_hours_later_when_the_fabricated_constant_is_given(self):
+        # 1634451056000 is the constant the old tests used: exactly 28_800_000 ms above the
+        # real one, because its author encoded the HK wall clock as if it were UTC. Pinning
+        # it here documents why the pre-AU-048 suite was green against a broken conversion.
+        dt = parse_datetime("1634451056000")
+        assert dt.isoformat() == "2021-10-17T14:10:56+08:00"
+
+
 class TestParseDateTimeWallClockUnchanged:
-    """Pins the wall clock of every ``parse_datetime`` path, AU-003 scope note.
+    """Pins the wall clock of every ``parse_datetime`` path.
 
-    The ``"1634451056000"`` case deliberately pins a known-incorrect behaviour: the
-    epoch-ms path reads the epoch as UTC and relabels rather than converts it, so the
-    expected wall clock below is 8 hours ahead of the correct one. It is asserted here
-    to stop the semantics changing unnoticed, not because it is right.
-
-    Fixing that shift is AU-048, and AU-048 must update this class in the same change --
-    a red ``test_wall_clock_is_preserved`` on the epoch-ms case is the expected outcome
-    of that fix, not a regression to revert. See ``src/common/time.py``.
+    All four inputs below encode the same instant, so every path must land on the same
+    Hong Kong wall clock. AU-048 replaced the epoch-ms case's fabricated ``1634451056000``
+    with ``1634422256000``, the value that really appears in
+    ``data/raw/garmin/summarized_activities.json``, once that path converted the epoch
+    instead of relabelling it.
     """
 
     @pytest.mark.parametrize(
@@ -80,7 +93,7 @@ class TestParseDateTimeWallClockUnchanged:
         [
             ("2021-10-16T22:10:56.000Z", (2021, 10, 17, 6, 10, 56)),
             ("2021-10-17T06:10:56+08:00", (2021, 10, 17, 6, 10, 56)),
-            ("1634451056000", (2021, 10, 17, 6, 10, 56)),
+            ("1634422256000", (2021, 10, 17, 6, 10, 56)),
             ("2021-10-17 06:10:56", (2021, 10, 17, 6, 10, 56)),
         ],
     )
