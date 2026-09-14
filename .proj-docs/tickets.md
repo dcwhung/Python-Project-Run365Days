@@ -326,7 +326,7 @@ exporter 會讀嘅欄位，`DailyWeather` 完全冇宣告（同 AU-037 係同一
 
 | ID | 級別 | 標題 | 狀態 |
 |---|---|---|---|
-| **CUI-0011** | 🔴 Critical（latent） | Collector 寫出嘅 schema 同 exporter 讀嘅唔夾，重新採集即炸 pipeline | pending |
+| **CUI-0011** | 🔴 Critical（latent） | Collector 寫出嘅 schema 同 exporter 讀嘅唔夾，重新採集即炸 pipeline | ✅ **Done** `755fdd5` `7092964`（方案 C） |
 | **CUI-0012** | 🟡 Medium | 三處無防護 `.find()`：`hourly.py:57` 硬崩、`warnings.py:55` **靜默錯**、`warnings.py:70` 硬崩 | pending |
 | **CUI-0013** | 🟢 Low | `collect_weather.py` 0% 覆蓋 + `print()`；`_REQUEST_TIMEOUT` 三份重複；magic index | pending |
 
@@ -360,3 +360,64 @@ Tests **247 → 260**（+13）｜TOTAL 維持 93%｜static JSON byte-identical�
 #### 順帶更正咗 main agent 一個過時數字
 
 我 brief 寫 baseline 215，但 developer 個 branch base 已含 CUI-0010 嘅 merge，實測係 247。佢冇照抄我個數，而係自己抽 HEAD 去 temp tree 度出真實 baseline。
+
+### CUI-0011 修復摘要（方案 C）
+
+Tests **260 → 283**（+23）｜`weather/models.py` **100%**（新）｜`cli/collect_weather.py` 0% → 45%｜**TOTAL 94%**｜`data/raw/` **零改動**｜static JSON byte-identical（`weather.json` / `warnings.json` 逐 byte 相同 — main agent 獨立確認，`sunrise: '07:03'` 仍在輸出）。
+
+#### 我張 ticket 講錯咗一樣嘢：三條路徑失敗方式各異，唔係「同樣 mismatch」
+
+Developer 實測三條路徑，**兩條係靜默**：
+
+| 路徑 | 失敗方式 | 可見性 |
+|---|---|---|
+| daily | `records.py` `row["Date"]` bracket access → `KeyError: 'Date'`，export 第一行中止 | **大聲** |
+| hourly | `builder.hourly_at()` 掃 `r.get("Date") != date`，而 collector 寫 `"date"` → 永遠對唔上 → 每個 activity 都回 `None` | **靜默**：export 成功，每個天氣區塊 null |
+| warnings | `build_records()` 篩 `if r.get("Warning_Signal")`，collector 寫 `"warning_signal"` → **461 行喺 `warning_record()` 執行之前已經全部被丟棄** | **靜默**：`warnings_by_date()` → `{}` |
+
+**兩條靜默嗰啲先係更差嗰半** —— 一次成功嘅 export，靜靜咁剝走晒所有天氣。
+
+順帶發現：raw warning 欄位係 `Ico`、dataclass 係 `icon_url`，而 `warning_record()` **由頭到尾從未輸出過 icon**。
+
+#### Sunrise / Sunset：排除，而且證據夠硬
+
+Developer 冇求其揀一邊，佢揾到決定性證據：
+
+1. **佢哋根本唔係 HKO daily extract 嘅數據。** 舊 pipeline 由第二次 scrape 將六個 sun/moon 欄位 join 入 `hko_daily_weather_extract.json`，而**兩份副本至今仍然唔一致** —— `2021-01-01` 喺 daily extract 讀 `Sunrise 07:03`，喺 `sun_moon_rise_set_history.json` 讀 `07:02`。證明佢哋從來唔係同一個來源。
+2. **`SunMoon` dataclass 已經宣告咗 sunrise/sunset。** 加入 `DailyWeather` 等於一個欄位兩個主人 —— 正正就係方案 C 要終結嘅失敗模式。
+3. **`hko_daily.fetch_year()` 結構上填唔到佢哋**（AU-037，collector 從未移植）。一個「唯一寫入者填唔到」嘅欄位會令 `to_raw_row()` 輸出 `"Sunrise": null`，**下次採集就會摧毀現有嘅好資料**。
+
+處理得誠實：`daily_weather_record()` 仍然讀呢兩欄以維持 byte-identity，但經 `models.py` 匯出嘅 `SUN_MOON_SUNRISE_COLUMN` / `SUN_MOON_SUNSET_COLUMN` —— **用真正擁有者嘅名**，令呼叫點自己講出呢個決定。三條測試斷言六個 joined 欄位既唔寫亦唔讀。
+
+#### 有限性 gate 分工守住
+
+`from_raw_row()` = 欄位映射 + `to_float`（寬鬆，保留 inf/nan）；`finite()` = 邊界，留喺 `records.py` / `builder.py` 寫入 writer 之前。因為 `finite_float(x)` 本身就係 `finite(to_float(x))`，將組合拆返兩層行為完全相同。
+
+三重確認：CUI-0009 全部測試原封不動通過；新增 `TestMappingOnlyNotBounding` 兩條測試**釘死 `from_raw_row()` 會保留 inf/nan**（防止 gate 靜靜咁遷移入 dataclass）；byte-identical。
+
+---
+
+### ⚠️ 一個關於測試設計嘅重要更正（我張 ticket 寫錯咗重點）
+
+我張 ticket 將 round-trip 測試寫成「方案 C 嘅核心」。Developer 證明咗**呢個判斷係錯**：
+
+> 三條 round-trip 測試**對住一個 `__dict__` stub 一樣會 PASS** —— 兩邊本來就自洽，佢哋只係同**磁碟上嘅檔案**唔一致。Round-trip 單獨存在**捉唔到今次個 bug**。
+
+真正捉到嘅係另外兩類：
+- **real-fixture 測試** —— 由 `data/raw/weather/*.json` **逐字**抽出嚟嘅樣本（escape 都保留：`"km\/h"`、`"\u00b0C"`），斷言 `to_raw_row()` 嘅 key 等於已 commit 檔案嘅 key
+- **end-to-end 測試** —— collector → `_write_jsonl` → `load_jsonl` → exporter，斷言逐個欄位相等
+
+教訓：**round-trip 只證明「你自己同你自己一致」。要捉跨層漂移，必須有一端錨定喺真實 artifact 上。**
+
+---
+
+## 再新開 / 升級（CUI-0011 發現）
+
+| ID | 級別 | 標題 | 狀態 |
+|---|---|---|---|
+| **AU-037** | 🟡 **升級** | `SunMoon` 冇 collector —— 而家變成 load-bearing | pending |
+| **CUI-0014** | 🟢 Low | `from_raw_row()` 對缺失 STRING 欄位預設 `""` 而舊 code 出 `None` | pending |
+
+**AU-037 升級理由**：排除 sunrise/sunset 之後，一次重新採集會寫出一個冇 sun/moon 欄位嘅 `hko_daily_weather_extract.json`，令 export 出嘅 sunrise/sunset 變 `None`。資料唔會損壞、export 亦唔會爆，但 dashboard 會失去呢兩個欄位，直到 `SunMoon` collector 移植好為止。**呢個係排除決定嘅誠實代價，唔係新引入嘅 regression** —— collector 從來都冇呢啲值。
+
+**CUI-0014**：`from_raw_row()` 將缺失嘅 string 欄位預設做 `""`，舊 code 出 `None`（hourly `Description`；warning `Type` / `Start_Time` / `End_Time`）。目的係令 dataclass annotation 保持誠實嘅 `str` 而唔使將五個欄位放寬成 `str | None`。實務上不可達 —— developer 掃過全部 17,984 個 hourly 同 461 個 warning 已 commit 行，**每個檔案 key set 完全劃一**。對 byte-identical 零影響。值得 reviewer 睇一眼。
