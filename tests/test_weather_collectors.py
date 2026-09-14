@@ -14,6 +14,9 @@ from pathlib import Path
 import pytest
 import requests
 
+from run365days.cli.collect_weather import _write_jsonl
+from run365days.dashboard.builder import hourly_at, load_jsonl, warnings_by_date
+from run365days.export.records import daily_weather_record, warning_record
 from run365days.weather.collectors import hko_daily, hourly, warnings
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "weather"
@@ -399,3 +402,75 @@ class TestWarningsFetchRange:
 
         for timeout in recorder.timeouts:
             assert_bounded_timeout(timeout)
+
+
+class TestCollectThenExport:
+    """The full path the bug hid behind: collect -> _write_jsonl -> read -> export.
+
+    Nobody had ever driven a freshly collected file back through the export
+    layer, so the collectors and the readers were free to drift apart. Each test
+    below writes with the collector's own writer and reads with the exporter's
+    own reader, which is the only pairing that can catch it (CUI-0011).
+    """
+
+    def test_collected_daily_rows_export_with_every_reading_intact(self, monkeypatch, tmp_path):
+        install_fake_get(monkeypatch, hko_daily, hko_routes())
+        collected = hko_daily.fetch_year("2021")
+        path = tmp_path / "hko_daily_weather_extract.json"
+
+        _write_jsonl(collected, path)
+        exported = [daily_weather_record(row) for row in load_jsonl(path)]
+
+        assert [r["date"] for r in exported] == [r.date for r in collected]
+        assert [r["max_temp_c"] for r in exported] == [r.max_temp_c for r in collected]
+        assert [r["avg_temp_c"] for r in exported] == [r.mean_temp_c for r in collected]
+        assert [r["min_temp_c"] for r in exported] == [r.min_temp_c for r in collected]
+        assert [r["humidity_pct"] for r in exported] == [r.mean_humidity_pct for r in collected]
+        assert [r["rainfall_mm"] for r in exported] == [r.total_rainfall_mm for r in collected]
+        assert [r["wind_kmh"] for r in exported] == [r.mean_wind_kmh for r in collected]
+
+    def test_collected_daily_rows_export_without_an_all_none_reading(self, monkeypatch, tmp_path):
+        install_fake_get(monkeypatch, hko_daily, hko_routes())
+        path = tmp_path / "hko_daily_weather_extract.json"
+
+        _write_jsonl(hko_daily.fetch_year("2021"), path)
+        first = [daily_weather_record(row) for row in load_jsonl(path)][0]
+
+        readings = ("max_temp_c", "avg_temp_c", "min_temp_c", "humidity_pct", "wind_kmh")
+        assert all(first[field] is not None for field in readings)
+
+    def test_collected_hourly_rows_export_into_an_activity_weather_block(
+        self, monkeypatch, tmp_path
+    ):
+        install_fake_get(monkeypatch, hourly, {hourly._URL: read_fixture("freemeteo_day.html")})
+        collected = hourly.fetch_day("2021-01-08")
+        path = tmp_path / "weather_history.json"
+
+        _write_jsonl(collected, path)
+        observed = hourly_at(load_jsonl(path), "2021-01-08", collected[0].time)
+
+        assert observed == {
+            "desc": collected[0].description,
+            "temp": collected[0].temperature_c,
+            "hum": collected[0].humidity_pct,
+            "wind": collected[0].wind_kmh,
+        }
+
+    def test_collected_warnings_keep_their_signals_through_the_export(self, monkeypatch, tmp_path):
+        install_fake_get(monkeypatch, warnings, warning_routes())
+        collected = warnings.fetch_day("2021-01-01", {})
+        path = tmp_path / "weather_warning_history.json"
+
+        _write_jsonl(collected, path)
+        rows = load_jsonl(path)
+
+        assert warnings_by_date(rows) == {
+            "2021-01-01": list(dict.fromkeys(r.warning_signal for r in collected))
+        }
+        assert warning_record(rows[0]) == {
+            "date": collected[0].date,
+            "type": collected[0].warning_type,
+            "signal": collected[0].warning_signal,
+            "start_time": collected[0].start_time,
+            "end_time": collected[0].end_time,
+        }

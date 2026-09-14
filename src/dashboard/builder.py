@@ -12,10 +12,19 @@ from datetime import datetime
 from pathlib import Path
 
 from run365days.activities.models import Activity, TrackPoint
-from run365days.common.numeric import finite, finite_float, round_or_none
+from run365days.common.numeric import finite, round_or_none
+from run365days.weather.models import (
+    RAW_DATE_COLUMN,
+    RAW_HOURLY_TIME_COLUMN,
+    RAW_WARNING_SIGNAL_COLUMN,
+    HourlyWeather,
+)
 
 TRACK_POINT_LIMIT = 150
 """Default number of track points kept per run when downsampling."""
+
+_MIDNIGHT = "00:00"
+"""Assumed observation time for an hourly row whose Time column is missing."""
 
 
 # ── helpers ────────────────────────────────────────────────────────────────
@@ -118,37 +127,44 @@ def hourly_at(rows: list[dict], date: str, time_hhmm: str) -> dict | None:
 
     Returns:
         ``{desc, temp, hum, wind}`` for the nearest observation, or ``None``
-        if the day has no rows. The three readings go through
-        :func:`finite_float` because they are nested straight into an activity
-        record and reach the writers unrounded, which disagree on a non-finite
-        value; all three columns are nullable, so None is safe for both.
+        if the day has no rows. :meth:`HourlyWeather.from_raw_row` owns the
+        column names and the float cast; the three readings then go through
+        :func:`finite` because they are nested straight into an activity record
+        and reach the writers unrounded, which disagree on a non-finite value;
+        all three columns are nullable, so None is safe for both (CUI-0009).
     """
     target = int(time_hhmm[:2]) * 60 + int(time_hhmm[3:5])
     best, best_gap = None, 10**9
     for r in rows:
-        if r.get("Date") != date:
+        if r.get(RAW_DATE_COLUMN) != date:
             continue
-        t = r.get("Time", "00:00")
+        t = r.get(RAW_HOURLY_TIME_COLUMN, _MIDNIGHT)
         gap = abs(int(t[:2]) * 60 + int(t[3:5]) - target)
         if gap < best_gap:
             best, best_gap = r, gap
     if best is None:
         return None
+    observed = HourlyWeather.from_raw_row(best)
     return {
-        "desc": best.get("Description"),
-        "temp": finite_float(best.get("Temperature (°C)")),
-        "hum": finite_float(best.get("Humidity (%)")),
-        "wind": finite_float(best.get("Wind (Km/h)")),
+        "desc": observed.description,
+        "temp": finite(observed.temperature_c),
+        "hum": finite(observed.humidity_pct),
+        "wind": finite(observed.wind_kmh),
     }
 
 
 def warnings_by_date(rows: list[dict]) -> dict[str, list[str]]:
-    """Group warning rows into ``{date: [signal, ...]}`` without duplicates."""
+    """Group warning rows into ``{date: [signal, ...]}`` without duplicates.
+
+    This indexes rows by two columns rather than building a
+    :class:`WeatherWarning` per row, so a row carrying only a date and a signal
+    still groups; the column names come from the model either way.
+    """
     out: dict[str, list[str]] = {}
     for r in rows:
-        sig = r.get("Warning_Signal")
+        sig = r.get(RAW_WARNING_SIGNAL_COLUMN)
         if sig:
-            out.setdefault(r["Date"], [])
-            if sig not in out[r["Date"]]:
-                out[r["Date"]].append(sig)
+            out.setdefault(r[RAW_DATE_COLUMN], [])
+            if sig not in out[r[RAW_DATE_COLUMN]]:
+                out[r[RAW_DATE_COLUMN]].append(sig)
     return out
