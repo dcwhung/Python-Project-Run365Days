@@ -65,3 +65,21 @@ def to_float(value) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def finite_float(value) -> float | None:
+    """Parse *value* as a float, keeping it only when the result is finite.
+
+    ``to_float`` is deliberately permissive because ``"inf"``, ``"-inf"`` and
+    ``"nan"`` are legal Python float literals and the collectors want them
+    preserved as parsed. A record on its way to the writers does not: pairing
+    the two guards once here is what stops any of the nine weather call sites
+    from remembering the cast and forgetting the bound (CUI-0009).
+
+    Args:
+        value: A scraped string or any object convertible to ``float``.
+
+    Returns:
+        The parsed float, or ``None`` when it is unreadable or not finite.
+    """
+    return finite(to_float(value))
