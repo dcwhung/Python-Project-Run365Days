@@ -18,7 +18,9 @@ type Activity {
   weather: RunWeather
   warnings: [String!]!
 
-  """GPS track, evenly downsampled to at most `points` samples."""
+  """
+  GPS track, evenly downsampled to at most `points` samples. One request may ask for 10000 track points in total, counted across every `track` field in it and charged on `points` as asked for, not on the rows a track turns out to hold.
+  """
   track(points: Int! = 150): [TrackPoint!]!
 }
 

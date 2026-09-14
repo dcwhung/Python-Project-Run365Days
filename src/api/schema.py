@@ -9,6 +9,7 @@ session from ``info.context["session"]`` and delegate to
 from __future__ import annotations
 
 import os
+from collections.abc import MutableMapping
 from datetime import date as date_type
 
 import strawberry
@@ -29,6 +30,24 @@ DEFAULT_TRACK_POINTS = 150
 
 MAX_TRACK_POINTS = 1000
 """Ceiling for ``track(points:)``, above the 600 samples the export stores per run."""
+
+MAX_TRACK_POINTS_PER_REQUEST = 10000
+"""Track points one operation may ask for, summed over every ``track`` field in it.
+
+``MAX_TRACK_POINTS`` bounds a single track; nothing bounded the product of
+``activities x points``, so one legal document could ask for 365 x 1000 =
+365,000 points. Measured at ~27,000 rows/s that is 8.3 s of row
+materialisation -- most of a 15 s Vercel function, and growing with the
+export. The cost is building the rows, not the per-activity round trips, so
+batching the queries would not have bought the headroom back.
+
+10,000 is twice the most expensive document the dashboard can send: the five
+activities of ``YearQuery``'s ``personalBests``, each carrying a full
+``MAX_TRACK_POINTS`` track, comes to 5,000. 10,000 rows costs about 0.37 s.
+"""
+
+TRACK_BUDGET_KEY = "track_points_remaining"
+"""``info.context`` key holding what is left of this request's track budget."""
 
 DEFAULT_PAGE_SIZE = 500
 """Rows a list field returns when the client asks for no window.
@@ -83,6 +102,68 @@ def _introspection_gate() -> SchemaExtension:
     # module-level ``schema`` below is a singleton, so a start-up read would
     # freeze whatever the environment happened to hold for the first importer.
     return SchemaExtension() if graphiql_enabled() else DisableIntrospection()
+
+
+class _TrackBudget(SchemaExtension):
+    """Give every operation its own :data:`MAX_TRACK_POINTS_PER_REQUEST`."""
+
+    def on_operation(self):
+        """Seed the budget before any resolver runs, then let the operation go."""
+        # Seeded here rather than in the transport's ``get_context`` so that
+        # the bound belongs to the schema: every caller gets it, including
+        # ``schema.execute_sync(..., context_value=...)`` in a test.
+        context = self.execution_context.context
+        if isinstance(context, MutableMapping):
+            context[TRACK_BUDGET_KEY] = MAX_TRACK_POINTS_PER_REQUEST
+        # An operation run with no context mapping at all cannot reach
+        # ``track`` anyway -- that resolver reads its session out of the same
+        # mapping -- so there is nothing to seed and nothing left unbounded.
+        yield
+
+
+def _charge_track_points(info: Info, points: int) -> int:
+    """Deduct one ``track`` field's cost from this request's budget.
+
+    Charged on the points the client asked for, not on the rows the track
+    turns out to hold. That is the whole point: the request has to be refused
+    *before* the SQL goes out, and the row count is only known after. The
+    trade-off is that an honest client asking 1000 points of a 4-point track
+    still pays 1000, which keeps the bound conservative rather than exact.
+
+    Args:
+        info: Resolver info carrying this request's context.
+        points: Already bounds-checked sample count for one track field.
+
+    Returns:
+        ``points``, so the caller can spend and pass it in one expression.
+
+    Raises:
+        ValueError: If this operation has already spent its budget.
+        KeyError: If the budget was never seeded, which means the schema was
+            built without :class:`_TrackBudget`. Falling back to an unbounded
+            request would defeat the limit, so it fails loudly instead.
+    """
+    remaining = info.context[TRACK_BUDGET_KEY] - points
+    if remaining < 0:
+        raise ValueError(
+            "track points budget exhausted: one request may return at most "
+            f"{MAX_TRACK_POINTS_PER_REQUEST} track points"
+        )
+    info.context[TRACK_BUDGET_KEY] = remaining
+    return points
+
+
+TRACK_DESCRIPTION = (
+    "GPS track, evenly downsampled to at most `points` samples. "
+    f"One request may ask for {MAX_TRACK_POINTS_PER_REQUEST} track points in total, "
+    "counted across every `track` field in it and charged on `points` as asked for, "
+    "not on the rows a track turns out to hold."
+)
+"""Description for ``Activity.track``.
+
+The budget is part of the field's contract, so a client reading the SDL can
+see why a wide fan-out is refused without having to trigger the error first.
+"""
 
 
 COUNT_DESCRIPTION = (
@@ -179,9 +260,11 @@ class Activity:
     weather: RunWeather | None
     warnings: list[str]
 
-    @strawberry.field(description="GPS track, evenly downsampled to at most `points` samples.")
+    @strawberry.field(description=TRACK_DESCRIPTION)
     def track(self, info: Info, points: int = DEFAULT_TRACK_POINTS) -> list[TrackPoint]:
-        rows = service.track(info.context["session"], str(self.id), _track_points(points))
+        # Spend first: the budget exists to stop the query being issued at all.
+        wanted = _charge_track_points(info, _track_points(points))
+        rows = service.track(info.context["session"], str(self.id), wanted)
         return [TrackPoint(**row) for row in rows]
 
 
@@ -457,6 +540,7 @@ def build_schema(
             lambda: QueryDepthLimiter(max_depth=max_depth),
             lambda: MaxTokensLimiter(max_token_count=max_tokens),
             _introspection_gate,
+            _TrackBudget,
         ],
     )
 

@@ -11,6 +11,7 @@ from run365days.api.app import GRAPHQL_PATH, HEALTH_PATH, create_app
 from run365days.api.schema import (
     MAX_PAGE_SIZE,
     MAX_TRACK_POINTS,
+    MAX_TRACK_POINTS_PER_REQUEST,
     build_schema,
 )
 from run365days.dashboard.builder import downsample
@@ -466,3 +467,69 @@ def test_track_samples_match_the_reference_downsampler(year_session):
     rows = service.track(year_session, TRACKED_ACTIVITY_ID, points)
     expected = downsample(list(range(STORED_TRACK_POINTS)), points)
     assert [r["sec"] for r in rows] == expected
+
+
+# ── AU-047: a per-request budget on track points ───────────────────────────
+PERSONAL_BEST_FIELDS = ("longest", "fastest", "longestTime", "mostCalories", "topCadence")
+ACTIVITIES_THAT_FIT = MAX_TRACK_POINTS_PER_REQUEST // MAX_TRACK_POINTS
+"""Activities that can each carry a full track before the budget runs out."""
+
+
+def _fan_out_query(activities: int, points: int) -> str:
+    return f"{{ activities(limit: {activities}) {{ track(points: {points}) {{ sec }} }} }}"
+
+
+def test_a_whole_year_of_full_tracks_is_rejected(year_client):
+    message = gql_errors(year_client, _fan_out_query(YEAR_DAYS, MAX_TRACK_POINTS))
+    assert "budget" in message.lower()
+    assert str(MAX_TRACK_POINTS_PER_REQUEST) in message
+
+
+def test_the_budget_counts_requested_points_not_rows_returned(year_client):
+    # Only r0 stores a track, so this query would return 600 rows -- far under
+    # the budget. It is still refused, because the count is charged before the
+    # SQL goes out: that is what makes the bound a bound and not a post-mortem.
+    assert gql_errors(year_client, _fan_out_query(ACTIVITIES_THAT_FIT + 1, MAX_TRACK_POINTS))
+
+
+def test_a_request_that_exactly_spends_the_budget_is_served(year_client):
+    data = gql(year_client, _fan_out_query(ACTIVITIES_THAT_FIT, MAX_TRACK_POINTS))
+    assert len(data["activities"]) == ACTIVITIES_THAT_FIT
+    assert len(data["activities"][0]["track"]) == STORED_TRACK_POINTS
+
+
+def test_the_budget_is_per_request_and_does_not_leak_across_requests(year_client):
+    # Two back-to-back requests that each spend the whole budget. Module-level
+    # mutable state would starve the second one.
+    query = _fan_out_query(ACTIVITIES_THAT_FIT, MAX_TRACK_POINTS)
+    for _ in range(2):
+        assert len(gql(year_client, query)["activities"]) == ACTIVITIES_THAT_FIT
+
+
+def test_a_rejected_request_does_not_starve_the_next_one(year_client):
+    assert gql_errors(year_client, _fan_out_query(YEAR_DAYS, MAX_TRACK_POINTS))
+    data = gql(year_client, f'{{ activity(id: "{TRACKED_ACTIVITY_ID}") {{ track {{ sec }} }} }}')
+    assert data["activity"]["track"]
+
+
+def test_a_single_activity_track_still_gets_every_stored_point(year_client):
+    query = (
+        f'{{ activity(id: "{TRACKED_ACTIVITY_ID}") '
+        f"{{ track(points: {MAX_TRACK_POINTS}) {{ sec }} }} }}"
+    )
+    assert len(gql(year_client, query)["activity"]["track"]) == STORED_TRACK_POINTS
+
+
+def test_the_deepest_client_query_stays_within_the_budget(year_client):
+    assert gql(year_client, DEEPEST_CLIENT_QUERY)["year"] is not None
+
+
+def test_every_personal_best_may_carry_a_full_track(year_client):
+    # The most expensive shape the dashboard could ask for: five activities,
+    # each with the largest track the API serves.
+    bests = " ".join(
+        f"{field} {{ track(points: {MAX_TRACK_POINTS}) {{ sec }} }}"
+        for field in PERSONAL_BEST_FIELDS
+    )
+    data = gql(year_client, f"{{ year {{ personalBests {{ {bests} }} }} }}")
+    assert data["year"]["personalBests"]["longest"]["track"] is not None
