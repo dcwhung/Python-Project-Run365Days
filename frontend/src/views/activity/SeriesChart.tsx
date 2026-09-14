@@ -69,12 +69,17 @@ export function SeriesChart({
       g.moveTo(L, y);
       g.lineTo(W - R, y);
       g.stroke();
-      g.fillText(spec.key === "pace" ? fmtPace(v * 60) : v.toFixed(spec.key === "temp" ? 1 : 0), L - 6, y);
+      g.fillText(
+        spec.key === "pace" ? fmtPace(v * 60) : v.toFixed(spec.key === "temp" ? 1 : 0),
+        L - 6,
+        y,
+      );
     }
     g.textAlign = "center";
     g.textBaseline = "top";
     const step = series.totalSec > 3600 ? 600 : 300;
-    for (let m = 0; m <= series.totalSec; m += step) g.fillText(fmtDuration(m), L + (m / series.totalSec) * iw, H - BOT + 5);
+    for (let m = 0; m <= series.totalSec; m += step)
+      g.fillText(fmtDuration(m), L + (m / series.totalSec) * iw, H - BOT + 5);
     const trace = () => {
       g.beginPath();
       let started = false;
@@ -135,8 +140,18 @@ export function SeriesChart({
         <h3 className="font-semibold">{spec.title}</h3>
         {average && <span className="text-muted">{average}</span>}
       </div>
-      <canvas ref={canvas} className="block w-full" style={{ height: HEIGHT }} onPointerMove={onPointerMove} aria-label={spec.title} />
-      <div className="absolute right-3 top-8 text-sm font-semibold" style={{ color: spec.color }} data-testid={`value-${spec.key}`}>
+      <canvas
+        ref={canvas}
+        className="block w-full"
+        style={{ height: HEIGHT }}
+        onPointerMove={onPointerMove}
+        aria-label={spec.title}
+      />
+      <div
+        className="absolute right-3 top-8 text-sm font-semibold"
+        style={{ color: spec.color }}
+        data-testid={`value-${spec.key}`}
+      >
         {value}
         {value !== "–" && <small className="ml-0.5 text-[10px] text-muted">{spec.unit}</small>}
       </div>

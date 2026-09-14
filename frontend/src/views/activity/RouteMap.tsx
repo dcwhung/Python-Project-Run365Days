@@ -96,7 +96,8 @@ export function RouteMap({
     if (!el) return;
     proj.current = series.hasGps ? project(series, el.clientWidth, el.clientHeight) : null;
     if (scale.current && proj.current) {
-      (scale.current.firstElementChild as HTMLElement).style.width = `${proj.current.scaleBarPx.toFixed(0)}px`;
+      (scale.current.firstElementChild as HTMLElement).style.width =
+        `${proj.current.scaleBarPx.toFixed(0)}px`;
       scale.current.lastElementChild!.textContent = `${proj.current.scaleBarM} m`;
     }
     draw();
@@ -129,24 +130,41 @@ export function RouteMap({
   };
 
   return (
-    <div ref={wrap} className="relative h-[380px] overflow-hidden rounded-card border border-border bg-surface" data-testid="route-map">
+    <div
+      ref={wrap}
+      className="relative h-[380px] overflow-hidden rounded-card border border-border bg-surface"
+      data-testid="route-map"
+    >
       {series.hasGps ? (
-        <canvas ref={canvas} className="block h-full w-full" onPointerMove={onPointerMove} aria-label="Route map" />
+        <canvas
+          ref={canvas}
+          className="block h-full w-full"
+          onPointerMove={onPointerMove}
+          aria-label="Route map"
+        />
       ) : (
         <div className="flex h-full items-center justify-center px-6 text-center text-sm text-muted">
           No GPS track recorded for this run (treadmill / indoor). Charts below still play.
         </div>
       )}
-      <div className="absolute left-3 top-3 text-[10px] uppercase tracking-wide text-muted">Route · GPS track</div>
+      <div className="absolute left-3 top-3 text-[10px] uppercase tracking-wide text-muted">
+        Route · GPS track
+      </div>
       {series.hasGps && (
-        <div ref={scale} className="absolute bottom-3 left-3 flex items-center gap-2 text-[10px] text-muted">
+        <div
+          ref={scale}
+          className="absolute bottom-3 left-3 flex items-center gap-2 text-[10px] text-muted"
+        >
           <i className="block h-0.5 bg-text" style={{ width: 100 }} />
           <span>200 m</span>
         </div>
       )}
       <div className="absolute bottom-3 right-3 flex items-center gap-2 text-[10px] text-muted">
         <span>Slower</span>
-        <i className="block h-1.5 w-20 rounded" style={{ background: "linear-gradient(90deg,#f87171,#f59e0b,#34d399)" }} />
+        <i
+          className="block h-1.5 w-20 rounded"
+          style={{ background: "linear-gradient(90deg,#f87171,#f59e0b,#34d399)" }}
+        />
         <span>Faster</span>
       </div>
     </div>

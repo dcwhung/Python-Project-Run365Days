@@ -17,8 +17,26 @@ describe("weather helpers", () => {
     expect(wxEmoji(null)).toBe("🌡");
   });
   it("actTemp prefers the Garmin sensor", () => {
-    expect(actTemp(act({ id: "a", date: "d", avgTempC: 18, weather: { description: null, tempC: 25, humidityPct: null, windKmh: null } }))).toBe(18);
-    expect(actTemp(act({ id: "a", date: "d", avgTempC: null, weather: { description: null, tempC: 25, humidityPct: null, windKmh: null } }))).toBe(25);
+    expect(
+      actTemp(
+        act({
+          id: "a",
+          date: "d",
+          avgTempC: 18,
+          weather: { description: null, tempC: 25, humidityPct: null, windKmh: null },
+        }),
+      ),
+    ).toBe(18);
+    expect(
+      actTemp(
+        act({
+          id: "a",
+          date: "d",
+          avgTempC: null,
+          weather: { description: null, tempC: 25, humidityPct: null, windKmh: null },
+        }),
+      ),
+    ).toBe(25);
     expect(actTemp(act({ id: "a", date: "d" }))).toBeNull();
   });
 });

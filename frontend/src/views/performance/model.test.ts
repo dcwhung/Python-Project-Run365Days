@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { distanceHistogram, monthlyTable, paceSeries, performanceKpis, timeOfDayPace, weekdayPace } from "./model";
+import {
+  distanceHistogram,
+  monthlyTable,
+  paceSeries,
+  performanceKpis,
+  timeOfDayPace,
+  weekdayPace,
+} from "./model";
 import { STATS_ACTS } from "@/test/fixtures";
 import { dailyDistance } from "@/data/stats";
 

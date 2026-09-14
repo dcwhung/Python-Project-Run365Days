@@ -11,5 +11,10 @@ export function weightReview(entries: WeightEntry[]) {
   const first = entries[0];
   const last = entries[entries.length - 1];
   const min = entries.reduce((b, r) => (r.weightLbs < b.weightLbs ? r : b));
-  return { first, last, min, lossPct: ((first.weightLbs - last.weightLbs) / first.weightLbs) * 100 };
+  return {
+    first,
+    last,
+    min,
+    lossPct: ((first.weightLbs - last.weightLbs) / first.weightLbs) * 100,
+  };
 }

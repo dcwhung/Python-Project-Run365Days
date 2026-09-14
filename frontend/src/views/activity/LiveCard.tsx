@@ -33,7 +33,10 @@ export function LiveCard({
 }) {
   const f = (v: number, digits = 0) => (Number.isFinite(v) ? v.toFixed(digits) : "–");
   return (
-    <aside className="flex flex-col gap-4 rounded-card border border-border bg-surface p-4" data-testid="live">
+    <aside
+      className="flex flex-col gap-4 rounded-card border border-border bg-surface p-4"
+      data-testid="live"
+    >
       <div>
         <div className="text-[10px] uppercase tracking-wide text-muted">Elapsed</div>
         <div className="text-3xl font-semibold tabular-nums" data-testid="elapsed">
@@ -42,11 +45,19 @@ export function LiveCard({
       </div>
       <div className="grid grid-cols-3 gap-3">
         <Stat value={((series.dist[idx] ?? 0) / 1000).toFixed(2)} unit="km" label="Distance" />
-        <Stat value={Number.isFinite(series.pace[idx]) ? fmtPace(series.pace[idx] * 60) : "–"} unit="/km" label="Pace" />
+        <Stat
+          value={Number.isFinite(series.pace[idx]) ? fmtPace(series.pace[idx] * 60) : "–"}
+          unit="/km"
+          label="Pace"
+        />
         <Stat value={f(series.ele[idx])} unit="m" label="Elevation" />
         <Stat value={f(series.cad[idx])} unit="spm" label="Cadence" />
         <Stat value={f(series.temp[idx], 1)} unit="°C" label="Temp" />
-        <Stat value={String(Math.round(((series.t[idx] ?? 0) / series.totalSec) * 100))} unit="%" label="Progress" />
+        <Stat
+          value={String(Math.round(((series.t[idx] ?? 0) / series.totalSec) * 100))}
+          unit="%"
+          label="Progress"
+        />
       </div>
       <div className="flex items-center gap-3">
         <button
@@ -59,7 +70,11 @@ export function LiveCard({
             {playing ? <path d="M3 2h4v12H3zM9 2h4v12H9z" /> : <path d="M3 2l11 6-11 6z" />}
           </svg>
         </button>
-        <div role="group" aria-label="Playback speed" className="flex overflow-hidden rounded border border-border text-xs">
+        <div
+          role="group"
+          aria-label="Playback speed"
+          className="flex overflow-hidden rounded border border-border text-xs"
+        >
           {SPEEDS.map((s) => (
             <button
               key={s}
@@ -83,8 +98,8 @@ export function LiveCard({
         className="w-full accent-accent"
       />
       <p className="text-[11px] leading-relaxed text-muted">
-        Play to run the route, drag to scrub, or hover any chart or the route to jump to that moment. Space and the arrow
-        keys also work.
+        Play to run the route, drag to scrub, or hover any chart or the route to jump to that
+        moment. Space and the arrow keys also work.
       </p>
     </aside>
   );

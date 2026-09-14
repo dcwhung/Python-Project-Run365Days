@@ -8,7 +8,15 @@ const FILES: Record<string, unknown> = {
   "/data/meta.json": { year: 2021, generated_at: "2026-01-01T00:00:00", counts: {} },
   "/data/activities.json": [
     STATIC_ACTIVITY,
-    { ...STATIC_ACTIVITY, id: "b", date: "2021-01-09", distance_km: 3, has_gps: false, weather: null, warnings: [] },
+    {
+      ...STATIC_ACTIVITY,
+      id: "b",
+      date: "2021-01-09",
+      distance_km: 3,
+      has_gps: false,
+      weather: null,
+      warnings: [],
+    },
   ],
   "/data/tracks/a.json": {
     columns: ["sec", "lat", "lon", "elevation_m", "distance_m", "speed_mps", "cadence", "temp_c"],
@@ -18,10 +26,34 @@ const FILES: Record<string, unknown> = {
     { date: "2021-01-08", weight_lbs: 154.8, weight_kg: 70.28, bmi: 24.3 },
     { date: "2021-01-09", weight_lbs: 154.2, weight_kg: 70.01, bmi: 24.2 },
   ],
-  "/data/weather.json": [{ date: "2021-01-08", max_temp_c: 21, avg_temp_c: 18.5, min_temp_c: 15, humidity_pct: 70, rainfall_mm: null, wind_kmh: 12, sunrise: "07:03", sunset: "17:55" }],
+  "/data/weather.json": [
+    {
+      date: "2021-01-08",
+      max_temp_c: 21,
+      avg_temp_c: 18.5,
+      min_temp_c: 15,
+      humidity_pct: 70,
+      rainfall_mm: null,
+      wind_kmh: 12,
+      sunrise: "07:03",
+      sunset: "17:55",
+    },
+  ],
   "/data/warnings.json": [
-    { date: "2021-01-08", type: "Fire Danger", signal: "RED FIRE DANGER WARNING", start_time: null, end_time: null },
-    { date: "2021-01-09", type: "Cold", signal: "COLD WEATHER WARNING", start_time: null, end_time: null },
+    {
+      date: "2021-01-08",
+      type: "Fire Danger",
+      signal: "RED FIRE DANGER WARNING",
+      start_time: null,
+      end_time: null,
+    },
+    {
+      date: "2021-01-09",
+      type: "Cold",
+      signal: "COLD WEATHER WARNING",
+      start_time: null,
+      end_time: null,
+    },
   ],
 };
 
@@ -97,9 +129,13 @@ describe("static source", () => {
 
   it("applies date ranges to weight, weather and warnings", async () => {
     const { src } = source();
-    expect((await src.weight({ fromDate: "2021-01-09" })).map((w) => w.date)).toEqual(["2021-01-09"]);
+    expect((await src.weight({ fromDate: "2021-01-09" })).map((w) => w.date)).toEqual([
+      "2021-01-09",
+    ]);
     expect(await src.weather({ toDate: "2021-01-07" })).toEqual([]);
-    expect((await src.warnings({ toDate: "2021-01-08" })).map((w) => w.signal)).toEqual(["RED FIRE DANGER WARNING"]);
+    expect((await src.warnings({ toDate: "2021-01-08" })).map((w) => w.signal)).toEqual([
+      "RED FIRE DANGER WARNING",
+    ]);
   });
 
   it("fetches each file once", async () => {

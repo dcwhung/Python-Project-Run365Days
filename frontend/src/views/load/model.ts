@@ -6,7 +6,13 @@ export const FULL_WEEK_RUNS = 7;
 export const ROLLING_WEEKS = 4;
 export const TOP_WEEKS = 8;
 
-export function loadKpis(load: TrainingLoadPoint[], weeks: WeekWithActivities[], totalKm: number, days: number, activeDays: number) {
+export function loadKpis(
+  load: TrainingLoadPoint[],
+  weeks: WeekWithActivities[],
+  totalKm: number,
+  days: number,
+  activeDays: number,
+) {
   const last = load[load.length - 1];
   const peak = load.reduce((b, p) => (p.ctl > b.ctl ? p : b), load[0]);
   const biggest = weeks.reduce((b, w) => (w.distanceKm > b.distanceKm ? w : b), weeks[0]);
@@ -27,11 +33,18 @@ export function loadKpis(load: TrainingLoadPoint[], weeks: WeekWithActivities[],
 
 /** Trailing 4-week mean of weekly distance. */
 export function rollingWeeks(weeks: { distanceKm: number }[]): number[] {
-  return weeks.map((_, i) => Math.round(mean(weeks.slice(Math.max(0, i - ROLLING_WEEKS + 1), i + 1).map((w) => w.distanceKm))! * 10) / 10);
+  return weeks.map(
+    (_, i) =>
+      Math.round(
+        mean(weeks.slice(Math.max(0, i - ROLLING_WEEKS + 1), i + 1).map((w) => w.distanceKm))! * 10,
+      ) / 10,
+  );
 }
 
 export function weekdayAvgKm(activities: Activity[]): number[] {
-  return byWeekday(activities).map((g) => Math.round((sum(g.map((a) => a.distanceKm)) / Math.max(1, g.length)) * 100) / 100);
+  return byWeekday(activities).map(
+    (g) => Math.round((sum(g.map((a) => a.distanceKm)) / Math.max(1, g.length)) * 100) / 100,
+  );
 }
 
 export function topWeeks(weeks: WeekWithActivities[], n = TOP_WEEKS): WeekWithActivities[] {

@@ -21,22 +21,25 @@ export function landingPath(): string {
 /** React Router needs the same base as Vite so deep links work under /<repo>/ on GitHub Pages. */
 const BASENAME = import.meta.env.BASE_URL.replace(/\/$/, "");
 
-export const router = createBrowserRouter([
-  {
-    path: "/",
-    element: <Layout />,
-    children: [
-      { index: true, element: <Navigate to={landingPath()} replace /> },
-      { path: "overview", element: <OverviewView /> },
-      { path: "year", element: <YearView /> },
-      { path: "activity/:id?", element: <ActivityView /> },
-      { path: "performance", element: <PerformanceView /> },
-      { path: "weight", element: <WeightView /> },
-      { path: "weather", element: <WeatherView /> },
-      { path: "load", element: <LoadView /> },
-      { path: "activities", element: <ActivitiesView /> },
-      { path: "settings", element: <SettingsView /> },
-      { path: "*", element: <Navigate to="/overview" replace /> },
-    ],
-  },
-], { basename: BASENAME });
+export const router = createBrowserRouter(
+  [
+    {
+      path: "/",
+      element: <Layout />,
+      children: [
+        { index: true, element: <Navigate to={landingPath()} replace /> },
+        { path: "overview", element: <OverviewView /> },
+        { path: "year", element: <YearView /> },
+        { path: "activity/:id?", element: <ActivityView /> },
+        { path: "performance", element: <PerformanceView /> },
+        { path: "weight", element: <WeightView /> },
+        { path: "weather", element: <WeatherView /> },
+        { path: "load", element: <LoadView /> },
+        { path: "activities", element: <ActivitiesView /> },
+        { path: "settings", element: <SettingsView /> },
+        { path: "*", element: <Navigate to="/overview" replace /> },
+      ],
+    },
+  ],
+  { basename: BASENAME },
+);

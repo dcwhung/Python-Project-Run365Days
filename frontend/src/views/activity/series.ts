@@ -53,12 +53,19 @@ export function buildSeries(activity: Activity, track: TrackPoint[]): TrackSerie
     n,
     hasGps,
     t,
-    ele: smooth(track.map((p) => nn(p.elevationM)), ELE_SMOOTH),
+    ele: smooth(
+      track.map((p) => nn(p.elevationM)),
+      ELE_SMOOTH,
+    ),
     dist,
-    cad: track.map((p) => (p.cadence != null && p.cadence >= CADENCE_FLOOR ? p.cadence * STEPS_PER_CADENCE_SAMPLE : NaN)),
+    cad: track.map((p) =>
+      p.cadence != null && p.cadence >= CADENCE_FLOOR ? p.cadence * STEPS_PER_CADENCE_SAMPLE : NaN,
+    ),
     temp: track.map((p) => nn(p.tempC)),
     pace: smooth(
-      track.map((p) => (p.speedMps != null && p.speedMps > MIN_MOVING_SPEED_MPS ? 1000 / p.speedMps / 60 : NaN)),
+      track.map((p) =>
+        p.speedMps != null && p.speedMps > MIN_MOVING_SPEED_MPS ? 1000 / p.speedMps / 60 : NaN,
+      ),
       PACE_SMOOTH,
     ),
     totalSec: activity.durationSec || t[n - 1] || 1,

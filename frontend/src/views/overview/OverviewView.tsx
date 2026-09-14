@@ -18,7 +18,8 @@ export function OverviewView() {
   const weather = useWeather();
   if (year.isPending || activities.isPending) return <p className="text-muted">Loading…</p>;
   if (year.isError) return <p className="text-danger">Could not load data: {year.error.message}</p>;
-  if (activities.isError) return <p className="text-danger">Could not load activities: {activities.error.message}</p>;
+  if (activities.isError)
+    return <p className="text-danger">Could not load activities: {activities.error.message}</p>;
   const y = year.data;
   const acts = activities.data;
   return (

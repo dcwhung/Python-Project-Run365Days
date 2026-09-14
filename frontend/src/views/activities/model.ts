@@ -45,14 +45,25 @@ export function matches(a: Activity, f: Filters): boolean {
   if (a.distanceKm < f.minKm) return false;
   const needle = f.query.trim().toLowerCase();
   if (!needle) return true;
-  const hay = [a.date, a.startTime, a.weather?.description, ...a.warnings, a.hasGps ? "outdoor" : "indoor"]
+  const hay = [
+    a.date,
+    a.startTime,
+    a.weather?.description,
+    ...a.warnings,
+    a.hasGps ? "outdoor" : "indoor",
+  ]
     .filter(Boolean)
     .join(" ")
     .toLowerCase();
   return hay.includes(needle);
 }
 
-export function filterAndSort(activities: Activity[], f: Filters, sort: SortKey, dir: 1 | -1): Activity[] {
+export function filterAndSort(
+  activities: Activity[],
+  f: Filters,
+  sort: SortKey,
+  dir: 1 | -1,
+): Activity[] {
   const value = SORT_VALUE[sort];
   return activities
     .filter((a) => matches(a, f))

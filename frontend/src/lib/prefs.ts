@@ -69,7 +69,10 @@ export function usePrefs(): Prefs {
 }
 
 /** Convert pounds to the preferred display unit, rounded to one decimal. */
-export function toWeightUnit(lbs: number | null | undefined, unit: Prefs["weightUnit"]): number | null {
+export function toWeightUnit(
+  lbs: number | null | undefined,
+  unit: Prefs["weightUnit"],
+): number | null {
   if (lbs == null) return null;
   return Math.round((unit === "kg" ? lbs * LBS_TO_KG : lbs) * 10) / 10;
 }

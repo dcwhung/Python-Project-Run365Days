@@ -1,5 +1,13 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_PREFS, getPrefs, LBS_TO_KG, resetPrefs, savePrefs, STORAGE_KEY, toWeightUnit } from "./prefs";
+import {
+  DEFAULT_PREFS,
+  getPrefs,
+  LBS_TO_KG,
+  resetPrefs,
+  savePrefs,
+  STORAGE_KEY,
+  toWeightUnit,
+} from "./prefs";
 // The schema the API publishes, generated from src/api/schema.py by `run365-schema`.
 import SDL from "../../schema.graphql?raw";
 
@@ -10,7 +18,10 @@ describe("prefs", () => {
     expect(getPrefs()).toEqual(DEFAULT_PREFS);
     savePrefs({ weightUnit: "kg", speed: 90 });
     expect(getPrefs().weightUnit).toBe("kg");
-    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!)).toMatchObject({ weightUnit: "kg", speed: 90 });
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!)).toMatchObject({
+      weightUnit: "kg",
+      speed: 90,
+    });
     resetPrefs();
     expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
     expect(getPrefs()).toEqual(DEFAULT_PREFS);

@@ -36,15 +36,45 @@ export function personalBestRows(pb: PersonalBests, totals: Totals): PersonalBes
   const avgCad = totals.avgCadence ?? 0;
   const rows: PersonalBestRow[] = [];
   if (pb.longest)
-    rows.push({ label: "Longest", activity: pb.longest, value: `${pb.longest.distanceKm.toFixed(2)} km`, ratio: avgKm / pb.longest.distanceKm, color: "violet" });
+    rows.push({
+      label: "Longest",
+      activity: pb.longest,
+      value: `${pb.longest.distanceKm.toFixed(2)} km`,
+      ratio: avgKm / pb.longest.distanceKm,
+      color: "violet",
+    });
   if (pb.fastest && pb.fastest.paceSecPerKm)
-    rows.push({ label: "Fastest", activity: pb.fastest, value: `${fmtPace(pb.fastest.paceSecPerKm)}/km`, ratio: avgKm ? pb.fastest.paceSecPerKm / (avgSec / avgKm) : 0, color: "accent" });
+    rows.push({
+      label: "Fastest",
+      activity: pb.fastest,
+      value: `${fmtPace(pb.fastest.paceSecPerKm)}/km`,
+      ratio: avgKm ? pb.fastest.paceSecPerKm / (avgSec / avgKm) : 0,
+      color: "accent",
+    });
   if (pb.longestTime)
-    rows.push({ label: "Longest time", activity: pb.longestTime, value: fmtDuration(pb.longestTime.durationSec), ratio: avgSec / pb.longestTime.durationSec, color: "accent2" });
+    rows.push({
+      label: "Longest time",
+      activity: pb.longestTime,
+      value: fmtDuration(pb.longestTime.durationSec),
+      ratio: avgSec / pb.longestTime.durationSec,
+      color: "accent2",
+    });
   if (pb.mostCalories && pb.mostCalories.calories)
-    rows.push({ label: "Most kcal", activity: pb.mostCalories, value: `${pb.mostCalories.calories} kcal`, ratio: avgKcal / pb.mostCalories.calories, color: "warn" });
+    rows.push({
+      label: "Most kcal",
+      activity: pb.mostCalories,
+      value: `${pb.mostCalories.calories} kcal`,
+      ratio: avgKcal / pb.mostCalories.calories,
+      color: "warn",
+    });
   if (pb.topCadence && pb.topCadence.avgCadence)
-    rows.push({ label: "Top cadence", activity: pb.topCadence, value: `${Math.round(pb.topCadence.avgCadence)} spm`, ratio: avgCad / pb.topCadence.avgCadence, color: "danger" });
+    rows.push({
+      label: "Top cadence",
+      activity: pb.topCadence,
+      value: `${Math.round(pb.topCadence.avgCadence)} spm`,
+      ratio: avgCad / pb.topCadence.avgCadence,
+      color: "danger",
+    });
   return rows.map((r) => ({ ...r, ratio: Math.max(0, Math.min(1, r.ratio)) }));
 }
 
@@ -76,7 +106,8 @@ export function weatherStrip(activities: Activity[], weather: DailyWeather[]): W
   for (const [from, paces] of bands) {
     if (paces.length < BEST_BAND_MIN_RUNS) continue;
     const pace = mean(paces)!;
-    if (!bestBand || pace < bestBand.pace) bestBand = { from, to: from + TEMP_BAND_WIDTH, pace, runs: paces.length };
+    if (!bestBand || pace < bestBand.pace)
+      bestBand = { from, to: from + TEMP_BAND_WIDTH, pace, runs: paces.length };
   }
   return {
     avgTemp: mean(temps),

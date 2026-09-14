@@ -22,7 +22,10 @@ export function MonthlyDistanceChart({ monthly }: { monthly: MonthSummary[] }) {
           options={{
             ...BASE,
             plugins: NO_LEGEND,
-            scales: { x: { grid: NO_GRID }, y: { grid: GRID, ticks: { callback: (v) => `${v} km` } } },
+            scales: {
+              x: { grid: NO_GRID },
+              y: { grid: GRID, ticks: { callback: (v) => `${v} km` } },
+            },
           }}
         />
       </div>

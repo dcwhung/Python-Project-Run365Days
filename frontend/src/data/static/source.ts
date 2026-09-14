@@ -98,13 +98,19 @@ export function createStaticSource(base: string, fetcher: Fetcher = defaultFetch
       return points === undefined ? rows : downsample(rows, trackPoints(points));
     },
     async weight(range: DateRange = {}) {
-      return (await load<StaticWeight[]>("weight.json")).map(mapWeight).filter((w) => inRange(w.date, range));
+      return (await load<StaticWeight[]>("weight.json"))
+        .map(mapWeight)
+        .filter((w) => inRange(w.date, range));
     },
     async weather(range: DateRange = {}) {
-      return (await load<StaticWeather[]>("weather.json")).map(mapWeather).filter((d) => inRange(d.date, range));
+      return (await load<StaticWeather[]>("weather.json"))
+        .map(mapWeather)
+        .filter((d) => inRange(d.date, range));
     },
     async warnings(range: DateRange = {}) {
-      return (await load<StaticWarning[]>("warnings.json")).map(mapWarning).filter((w) => inRange(w.date, range));
+      return (await load<StaticWarning[]>("warnings.json"))
+        .map(mapWarning)
+        .filter((w) => inRange(w.date, range));
     },
   };
 }

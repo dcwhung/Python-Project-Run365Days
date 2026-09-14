@@ -17,8 +17,29 @@ export function WeightChart({ weight, daily }: { weight: WeightEntry[]; daily: D
           data={{
             labels,
             datasets: [
-              { label: `Weight (${weightUnit})`, data: labels.map((d) => toWeightUnit(byDate.get(d), weightUnit)), borderColor: COLORS.warn, backgroundColor: "rgba(245,158,11,0.08)", tension: 0.3, fill: true, pointRadius: 0, borderWidth: 2, yAxisID: "y", spanGaps: true },
-              { label: "7-day avg km", data: rolling7(daily), borderColor: COLORS.accent, backgroundColor: "transparent", tension: 0.3, borderDash: [5, 3], pointRadius: 0, borderWidth: 1.5, yAxisID: "y2" },
+              {
+                label: `Weight (${weightUnit})`,
+                data: labels.map((d) => toWeightUnit(byDate.get(d), weightUnit)),
+                borderColor: COLORS.warn,
+                backgroundColor: "rgba(245,158,11,0.08)",
+                tension: 0.3,
+                fill: true,
+                pointRadius: 0,
+                borderWidth: 2,
+                yAxisID: "y",
+                spanGaps: true,
+              },
+              {
+                label: "7-day avg km",
+                data: rolling7(daily),
+                borderColor: COLORS.accent,
+                backgroundColor: "transparent",
+                tension: 0.3,
+                borderDash: [5, 3],
+                pointRadius: 0,
+                borderWidth: 1.5,
+                yAxisID: "y2",
+              },
             ],
           }}
           options={{

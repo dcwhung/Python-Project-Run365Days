@@ -16,7 +16,9 @@ export function weatherKpis(activities: Activity[], weather: DailyWeather[]) {
     avgTemp: mean(withTemp.map(actTemp)),
     hottest: maxBy(withTemp, actTemp),
     coldest: minBy(withTemp, actTemp),
-    wetStart: activities.filter((a) => a.weather?.description && WET_START.test(a.weather.description)).length,
+    wetStart: activities.filter(
+      (a) => a.weather?.description && WET_START.test(a.weather.description),
+    ).length,
     rainyDays: activities.filter((a) => (byDate.get(a.date)?.rainfallMm ?? 0) > 0).length,
     severe: activities.filter((a) => a.warnings.some(isSevere)).length,
     beforeSunrise: activities.filter((a) => {
@@ -28,13 +30,22 @@ export function weatherKpis(activities: Activity[], weather: DailyWeather[]) {
 }
 
 /** HKO max/min per day plus the Garmin temperature of the first run that day. */
-export function temperatureRange(daily: { date: string; activityId: string | null }[], activities: Activity[], weather: DailyWeather[]) {
+export function temperatureRange(
+  daily: { date: string; activityId: string | null }[],
+  activities: Activity[],
+  weather: DailyWeather[],
+) {
   const byDate = new Map(weather.map((w) => [w.date, w]));
   const byId = new Map(activities.map((a) => [a.id, a]));
   return daily.map((d) => {
     const w = byDate.get(d.date);
     const a = d.activityId ? byId.get(d.activityId) : null;
-    return { date: d.date, max: w?.maxTempC ?? null, min: w?.minTempC ?? null, run: a ? actTemp(a) : null };
+    return {
+      date: d.date,
+      max: w?.maxTempC ?? null,
+      min: w?.minTempC ?? null,
+      run: a ? actTemp(a) : null,
+    };
   });
 }
 
@@ -60,17 +71,24 @@ export function temperatureBands(activities: Activity[]) {
 export function humidityPoints(activities: Activity[]) {
   return activities
     .filter((a) => a.weather?.humidityPct != null && a.paceSecPerKm)
-    .map((a) => ({ x: a.weather!.humidityPct!, y: Math.round((a.paceSecPerKm! / 60) * 100) / 100, id: a.id, date: a.date }));
+    .map((a) => ({
+      x: a.weather!.humidityPct!,
+      y: Math.round((a.paceSecPerKm! / 60) * 100) / 100,
+      id: a.id,
+      date: a.date,
+    }));
 }
 
 export function warningTable(activities: Activity[]) {
   const groups = new Map<string, Activity[]>();
-  for (const a of activities) for (const s of a.warnings) groups.set(s, [...(groups.get(s) ?? []), a]);
+  for (const a of activities)
+    for (const s of a.warnings) groups.set(s, [...(groups.get(s) ?? []), a]);
   return [...groups.entries()]
     .sort((x, y) => y[1].length - x[1].length)
     .map(([signal, g]) => ({
       signal,
-      name: warnInfo(signal)?.name ?? signal.toLowerCase().replace(/\b\w/g, (ch) => ch.toUpperCase()),
+      name:
+        warnInfo(signal)?.name ?? signal.toLowerCase().replace(/\b\w/g, (ch) => ch.toUpperCase()),
       runs: g.length,
       avgKm: sum(g.map((a) => a.distanceKm)) / g.length,
       pace: paceOf(g),
@@ -79,6 +97,8 @@ export function warningTable(activities: Activity[]) {
 
 /** Hottest and coldest runs. */
 export function extremes(activities: Activity[]) {
-  const sorted = activities.filter((a) => actTemp(a) != null).sort((x, y) => actTemp(y)! - actTemp(x)!);
+  const sorted = activities
+    .filter((a) => actTemp(a) != null)
+    .sort((x, y) => actTemp(y)! - actTemp(x)!);
   return { hottest: sorted.slice(0, EXTREMES_COUNT), coldest: sorted.slice(-EXTREMES_COUNT) };
 }

@@ -1,11 +1,5 @@
 import { GraphQLClient } from "graphql-request";
-import type {
-  Activity,
-  ActivityFilter,
-  DataSource,
-  DateRange,
-  TrackPoint,
-} from "../types";
+import type { Activity, ActivityFilter, DataSource, DateRange, TrackPoint } from "../types";
 import {
   ActivitiesQuery,
   ActivityQuery,

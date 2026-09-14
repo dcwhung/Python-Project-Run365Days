@@ -52,7 +52,9 @@ export function lastOfMonth(entries: WeightEntry[]): (number | null)[] {
 export function monthlyChange(entries: WeightEntry[]): (number | null)[] {
   if (!entries.length) return Array(12).fill(null);
   const ends = lastOfMonth(entries);
-  return ends.map((v, m) => (v == null ? null : v - (m ? ends[m - 1] ?? entries[0].weightLbs : entries[0].weightLbs)));
+  return ends.map((v, m) =>
+    v == null ? null : v - (m ? (ends[m - 1] ?? entries[0].weightLbs) : entries[0].weightLbs),
+  );
 }
 
 export interface Delta {
@@ -66,17 +68,25 @@ export function dailyDeltas(entries: WeightEntry[]): Delta[] {
   for (let i = 1; i < entries.length; i++) {
     const prev = Date.parse(`${entries[i - 1].date}T00:00:00Z`);
     const cur = Date.parse(`${entries[i].date}T00:00:00Z`);
-    if ((cur - prev) / MS_PER_DAY === 1) out.push({ date: entries[i].date, value: entries[i].weightLbs - entries[i - 1].weightLbs });
+    if ((cur - prev) / MS_PER_DAY === 1)
+      out.push({ date: entries[i].date, value: entries[i].weightLbs - entries[i - 1].weightLbs });
   }
   return out;
 }
 
 export function weekdayDelta(deltas: Delta[]): (number | null)[] {
-  return Array.from({ length: 7 }, (_, i) => mean(deltas.filter((d) => weekday(d.date) === i).map((d) => d.value)));
+  return Array.from({ length: 7 }, (_, i) =>
+    mean(deltas.filter((d) => weekday(d.date) === i).map((d) => d.value)),
+  );
 }
 
 /** Weekly km against the weight change from the first to the last weigh-in of that week. */
-export function weeklyKmVsChange(weeks: WeekSummary[], entries: WeightEntry[], daily: DayDistance[], year: number) {
+export function weeklyKmVsChange(
+  weeks: WeekSummary[],
+  entries: WeightEntry[],
+  daily: DayDistance[],
+  year: number,
+) {
   const byWeek = new Map<number, number[]>();
   const byDate = new Map(entries.map((w) => [w.date, w.weightLbs]));
   for (const d of daily) {
@@ -101,6 +111,13 @@ export function monthlyUpDown(deltas: Delta[], entries: WeightEntry[]) {
     if (!d.length) return null;
     const up = d.filter((x) => x.value > 0).length;
     const down = d.filter((x) => x.value < 0).length;
-    return { month: i + 1, up, down, same: d.length - up - down, net: sum(d.map((x) => x.value)), end: ends[i] };
+    return {
+      month: i + 1,
+      up,
+      down,
+      same: d.length - up - down,
+      net: sum(d.map((x) => x.value)),
+      end: ends[i],
+    };
   }).filter((r): r is NonNullable<typeof r> => r != null);
 }

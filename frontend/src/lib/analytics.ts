@@ -38,6 +38,9 @@ export function byMonth(activities: Activity[]): Activity[][] {
 /** Attach the activity objects to each week summary (weekly only carries ids). */
 export function weeksWithActivities(weeks: WeekSummary[], activities: Activity[]) {
   const byId = new Map(activities.map((a) => [a.id, a]));
-  return weeks.map((w) => ({ ...w, activities: w.activityIds.map((id) => byId.get(id)!).filter(Boolean) }));
+  return weeks.map((w) => ({
+    ...w,
+    activities: w.activityIds.map((id) => byId.get(id)!).filter(Boolean),
+  }));
 }
 export type WeekWithActivities = ReturnType<typeof weeksWithActivities>[number];

@@ -173,7 +173,13 @@ export function trainingLoad(daily: DayDistance[]): TrainingLoadPoint[] {
 
 export function personalBests(activities: Activity[]): PersonalBests {
   if (!activities.length) {
-    return { longest: null, fastest: null, longestTime: null, mostCalories: null, topCadence: null };
+    return {
+      longest: null,
+      fastest: null,
+      longestTime: null,
+      mostCalories: null,
+      topCadence: null,
+    };
   }
   const maxBy = (list: Activity[], key: (a: Activity) => number) =>
     list.reduce((b, a) => (key(a) > key(b) ? a : b));

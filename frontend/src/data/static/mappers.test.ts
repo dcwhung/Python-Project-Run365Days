@@ -15,7 +15,12 @@ describe("static mappers", () => {
       hasGps: true,
       warnings: ["RED FIRE DANGER WARNING"],
     });
-    expect(a.weather).toEqual({ description: "Clear weather", tempC: 19, humidityPct: 65, windKmh: 10 });
+    expect(a.weather).toEqual({
+      description: "Clear weather",
+      tempC: 19,
+      humidityPct: 65,
+      windKmh: 10,
+    });
   });
 
   // CUI-0019: numPoints counted pre-downsample points, was never rendered, and is withdrawn.
@@ -24,7 +29,11 @@ describe("static mappers", () => {
   });
 
   it("keeps null weather and missing warnings safe", () => {
-    const a = mapActivity({ ...STATIC_ACTIVITY, weather: null, warnings: undefined as unknown as string[] });
+    const a = mapActivity({
+      ...STATIC_ACTIVITY,
+      weather: null,
+      warnings: undefined as unknown as string[],
+    });
     expect(a.weather).toBeNull();
     expect(a.warnings).toEqual([]);
   });
@@ -37,7 +46,16 @@ describe("static mappers", () => {
         [6, null, null, 331, 16, null, 84, null],
       ],
     });
-    expect(pts[0]).toEqual({ sec: 0, lat: 22.3, lon: 114.2, elevationM: 330, distanceM: 0, speedMps: 2.7, cadence: 83, tempC: 18 });
+    expect(pts[0]).toEqual({
+      sec: 0,
+      lat: 22.3,
+      lon: 114.2,
+      elevationM: 330,
+      distanceM: 0,
+      speedMps: 2.7,
+      cadence: 83,
+      tempC: 18,
+    });
     expect(pts[1].lat).toBeNull();
     expect(pts[1].tempC).toBeNull();
   });
@@ -47,7 +65,9 @@ describe("static mappers", () => {
   });
 
   it("maps weight, weather, warning and meta", () => {
-    expect(mapWeight({ date: "2021-01-08", weight_lbs: 154.8, weight_kg: 70.28, bmi: 24.3 })).toEqual({
+    expect(
+      mapWeight({ date: "2021-01-08", weight_lbs: 154.8, weight_kg: 70.28, bmi: 24.3 }),
+    ).toEqual({
       date: "2021-01-08",
       weightLbs: 154.8,
       weightKg: 70.28,
@@ -67,7 +87,13 @@ describe("static mappers", () => {
       }),
     ).toMatchObject({ maxTempC: 21, rainfallMm: null, sunrise: "07:03" });
     expect(
-      mapWarning({ date: "2021-01-08", type: "Fire Danger", signal: "RED FIRE DANGER WARNING", start_time: null, end_time: null }),
+      mapWarning({
+        date: "2021-01-08",
+        type: "Fire Danger",
+        signal: "RED FIRE DANGER WARNING",
+        start_time: null,
+        end_time: null,
+      }),
     ).toMatchObject({ signal: "RED FIRE DANGER WARNING", startTime: null });
     expect(mapMeta({ year: 2021, generated_at: "x" })).toEqual({ year: 2021, generatedAt: "x" });
   });

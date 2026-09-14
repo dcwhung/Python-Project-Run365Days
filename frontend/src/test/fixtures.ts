@@ -25,8 +25,24 @@ export function act(overrides: Partial<Activity> & { id: string; date: string })
 /** Same four runs as tests/test_dashboard_stats.py so both ports pin identical numbers. */
 export const STATS_ACTS: Activity[] = [
   act({ id: "a", date: "2021-01-01", distanceKm: 5, durationSec: 1500 }),
-  act({ id: "b", date: "2021-01-02", distanceKm: 10, durationSec: 3600, paceSecPerKm: 360, calories: 800, avgCadence: 180 }),
-  act({ id: "c", date: "2021-01-02", distanceKm: 2, durationSec: 400, paceSecPerKm: 200, calories: null, avgCadence: null }),
+  act({
+    id: "b",
+    date: "2021-01-02",
+    distanceKm: 10,
+    durationSec: 3600,
+    paceSecPerKm: 360,
+    calories: 800,
+    avgCadence: 180,
+  }),
+  act({
+    id: "c",
+    date: "2021-01-02",
+    distanceKm: 2,
+    durationSec: 400,
+    paceSecPerKm: 200,
+    calories: null,
+    avgCadence: null,
+  }),
   act({ id: "d", date: "2021-02-15", distanceKm: 6, durationSec: 1620, paceSecPerKm: 270 }),
 ];
 
@@ -56,8 +72,28 @@ export const WEIGHT: WeightEntry[] = [
 ];
 
 export const WEATHER: DailyWeather[] = [
-  { date: "2021-01-01", maxTempC: 15, avgTempC: 12, minTempC: 9, humidityPct: 60, rainfallMm: 0, windKmh: 12, sunrise: "07:03", sunset: "17:52" },
-  { date: "2021-01-02", maxTempC: 18, avgTempC: 14, minTempC: 10, humidityPct: 70, rainfallMm: 5, windKmh: 10, sunrise: "07:03", sunset: "17:53" },
+  {
+    date: "2021-01-01",
+    maxTempC: 15,
+    avgTempC: 12,
+    minTempC: 9,
+    humidityPct: 60,
+    rainfallMm: 0,
+    windKmh: 12,
+    sunrise: "07:03",
+    sunset: "17:52",
+  },
+  {
+    date: "2021-01-02",
+    maxTempC: 18,
+    avgTempC: 14,
+    minTempC: 10,
+    humidityPct: 70,
+    rainfallMm: 5,
+    windKmh: 10,
+    sunrise: "07:03",
+    sunset: "17:53",
+  },
 ];
 
 export function fakeSource(activities: Activity[] = STATS_ACTS, year = 2021): DataSource {
