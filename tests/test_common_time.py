@@ -1,8 +1,11 @@
+import sys
+import zoneinfo
 from datetime import timedelta
 
 import pytest
 
 from run365days.common.time import (
+    MissingTimeZoneDataError,
     hhmmss_to_seconds,
     pace_str,
     parse_datetime,
@@ -109,3 +112,31 @@ class TestPaceStr:
 
     def test_zero_distance_returns_empty(self):
         assert pace_str(1000, 0) == ""
+
+
+@pytest.fixture
+def no_tz_database(monkeypatch):
+    """Simulate a host with neither /usr/share/zoneinfo nor the tzdata package."""
+    # zoneinfo consults TZPATH first and only then the tzdata PyPI package, so
+    # both routes have to be cut for the fixture to reproduce a bare container.
+    monkeypatch.setitem(sys.modules, "tzdata", None)
+    zoneinfo.reset_tzpath(to=[])
+    zoneinfo.ZoneInfo.clear_cache()
+    yield
+    zoneinfo.reset_tzpath()
+    zoneinfo.ZoneInfo.clear_cache()
+
+
+class TestParseDateTimeWithoutTimeZoneDatabase:
+    def test_should_name_tzdata_in_the_error_when_tz_database_missing(self, no_tz_database):
+        with pytest.raises(MissingTimeZoneDataError) as excinfo:
+            parse_datetime("2021-10-17 06:10:56")
+        assert "tzdata" in str(excinfo.value)
+
+    def test_should_not_raise_a_data_error_when_tz_database_missing(self, no_tz_database):
+        # ZoneInfoNotFoundError is a KeyError, so callers that filter on bad-data
+        # exceptions could mistake a missing tz database for an unreadable file.
+        with pytest.raises(MissingTimeZoneDataError) as excinfo:
+            parse_datetime("2021-10-17 06:10:56")
+        assert not isinstance(excinfo.value, LookupError)
+        assert not isinstance(excinfo.value, ValueError)
