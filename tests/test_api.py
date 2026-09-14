@@ -1,8 +1,10 @@
 import importlib.util
 from datetime import date, timedelta
 from pathlib import Path
+from types import MappingProxyType
 
 import pytest
+import strawberry
 from sqlalchemy import create_engine, event
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
@@ -14,7 +16,9 @@ from run365days.api.schema import (
     MAX_TRACK_FIELDS_PER_REQUEST,
     MAX_TRACK_POINTS,
     MAX_TRACK_POINTS_PER_REQUEST,
+    Query,
     build_schema,
+    schema,
 )
 from run365days.dashboard.builder import downsample
 from run365days.export import models
@@ -491,7 +495,11 @@ def test_the_budget_counts_requested_points_not_rows_returned(year_client):
     # Only r0 stores a track, so this query would return 600 rows -- far under
     # the budget. It is still refused, because the count is charged before the
     # SQL goes out: that is what makes the bound a bound and not a post-mortem.
-    assert gql_errors(year_client, _fan_out_query(ACTIVITIES_THAT_FIT + 1, MAX_TRACK_POINTS))
+    message = gql_errors(year_client, _fan_out_query(ACTIVITIES_THAT_FIT + 1, MAX_TRACK_POINTS))
+    # Named, not just truthy: any other failure would satisfy a bare assert and
+    # leave this test green while the budget did nothing.
+    assert "budget" in message.lower()
+    assert str(MAX_TRACK_POINTS_PER_REQUEST) in message
 
 
 def test_a_request_that_exactly_spends_the_budget_is_served(year_client):
@@ -535,6 +543,13 @@ def test_every_personal_best_may_carry_a_full_track(year_client):
     )
     data = gql(year_client, f"{{ year {{ personalBests {{ {bests} }} }} }}")
     assert data["year"]["personalBests"]["longest"]["track"] is not None
+
+
+def test_the_schema_does_not_batch_operations():
+    # "Per request" and "per operation" are only the same thing while batching
+    # is off. If this ever flips on, both budgets are spent once per operation
+    # in the batch and the per-request bound they document stops being true.
+    assert schema.config.batching_config is None
 
 
 # ── AU-047 C-001: a per-request bound on track round trips ─────────────────
@@ -634,3 +649,36 @@ def test_the_field_cap_is_per_request_and_does_not_leak_across_requests(year_cli
     query = _cheap_tracks(MAX_TRACK_FIELDS_PER_REQUEST)
     for _ in range(2):
         assert len(gql(year_client, query)["activities"]) == MAX_TRACK_FIELDS_PER_REQUEST
+
+
+# ── AU-047 W-014: the budgets fail closed when they were never seeded ──────
+TRACK_QUERY = f'{{ activity(id: "{TRACKED_ACTIVITY_ID}") {{ track(points: 10) {{ sec }} }} }}'
+
+
+def _track_rows(result) -> list:
+    activity = (result.data or {}).get("activity") or {}
+    return activity.get("track") or []
+
+
+def test_track_fails_closed_when_the_schema_has_no_budget_extension(year_session):
+    # A schema built without _TrackBudget seeds nothing. Serving the track
+    # anyway would mean an unbounded request, so it must refuse instead.
+    unbounded = strawberry.Schema(query=Query, extensions=[])
+
+    result = unbounded.execute_sync(TRACK_QUERY, context_value={"session": year_session})
+
+    assert result.errors
+    assert _track_rows(result) == []
+
+
+def test_track_fails_closed_when_the_context_cannot_be_seeded(year_session):
+    # A read-only Mapping is not a MutableMapping, so _TrackBudget skips it --
+    # but info.context["session"] still reads, so track is reachable. The
+    # missing key is the only thing standing between here and an unbounded
+    # request, and it has to be a refusal rather than a default.
+    frozen = MappingProxyType({"session": year_session})
+
+    result = schema.execute_sync(TRACK_QUERY, context_value=frozen)
+
+    assert result.errors
+    assert _track_rows(result) == []
