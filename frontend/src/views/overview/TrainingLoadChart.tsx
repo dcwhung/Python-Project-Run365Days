@@ -12,14 +12,34 @@ export function TrainingLoadChart({ load }: { load: TrainingLoadPoint[] }) {
           data={{
             labels,
             datasets: [
-              { label: "Fitness (CTL)", data: load.map((p) => p.ctl), borderColor: COLORS.accent, backgroundColor: "rgba(79,142,247,0.1)", tension: 0.3, fill: true, pointRadius: 0, borderWidth: 1.5 },
-              { label: "Fatigue (ATL)", data: load.map((p) => p.atl), borderColor: COLORS.danger, backgroundColor: "transparent", tension: 0.3, borderDash: [4, 2], pointRadius: 0, borderWidth: 1.5 },
+              {
+                label: "Fitness (CTL)",
+                data: load.map((p) => p.ctl),
+                borderColor: COLORS.accent,
+                backgroundColor: "rgba(79,142,247,0.1)",
+                tension: 0.3,
+                fill: true,
+                pointRadius: 0,
+                borderWidth: 1.5,
+              },
+              {
+                label: "Fatigue (ATL)",
+                data: load.map((p) => p.atl),
+                borderColor: COLORS.danger,
+                backgroundColor: "transparent",
+                tension: 0.3,
+                borderDash: [4, 2],
+                pointRadius: 0,
+                borderWidth: 1.5,
+              },
             ],
           }}
           options={{
             ...BASE,
             interaction: { mode: "index", intersect: false },
-            plugins: { legend: { position: "top", labels: { boxWidth: 10, padding: 8, font: { size: 11 } } } },
+            plugins: {
+              legend: { position: "top", labels: { boxWidth: 10, padding: 8, font: { size: 11 } } },
+            },
             scales: { x: dayAxis(labels), y: { grid: GRID, ticks: { font: { size: 10 } } } },
           }}
         />

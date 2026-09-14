@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { dailyDeltas, dailySeries, lastOfMonth, monthlyChange, monthlyUpDown, weekdayDelta, weeklyKmVsChange, weightKpis } from "./model";
+import {
+  dailyDeltas,
+  dailySeries,
+  lastOfMonth,
+  monthlyChange,
+  monthlyUpDown,
+  weekdayDelta,
+  weeklyKmVsChange,
+  weightKpis,
+} from "./model";
 import { dailyDistance, weekly } from "@/data/stats";
 import { act } from "@/test/fixtures";
 

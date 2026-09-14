@@ -44,8 +44,10 @@ export function performanceKpis(activities: Activity[]) {
 /** Per-day pace (min/km) of the first run each day, plus a trailing 30-day distance-weighted trend. */
 export function paceSeries(activities: Activity[], daily: DayDistance[]) {
   const byId = new Map(activities.map((a) => [a.id, a]));
-  const dayAct = daily.map((d) => (d.activityId ? byId.get(d.activityId) ?? null : null));
-  const points = dayAct.map((a) => (a?.paceSecPerKm ? Math.round((a.paceSecPerKm / 60) * 100) / 100 : null));
+  const dayAct = daily.map((d) => (d.activityId ? (byId.get(d.activityId) ?? null) : null));
+  const points = dayAct.map((a) =>
+    a?.paceSecPerKm ? Math.round((a.paceSecPerKm / 60) * 100) / 100 : null,
+  );
   const trend = daily.map((_, i) => {
     let s = 0;
     let k = 0;

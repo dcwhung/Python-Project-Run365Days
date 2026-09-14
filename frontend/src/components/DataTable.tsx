@@ -35,7 +35,10 @@ export function DataTable({ cols, rows, testId }: { cols: Col[]; rows: Row[]; te
               onClick={() => r.id && navigate(`/activity/${r.id}`)}
             >
               {r.c.map((v, i) => (
-                <td key={i} className={`py-1.5 pr-3 ${cols[i]?.num ? "text-right tabular-nums" : ""}`}>
+                <td
+                  key={i}
+                  className={`py-1.5 pr-3 ${cols[i]?.num ? "text-right tabular-nums" : ""}`}
+                >
                   {v}
                 </td>
               ))}

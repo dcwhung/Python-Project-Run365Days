@@ -24,7 +24,9 @@ export function Layout() {
               to={`/${v.path}`}
               className={({ isActive }) =>
                 `rounded px-3 py-1.5 text-sm transition-colors ${
-                  isActive ? "bg-accent/15 text-accent" : "text-muted hover:bg-surface2 hover:text-text"
+                  isActive
+                    ? "bg-accent/15 text-accent"
+                    : "text-muted hover:bg-surface2 hover:text-text"
                 }`
               }
             >

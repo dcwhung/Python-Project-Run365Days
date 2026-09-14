@@ -18,7 +18,15 @@ describe("training load model", () => {
   });
 
   it("rolling weeks, weekday km, top weeks, change", () => {
-    expect(rollingWeeks([{ distanceKm: 10 }, { distanceKm: 20 }, { distanceKm: 30 }, { distanceKm: 40 }, { distanceKm: 50 }])).toEqual([10, 15, 20, 25, 35]);
+    expect(
+      rollingWeeks([
+        { distanceKm: 10 },
+        { distanceKm: 20 },
+        { distanceKm: 30 },
+        { distanceKm: 40 },
+        { distanceKm: 50 },
+      ]),
+    ).toEqual([10, 15, 20, 25, 35]);
     const wd = weekdayAvgKm(STATS_ACTS);
     expect(wd[4]).toBe(5); // Friday 1 Jan
     expect(wd[5]).toBe(6); // Saturday 2 Jan: (10 + 2) / 2

@@ -15,10 +15,46 @@ import { SeriesChart } from "./SeriesChart";
 import { LiveCard } from "./LiveCard";
 
 const SPECS: SeriesSpec[] = [
-  { key: "ele", title: "Elevation (m)", color: "#34d399", area: true, invert: false, pad: 4, format: (v) => String(Math.round(v)), unit: "m" },
-  { key: "pace", title: "Pace (min/km)", color: "#4f8ef7", area: true, invert: true, pad: 0.3, format: (v) => fmtPace(v * 60), unit: "/km" },
-  { key: "cad", title: "Run Cadence (spm)", color: "#a78bfa", area: false, invert: false, pad: 8, format: (v) => String(Math.round(v)), unit: "spm" },
-  { key: "temp", title: "Temperature (°C)", color: "#f59e0b", area: true, invert: false, pad: 1, format: (v) => v.toFixed(1), unit: "°C" },
+  {
+    key: "ele",
+    title: "Elevation (m)",
+    color: "#34d399",
+    area: true,
+    invert: false,
+    pad: 4,
+    format: (v) => String(Math.round(v)),
+    unit: "m",
+  },
+  {
+    key: "pace",
+    title: "Pace (min/km)",
+    color: "#4f8ef7",
+    area: true,
+    invert: true,
+    pad: 0.3,
+    format: (v) => fmtPace(v * 60),
+    unit: "/km",
+  },
+  {
+    key: "cad",
+    title: "Run Cadence (spm)",
+    color: "#a78bfa",
+    area: false,
+    invert: false,
+    pad: 8,
+    format: (v) => String(Math.round(v)),
+    unit: "spm",
+  },
+  {
+    key: "temp",
+    title: "Temperature (°C)",
+    color: "#f59e0b",
+    area: true,
+    invert: false,
+    pad: 1,
+    format: (v) => v.toFixed(1),
+    unit: "°C",
+  },
 ];
 
 export function ActivityView() {
@@ -66,8 +102,10 @@ export function ActivityView() {
     return () => window.removeEventListener("keydown", onKey);
   });
 
-  if (all.isPending || activity.isPending || track.isPending) return <p className="text-muted">Loading…</p>;
-  if (all.isError) return <p className="text-danger">Could not load activities: {all.error.message}</p>;
+  if (all.isPending || activity.isPending || track.isPending)
+    return <p className="text-muted">Loading…</p>;
+  if (all.isError)
+    return <p className="text-danger">Could not load activities: {all.error.message}</p>;
   if (!activity.data || !series) return <p className="text-danger">Activity not found.</p>;
   const a = activity.data;
   const hover = (i: number) => {
@@ -75,7 +113,9 @@ export function ActivityView() {
     pb.goTo(i);
   };
   const avg = {
-    ele: Number.isFinite(mean(series.ele) ?? NaN) ? `avg ${Math.round(mean(series.ele)!)} m` : undefined,
+    ele: Number.isFinite(mean(series.ele) ?? NaN)
+      ? `avg ${Math.round(mean(series.ele)!)} m`
+      : undefined,
     pace: `avg ${fmtPace(a.paceSecPerKm)} /km`,
     cad: a.avgCadence ? `avg ${Math.round(a.avgCadence)} spm` : undefined,
     temp: a.avgTempC != null ? `avg ${a.avgTempC.toFixed(1)} °C` : undefined,
@@ -89,7 +129,8 @@ export function ActivityView() {
             {series.hasGps ? "Outdoor" : "Indoor"} Run · Day {a.dayOfYear}
           </h1>
           <div className="text-xs text-muted">
-            {longDate(a.date)} <b className="text-text">{a.startTime}</b> · activity <b className="text-text">{a.id}</b>
+            {longDate(a.date)} <b className="text-text">{a.startTime}</b> · activity{" "}
+            <b className="text-text">{a.id}</b>
             {a.warnings.length > 0 && (
               <>
                 {" "}
@@ -105,7 +146,13 @@ export function ActivityView() {
               : "no weather record"}
           </span>
           <div className="flex items-center gap-1">
-            <button type="button" aria-label="Previous day" className="rounded border border-border px-2 py-1 hover:bg-surface2" onClick={() => step(-1)} disabled={index <= 0}>
+            <button
+              type="button"
+              aria-label="Previous day"
+              className="rounded border border-border px-2 py-1 hover:bg-surface2"
+              onClick={() => step(-1)}
+              disabled={index <= 0}
+            >
               ‹
             </button>
             <select
@@ -120,7 +167,13 @@ export function ActivityView() {
                 </option>
               ))}
             </select>
-            <button type="button" aria-label="Next day" className="rounded border border-border px-2 py-1 hover:bg-surface2" onClick={() => step(1)} disabled={index >= list.length - 1}>
+            <button
+              type="button"
+              aria-label="Next day"
+              className="rounded border border-border px-2 py-1 hover:bg-surface2"
+              onClick={() => step(1)}
+              disabled={index >= list.length - 1}
+            >
               ›
             </button>
           </div>
@@ -131,18 +184,43 @@ export function ActivityView() {
         <KpiCard label="Distance" value={fmtKm(a.distanceKm)} unit="km" accent="accent" />
         <KpiCard label="Time" value={fmtDuration(a.durationSec)} accent="accent2" />
         <KpiCard label="Avg Pace" value={fmtPace(a.paceSecPerKm)} unit="/km" accent="warn" />
-        <KpiCard label="Total Ascent" value={a.ascentM != null ? String(Math.round(a.ascentM)) : "–"} unit="m" accent="violet" />
-        <KpiCard label="Calories" value={a.calories != null ? String(a.calories) : "–"} unit="kcal" accent="danger" />
+        <KpiCard
+          label="Total Ascent"
+          value={a.ascentM != null ? String(Math.round(a.ascentM)) : "–"}
+          unit="m"
+          accent="violet"
+        />
+        <KpiCard
+          label="Calories"
+          value={a.calories != null ? String(a.calories) : "–"}
+          unit="kcal"
+          accent="danger"
+        />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[1fr_300px]">
         <RouteMap series={series} idx={pb.idx} onHover={hover} />
-        <LiveCard series={series} idx={pb.idx} playing={pb.playing} speed={pb.speed} onToggle={pb.toggle} onSpeed={pb.setSpeed} onScrub={hover} />
+        <LiveCard
+          series={series}
+          idx={pb.idx}
+          playing={pb.playing}
+          speed={pb.speed}
+          onToggle={pb.toggle}
+          onSpeed={pb.setSpeed}
+          onScrub={hover}
+        />
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
         {SPECS.map((spec) => (
-          <SeriesChart key={spec.key} series={series} spec={spec} idx={pb.idx} average={avg[spec.key]} onHover={hover} />
+          <SeriesChart
+            key={spec.key}
+            series={series}
+            spec={spec}
+            idx={pb.idx}
+            average={avg[spec.key]}
+            onHover={hover}
+          />
         ))}
       </div>
     </div>

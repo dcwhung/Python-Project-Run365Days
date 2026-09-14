@@ -10,12 +10,26 @@ export function TempPaceChart({ activities }: { activities: Activity[] }) {
   const navigate = useNavigate();
   const pts = activities
     .filter((a) => actTemp(a) != null && a.paceSecPerKm)
-    .map((a) => ({ x: actTemp(a)!, y: Math.round((a.paceSecPerKm! / 60) * 100) / 100, id: a.id, d: a.date }));
+    .map((a) => ({
+      x: actTemp(a)!,
+      y: Math.round((a.paceSecPerKm! / 60) * 100) / 100,
+      id: a.id,
+      d: a.date,
+    }));
   return (
     <Card title="Temperature vs Pace">
       <div className="h-56">
         <Scatter
-          data={{ datasets: [{ data: pts, backgroundColor: "rgba(79,142,247,0.5)", pointRadius: 4, pointHoverRadius: 6 }] }}
+          data={{
+            datasets: [
+              {
+                data: pts,
+                backgroundColor: "rgba(79,142,247,0.5)",
+                pointRadius: 4,
+                pointHoverRadius: 6,
+              },
+            ],
+          }}
           options={{
             ...BASE,
             plugins: {
@@ -34,7 +48,12 @@ export function TempPaceChart({ activities }: { activities: Activity[] }) {
             },
             scales: {
               x: { grid: GRID, title: { display: true, text: "Temperature (°C)" } },
-              y: { grid: GRID, reverse: true, title: { display: true, text: "Pace (min/km)" }, ticks: { callback: (v) => fmtPace(Number(v) * 60) } },
+              y: {
+                grid: GRID,
+                reverse: true,
+                title: { display: true, text: "Pace (min/km)" },
+                ticks: { callback: (v) => fmtPace(Number(v) * 60) },
+              },
             },
           }}
         />

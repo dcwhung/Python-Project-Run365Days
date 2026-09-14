@@ -18,11 +18,31 @@ const COLUMNS: Column[] = [
   { key: "date", label: "Date", render: (a) => `${fmtShortDate(a.date)} ${a.startTime}` },
   { key: "distanceKm", label: "Dist.", numeric: true, render: (a) => `${fmtKm(a.distanceKm)} km` },
   { key: "durationSec", label: "Time", numeric: true, render: (a) => fmtDuration(a.durationSec) },
-  { key: "paceSecPerKm", label: "Pace", numeric: true, render: (a) => `${fmtPace(a.paceSecPerKm)}/km` },
-  { key: "avgCadence", label: "Cadence", numeric: true, render: (a) => (a.avgCadence ? `${Math.round(a.avgCadence)} spm` : "–") },
-  { key: "ascentM", label: "Ascent", numeric: true, render: (a) => (a.ascentM != null ? `${Math.round(a.ascentM)} m` : "–") },
+  {
+    key: "paceSecPerKm",
+    label: "Pace",
+    numeric: true,
+    render: (a) => `${fmtPace(a.paceSecPerKm)}/km`,
+  },
+  {
+    key: "avgCadence",
+    label: "Cadence",
+    numeric: true,
+    render: (a) => (a.avgCadence ? `${Math.round(a.avgCadence)} spm` : "–"),
+  },
+  {
+    key: "ascentM",
+    label: "Ascent",
+    numeric: true,
+    render: (a) => (a.ascentM != null ? `${Math.round(a.ascentM)} m` : "–"),
+  },
   { key: "calories", label: "kcal", numeric: true, render: (a) => a.calories ?? "–" },
-  { key: "temp", label: "Temp", numeric: true, render: (a) => (actTemp(a) != null ? `${actTemp(a)!.toFixed(1)} °C` : "–") },
+  {
+    key: "temp",
+    label: "Temp",
+    numeric: true,
+    render: (a) => (actTemp(a) != null ? `${actTemp(a)!.toFixed(1)} °C` : "–"),
+  },
   {
     key: "weather",
     label: "Weather",
@@ -40,7 +60,9 @@ const COLUMNS: Column[] = [
     key: "hasGps",
     label: "GPS",
     render: (a) => (
-      <span className={`rounded px-1.5 py-0.5 text-[10px] ${a.hasGps ? "bg-accent2/15 text-accent2" : "bg-surface2 text-muted"}`}>
+      <span
+        className={`rounded px-1.5 py-0.5 text-[10px] ${a.hasGps ? "bg-accent2/15 text-accent2" : "bg-surface2 text-muted"}`}
+      >
         {a.hasGps ? "outdoor" : "indoor"}
       </span>
     ),
@@ -61,10 +83,14 @@ export function ActivitiesView() {
   const meta = useMeta();
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: "date", dir: -1 });
-  const rows = useMemo(() => filterAndSort(all.data ?? [], filters, sort.key, sort.dir), [all.data, filters, sort]);
+  const rows = useMemo(
+    () => filterAndSort(all.data ?? [], filters, sort.key, sort.dir),
+    [all.data, filters, sort],
+  );
 
   if (all.isPending) return <p className="text-muted">Loading…</p>;
-  if (all.isError) return <p className="text-danger">Could not load activities: {all.error.message}</p>;
+  if (all.isError)
+    return <p className="text-danger">Could not load activities: {all.error.message}</p>;
   const total = all.data.length;
   const totalKm = rows.reduce((s, a) => s + a.distanceKm, 0);
   const setSortKey = (key: SortKey) =>
@@ -88,7 +114,14 @@ export function ActivitiesView() {
             value={filters.query}
             onChange={(e) => setFilters({ ...filters, query: e.target.value })}
           />
-          <select aria-label="Month" className={input} value={filters.month ?? ""} onChange={(e) => setFilters({ ...filters, month: e.target.value ? Number(e.target.value) : null })}>
+          <select
+            aria-label="Month"
+            className={input}
+            value={filters.month ?? ""}
+            onChange={(e) =>
+              setFilters({ ...filters, month: e.target.value ? Number(e.target.value) : null })
+            }
+          >
             <option value="">All months</option>
             {MONTHS.map((m, i) => (
               <option key={m} value={i + 1}>
@@ -96,17 +129,36 @@ export function ActivitiesView() {
               </option>
             ))}
           </select>
-          <select aria-label="GPS" className={input} value={filters.gps == null ? "" : filters.gps ? "1" : "0"} onChange={(e) => setFilters({ ...filters, gps: e.target.value === "" ? null : e.target.value === "1" })}>
+          <select
+            aria-label="GPS"
+            className={input}
+            value={filters.gps == null ? "" : filters.gps ? "1" : "0"}
+            onChange={(e) =>
+              setFilters({ ...filters, gps: e.target.value === "" ? null : e.target.value === "1" })
+            }
+          >
             <option value="">Outdoor + indoor</option>
             <option value="1">Outdoor</option>
             <option value="0">Indoor</option>
           </select>
           <label className="flex items-center gap-1 text-xs text-muted">
             ≥
-            <input aria-label="Minimum km" type="number" min={0} step={0.5} className={`${input} w-16`} value={filters.minKm} onChange={(e) => setFilters({ ...filters, minKm: Number(e.target.value) || 0 })} />
+            <input
+              aria-label="Minimum km"
+              type="number"
+              min={0}
+              step={0.5}
+              className={`${input} w-16`}
+              value={filters.minKm}
+              onChange={(e) => setFilters({ ...filters, minKm: Number(e.target.value) || 0 })}
+            />
             km
           </label>
-          <button type="button" className="rounded border border-border px-2 py-1 text-xs hover:bg-surface2" onClick={() => download(`run365days_${meta.data?.year ?? "export"}.csv`, toCsv(rows))}>
+          <button
+            type="button"
+            className="rounded border border-border px-2 py-1 text-xs hover:bg-surface2"
+            onClick={() => download(`run365days_${meta.data?.year ?? "export"}.csv`, toCsv(rows))}
+          >
             Export CSV
           </button>
         </div>
@@ -116,7 +168,11 @@ export function ActivitiesView() {
           <thead className="text-left text-muted">
             <tr>
               {COLUMNS.map((c) => (
-                <th key={c.key} className={`cursor-pointer select-none px-3 py-2 font-medium hover:text-text ${c.numeric ? "text-right" : ""} ${sort.key === c.key ? "text-text" : ""}`} onClick={() => setSortKey(c.key)}>
+                <th
+                  key={c.key}
+                  className={`cursor-pointer select-none px-3 py-2 font-medium hover:text-text ${c.numeric ? "text-right" : ""} ${sort.key === c.key ? "text-text" : ""}`}
+                  onClick={() => setSortKey(c.key)}
+                >
                   {c.label}
                   {sort.key === c.key ? (sort.dir > 0 ? " ↑" : " ↓") : ""}
                 </th>
@@ -125,9 +181,16 @@ export function ActivitiesView() {
           </thead>
           <tbody>
             {rows.map((a) => (
-              <tr key={a.id} className="cursor-pointer border-t border-border hover:bg-surface2" onClick={() => navigate(`/activity/${a.id}`)}>
+              <tr
+                key={a.id}
+                className="cursor-pointer border-t border-border hover:bg-surface2"
+                onClick={() => navigate(`/activity/${a.id}`)}
+              >
                 {COLUMNS.map((c) => (
-                  <td key={c.key} className={`px-3 py-1.5 ${c.numeric ? "text-right tabular-nums" : ""}`}>
+                  <td
+                    key={c.key}
+                    className={`px-3 py-1.5 ${c.numeric ? "text-right tabular-nums" : ""}`}
+                  >
                     {c.render(a)}
                   </td>
                 ))}

@@ -11,7 +11,9 @@ function client(response: unknown) {
 
 describe("absoluteUrl", () => {
   it("resolves a relative endpoint against the page origin", () => {
-    expect(absoluteUrl("/api/graphql", "http://localhost:5173/overview")).toBe("http://localhost:5173/api/graphql");
+    expect(absoluteUrl("/api/graphql", "http://localhost:5173/overview")).toBe(
+      "http://localhost:5173/api/graphql",
+    );
     expect(absoluteUrl("https://x.test/g", "http://localhost/")).toBe("https://x.test/g");
     expect(absoluteUrl("/api/graphql", "")).toBe("/api/graphql");
   });
@@ -23,7 +25,12 @@ describe("api source", () => {
     const src = createApiSource("/api/graphql", c);
     expect(src.mode).toBe("api");
     expect(await src.activities({ fromDate: "2021-01-01" })).toEqual([{ id: "a" }]);
-    expect(request.mock.calls[0][1]).toEqual({ fromDate: "2021-01-01", toDate: null, minKm: null, hasGps: null });
+    expect(request.mock.calls[0][1]).toEqual({
+      fromDate: "2021-01-01",
+      toDate: null,
+      minKm: null,
+      hasGps: null,
+    });
   });
 
   it("returns null for a missing activity and an empty track", async () => {
@@ -46,7 +53,13 @@ describe("api source", () => {
   });
 
   it("unwraps year, meta, weight, weather and warnings", async () => {
-    const payload = { year: { year: 2021 }, meta: { year: 2021 }, weight: [1], weather: [2], warnings: [3] };
+    const payload = {
+      year: { year: 2021 },
+      meta: { year: 2021 },
+      weight: [1],
+      weather: [2],
+      warnings: [3],
+    };
     const { client: c } = client(payload);
     const src = createApiSource("/api/graphql", c);
     expect(await src.year()).toEqual({ year: 2021 });

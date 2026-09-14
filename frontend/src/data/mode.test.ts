@@ -11,8 +11,12 @@ describe("data mode", () => {
 
   it("fills defaults and trims a trailing slash", () => {
     expect(resolveConfig({})).toEqual({ mode: "api", apiUrl: "/api/graphql", staticBase: "/data" });
-    expect(resolveConfig({ VITE_DATA_MODE: "static", VITE_STATIC_BASE: "/x/" }).staticBase).toBe("/x");
-    expect(resolveConfig({ BASE_URL: "/Python-Project-Run365Days/" }).staticBase).toBe("/Python-Project-Run365Days/data");
+    expect(resolveConfig({ VITE_DATA_MODE: "static", VITE_STATIC_BASE: "/x/" }).staticBase).toBe(
+      "/x",
+    );
+    expect(resolveConfig({ BASE_URL: "/Python-Project-Run365Days/" }).staticBase).toBe(
+      "/Python-Project-Run365Days/data",
+    );
     expect(resolveConfig({ BASE_URL: "/" }).staticBase).toBe("/data");
   });
 

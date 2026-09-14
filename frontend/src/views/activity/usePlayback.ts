@@ -63,5 +63,14 @@ export function usePlayback(t: number[], initialSpeed: number) {
     setPlaying(false);
   }, [t]);
 
-  return { idx, playing, speed, setSpeed, goTo, start, stop, toggle: () => (playing ? stop() : start()) };
+  return {
+    idx,
+    playing,
+    speed,
+    setSpeed,
+    goTo,
+    start,
+    stop,
+    toggle: () => (playing ? stop() : start()),
+  };
 }

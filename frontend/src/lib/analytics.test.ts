@@ -15,7 +15,9 @@ describe("analytics helpers", () => {
     expect(paceOf([])).toBeNull();
   });
   it("timeOfDay buckets", () => {
-    expect(["04:59", "05:00", "08:00", "12:00", "17:00", "21:00"].map(timeOfDay)).toEqual([4, 0, 1, 2, 3, 4]);
+    expect(["04:59", "05:00", "08:00", "12:00", "17:00", "21:00"].map(timeOfDay)).toEqual([
+      4, 0, 1, 2, 3, 4,
+    ]);
   });
   it("groups by weekday and month", () => {
     const wd = byWeekday(ACTS);

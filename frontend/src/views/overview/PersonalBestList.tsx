@@ -12,7 +12,13 @@ const BAR = {
   danger: "bg-danger",
 };
 
-export function PersonalBestList({ personalBests, totals }: { personalBests: PersonalBests; totals: Totals }) {
+export function PersonalBestList({
+  personalBests,
+  totals,
+}: {
+  personalBests: PersonalBests;
+  totals: Totals;
+}) {
   const navigate = useNavigate();
   const rows = personalBestRows(personalBests, totals);
   return (
@@ -26,14 +32,19 @@ export function PersonalBestList({ personalBests, totals }: { personalBests: Per
           >
             <span className="w-20 text-muted">{r.label}</span>
             <span className="h-1.5 flex-1 overflow-hidden rounded bg-surface2">
-              <span className={`block h-full ${BAR[r.color]}`} style={{ width: `${Math.round(r.ratio * 100)}%` }} />
+              <span
+                className={`block h-full ${BAR[r.color]}`}
+                style={{ width: `${Math.round(r.ratio * 100)}%` }}
+              />
             </span>
             <span className="w-20 text-right font-medium">{r.value}</span>
             <span className="w-14 text-right text-muted">{fmtShortDate(r.activity.date)}</span>
           </li>
         ))}
       </ul>
-      <p className="mt-2 text-[10px] text-muted">Bar shows the typical (average) run relative to the record.</p>
+      <p className="mt-2 text-[10px] text-muted">
+        Bar shows the typical (average) run relative to the record.
+      </p>
     </Card>
   );
 }

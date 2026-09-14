@@ -28,9 +28,10 @@ export function project(series: TrackSeries, w: number, h: number): Projection |
   const ox = (w - spanX * s) / 2;
   const oy = (h - spanY * s) / 2;
   const xy = series.latLon.map((p) =>
-    p ? ([ox + (p[1] - lo0) * cosL * s, h - oy - (p[0] - la0) * s] as [number, number]) : ([0, 0] as [number, number]),
+    p
+      ? ([ox + (p[1] - lo0) * cosL * s, h - oy - (p[0] - la0) * s] as [number, number])
+      : ([0, 0] as [number, number]),
   );
   const scaleBarM = (s * 200) / METRES_PER_DEGREE > 40 ? 200 : 500;
   return { w, h, xy, scaleBarPx: (scaleBarM / METRES_PER_DEGREE) * s, scaleBarM };
 }
-

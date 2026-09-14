@@ -8,7 +8,9 @@ import { act, fakeSource } from "@/test/fixtures";
 import type { DataSource, TrackPoint } from "@/data/types";
 
 vi.mock("react-chartjs-2", () => {
-  const Stub = ({ data }: { data: unknown }) => <div data-testid="chart">{JSON.stringify(data).length}</div>;
+  const Stub = ({ data }: { data: unknown }) => (
+    <div data-testid="chart">{JSON.stringify(data).length}</div>
+  );
   return { Bar: Stub, Line: Stub, Scatter: Stub, Chart: Stub };
 });
 
@@ -25,8 +27,22 @@ const TRACK: TrackPoint[] = [0, 1, 2, 3].map((i) => ({
 
 function source(): DataSource {
   const acts = [
-    act({ id: "a", date: "2021-01-08", startTime: "07:00", distanceKm: 5, warnings: ["THUNDERSTORM WARNING"], weather: { description: "Rain", tempC: 19, humidityPct: 80, windKmh: 10 } }),
-    act({ id: "b", date: "2021-01-09", startTime: "18:30", distanceKm: 10, paceSecPerKm: 360, hasGps: false }),
+    act({
+      id: "a",
+      date: "2021-01-08",
+      startTime: "07:00",
+      distanceKm: 5,
+      warnings: ["THUNDERSTORM WARNING"],
+      weather: { description: "Rain", tempC: 19, humidityPct: 80, windKmh: 10 },
+    }),
+    act({
+      id: "b",
+      date: "2021-01-09",
+      startTime: "18:30",
+      distanceKm: 10,
+      paceSecPerKm: 360,
+      hasGps: false,
+    }),
   ];
   return { ...fakeSource(acts), track: async (id) => (id === "a" ? TRACK : []) };
 }
@@ -117,7 +133,9 @@ describe("Analytics views", () => {
     renderAt("/weather");
     expect(await screen.findByTestId("weather-kpis")).toHaveTextContent("Severe warnings");
     expect(screen.getByTestId("warning-table")).toHaveTextContent("Thunderstorm Warning");
-    expect(within(screen.getByTestId("extremes-table")).getAllByRole("row").length).toBeGreaterThan(1);
+    expect(within(screen.getByTestId("extremes-table")).getAllByRole("row").length).toBeGreaterThan(
+      1,
+    );
   });
 
   it("Training Load shows KPIs and the biggest weeks", async () => {

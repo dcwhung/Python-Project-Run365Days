@@ -50,43 +50,101 @@ export function SettingsView() {
         <form onSubmit={submit} className="space-y-3" aria-label="Preferences">
           <label className="block text-xs text-muted">
             Landing view
-            <select className={input} value={form.landing} onChange={(e) => setForm({ ...form, landing: e.target.value })}>
-              {VIEWS.map((v) => <option key={v.path} value={v.path}>{v.label}</option>)}
+            <select
+              className={input}
+              value={form.landing}
+              onChange={(e) => setForm({ ...form, landing: e.target.value })}
+            >
+              {VIEWS.map((v) => (
+                <option key={v.path} value={v.path}>
+                  {v.label}
+                </option>
+              ))}
             </select>
           </label>
           <label className="block text-xs text-muted">
             Playback speed
-            <select className={input} value={form.speed} onChange={(e) => setForm({ ...form, speed: Number(e.target.value) })}>
-              {SPEEDS.map((s) => <option key={s} value={s}>{s}×</option>)}
+            <select
+              className={input}
+              value={form.speed}
+              onChange={(e) => setForm({ ...form, speed: Number(e.target.value) })}
+            >
+              {SPEEDS.map((s) => (
+                <option key={s} value={s}>
+                  {s}×
+                </option>
+              ))}
             </select>
           </label>
           <label className="block text-xs text-muted">
             Weight unit
-            <select className={input} value={form.weightUnit} onChange={(e) => setForm({ ...form, weightUnit: e.target.value as Prefs["weightUnit"] })}>
+            <select
+              className={input}
+              value={form.weightUnit}
+              onChange={(e) =>
+                setForm({ ...form, weightUnit: e.target.value as Prefs["weightUnit"] })
+              }
+            >
               <option value="lbs">lbs</option>
               <option value="kg">kg</option>
             </select>
           </label>
           <label className="block text-xs text-muted">
             Height (cm, for BMI)
-            <input type="number" min={100} max={250} className={input} value={form.heightCm} onChange={(e) => setForm({ ...form, heightCm: Number(e.target.value) })} />
+            <input
+              type="number"
+              min={100}
+              max={250}
+              className={input}
+              value={form.heightCm}
+              onChange={(e) => setForm({ ...form, heightCm: Number(e.target.value) })}
+            />
           </label>
           <div className="grid grid-cols-2 gap-3">
             <label className="block text-xs text-muted">
               Fast pace bound (min/km)
-              <input type="number" step={0.1} className={input} value={form.paceFast} onChange={(e) => setForm({ ...form, paceFast: Number(e.target.value) })} />
+              <input
+                type="number"
+                step={0.1}
+                className={input}
+                value={form.paceFast}
+                onChange={(e) => setForm({ ...form, paceFast: Number(e.target.value) })}
+              />
             </label>
             <label className="block text-xs text-muted">
               Slow pace bound (min/km)
-              <input type="number" step={0.1} className={input} value={form.paceSlow} onChange={(e) => setForm({ ...form, paceSlow: Number(e.target.value) })} />
+              <input
+                type="number"
+                step={0.1}
+                className={input}
+                value={form.paceSlow}
+                onChange={(e) => setForm({ ...form, paceSlow: Number(e.target.value) })}
+              />
             </label>
           </div>
           <div className="flex items-center gap-3">
-            <button type="submit" className="rounded bg-accent px-3 py-1.5 text-sm font-medium text-bg hover:brightness-110">Save</button>
-            <button type="button" onClick={reset} className="rounded border border-border px-3 py-1.5 text-sm hover:bg-surface2">Reset</button>
-            {msg && <span className="text-xs text-muted" role="status">{msg}</span>}
+            <button
+              type="submit"
+              className="rounded bg-accent px-3 py-1.5 text-sm font-medium text-bg hover:brightness-110"
+            >
+              Save
+            </button>
+            <button
+              type="button"
+              onClick={reset}
+              className="rounded border border-border px-3 py-1.5 text-sm hover:bg-surface2"
+            >
+              Reset
+            </button>
+            {msg && (
+              <span className="text-xs text-muted" role="status">
+                {msg}
+              </span>
+            )}
           </div>
-          <p className="text-[11px] text-muted">Stored in this browser only. The pace bounds colour the route in the Activity view.</p>
+          <p className="text-[11px] text-muted">
+            Stored in this browser only. The pace bounds colour the route in the Activity view.
+          </p>
         </form>
       </Card>
       <Card title="About the data">

@@ -2,7 +2,13 @@ import type { PersonalBests, Totals } from "@/data/types";
 import { fmtPace, fmtShortDate } from "@/lib/format";
 import { KpiCard } from "@/components/KpiCard";
 
-export function KpiRow({ totals, personalBests }: { totals: Totals; personalBests: PersonalBests }) {
+export function KpiRow({
+  totals,
+  personalBests,
+}: {
+  totals: Totals;
+  personalBests: PersonalBests;
+}) {
   const fastest = personalBests.fastest;
   return (
     <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5" data-testid="kpis">
@@ -38,7 +44,11 @@ export function KpiRow({ totals, personalBests }: { totals: Totals; personalBest
         label="Running Streak"
         value={String(totals.activeDays)}
         unit={`/ ${totals.days} days`}
-        sub={totals.activeDays === totals.days ? "Full year" : `${totals.days - totals.activeDays} rest days`}
+        sub={
+          totals.activeDays === totals.days
+            ? "Full year"
+            : `${totals.days - totals.activeDays} rest days`
+        }
         accent="violet"
       />
     </div>
