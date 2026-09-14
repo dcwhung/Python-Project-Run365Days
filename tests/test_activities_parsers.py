@@ -250,3 +250,30 @@ class TestGuardedHelpers:
         assert all(tp.cadence is None for tp in act.track_points)
         assert act.track_points[0].speed is None
         assert act.track_points[0].elevation is None
+
+
+class TestKMLLapTotalsAreMandatory:
+    """W-006: Time and Distance feed the headline numbers, so KML matches TCX."""
+
+    def test_should_raise_parse_error_when_a_lap_omits_distance(self, fixtures_dir):
+        with pytest.raises(ActivityParseError, match="lap 2"):
+            KMLParser(CHALLENGE_YEAR).parse(fixtures_dir / "activity_3006.kml")
+
+    def test_should_raise_parse_error_when_a_lap_omits_time(self, fixtures_dir):
+        with pytest.raises(ActivityParseError, match="lap 2"):
+            KMLParser(CHALLENGE_YEAR).parse(fixtures_dir / "activity_3007.kml")
+
+    def test_should_log_warning_rather_than_undercount_the_totals(self, fixtures_dir, caplog):
+        with caplog.at_level(logging.WARNING, logger="run365days.activities.parsers.base"):
+            KMLParser(CHALLENGE_YEAR).parse_all(fixtures_dir)
+        messages = [r.getMessage() for r in caplog.records if "activity_3006.kml" in r.getMessage()]
+        assert messages
+        assert "Distance" in messages[0]
+
+    def test_should_match_tcx_which_treats_the_same_pair_as_mandatory(self, fixtures_dir):
+        # TCX reads TotalTimeSeconds / DistanceMeters through required_text; the
+        # KML lap table's Time / Distance are the same two numbers.
+        with pytest.raises(ActivityParseError):
+            TCXParser(CHALLENGE_YEAR).parse(fixtures_dir / "activity_1005.tcx")
+        with pytest.raises(ActivityParseError):
+            KMLParser(CHALLENGE_YEAR).parse(fixtures_dir / "activity_3006.kml")

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The lap omits DistanceMeters, which required_text treats as mandatory.
+     Pairs with activity_3006.kml so both parsers are pinned to the same
+     policy for the two numbers that feed distance_km and pacing. -->
+<TrainingCenterDatabase
+  xmlns:ns3="http://www.garmin.com/xmlschemas/ActivityExtension/v2"
+  xmlns="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2">
+  <Activities>
+    <Activity Sport="Running">
+      <Id>2021-01-08T04:04:52.000Z</Id>
+      <Lap StartTime="2021-01-08T04:04:52.000Z">
+        <TotalTimeSeconds>600.0</TotalTimeSeconds>
+        <Calories>150</Calories>
+        <Track>
+          <Trackpoint>
+            <Time>2021-01-08T04:04:52.000Z</Time>
+            <Position>
+              <LatitudeDegrees>22.3278</LatitudeDegrees>
+              <LongitudeDegrees>114.2019</LongitudeDegrees>
+            </Position>
+          </Trackpoint>
+        </Track>
+      </Lap>
+    </Activity>
+  </Activities>
+</TrainingCenterDatabase>
