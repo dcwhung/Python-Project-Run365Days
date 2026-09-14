@@ -682,3 +682,21 @@ date-only `"2021-10-17"` 之前 raise，而家回午夜。現行資料唔可達�
 | ID | 級別 | 標題 | 狀態 |
 |---|---|---|---|
 | **CUI-0018** | 🟡 Medium | `hourly.py:112` wind `find("°")` —— `-1` sentinel 係 load-bearing，refactor 就會靜默出錯 | pending |
+
+---
+
+## AU-047 評估更正（2026-09-14）
+
+Main agent 曾兩次向用戶建議：「`models.Activity.num_points` 已經存住 track point 數，可以直接讀返、慳走 `_even_sample_filter` 嗰個 `SELECT COUNT(*)`，由 2N 變 N。」
+
+**實測之後推翻 —— 呢個做法係錯嘅。**
+
+`records.py:120` 嘅 `num_points` 係**降採樣之前**嘅原始點數，而儲存行數受 `--points 600` 封頂。365 條入面有 **2 條**唔一致（`6701104700`：653 vs 600；`7264441638`：**1250** vs 600）。
+
+用佢代替 COUNT 會以 1250 為總數去算 stride 位置，但實際只有 600 行 —— **而錯嘅正正係點數最多、最需要降採樣嗰兩條**。
+
+已開 **CUI-0019** 處理語義問題。**AU-047 喺 CUI-0019 解決之前，唔可以走呢條捷徑**，真正解法仍然係 DataLoader 或 window function。
+
+| ID | 級別 | 標題 | 狀態 |
+|---|---|---|---|
+| **CUI-0019** | 🟡 Medium | `num_points` 係降採樣前點數，但讀落似「可取得點數」；已經經 GraphQL 到咗前端 | pending |
