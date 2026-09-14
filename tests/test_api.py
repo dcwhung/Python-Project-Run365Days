@@ -13,6 +13,7 @@ from run365days.api.schema import (
     MAX_TRACK_POINTS,
     build_schema,
 )
+from run365days.dashboard.builder import downsample
 from run365days.export import models
 from run365days.export.sqlite import sqlite_url, write_sqlite
 
@@ -440,3 +441,28 @@ def test_dated_counts_honour_the_date_window(year_client):
     assert d["weightCount"] == 10
     assert d["weatherCount"] == 5
     assert d["warningsCount"] == 1
+
+
+# ── W-010: "evenly downsampled" has to mean evenly ─────────────────────────
+def _gaps(rows) -> list[int]:
+    secs = [r["sec"] for r in rows]
+    return [b - a for a, b in zip(secs, secs[1:], strict=False)]
+
+
+@pytest.mark.parametrize("points", [3, 5, 7, 10, 37, 150, 599])
+def test_track_samples_are_evenly_spaced(year_session, points):
+    rows = service.track(year_session, TRACKED_ACTIVITY_ID, points)
+
+    gaps = _gaps(rows)
+    assert len(rows) == points
+    assert rows[0]["sec"] == 0 and rows[-1]["sec"] == STORED_TRACK_POINTS - 1
+    # Integer positions cannot divide evenly in general, so one sample of
+    # slack is the best any sampler can do; two would mean a doubled gap.
+    assert max(gaps) - min(gaps) <= 1, f"points={points} gaps={gaps}"
+
+
+def test_track_samples_match_the_reference_downsampler(year_session):
+    points = 7
+    rows = service.track(year_session, TRACKED_ACTIVITY_ID, points)
+    expected = downsample(list(range(STORED_TRACK_POINTS)), points)
+    assert [r["sec"] for r in rows] == expected

@@ -5,10 +5,9 @@ service free of Strawberry makes it trivial to test against a temporary
 database built from :class:`~run365days.export.records.ExportRecords`.
 """
 
-from sqlalchemy import ColumnElement, Select, func, or_, select
+from sqlalchemy import ColumnElement, Select, func, select
 from sqlalchemy.orm import Session, selectinload
 
-from run365days.dashboard.builder import downsample
 from run365days.export import models
 from run365days.export.records import TRACK_COLUMNS
 
@@ -134,8 +133,27 @@ def activity(session: Session, activity_id: str) -> dict | None:
     return _activity_dict(row) if row else None
 
 
-def _stride_filter(session: Session, activity_id: str, points: int) -> ColumnElement[bool] | None:
-    """Return a ``seq`` predicate keeping roughly *points* evenly spaced rows, or ``None``.
+def _even_positions(total: int, points: int) -> list[int]:
+    """Return *points* zero-based row positions spread evenly over *total* rows.
+
+    Same arithmetic as :func:`run365days.dashboard.builder.downsample`, so the
+    SQL-side thinning picks exactly the samples the in-Python one would.
+
+    Args:
+        total: Rows stored for the track.
+        points: Samples wanted, assumed to be below *total*.
+
+    Returns:
+        Strictly increasing positions, first and last row included.
+    """
+    if points < 2:
+        return [total - 1]
+    step = (total - 1) / (points - 1)
+    return [round(i * step) for i in range(points)]
+
+
+def _even_sample_filter(session: Session, activity_id: str, points: int) -> ColumnElement | None:
+    """Return a ``seq`` predicate keeping exactly *points* even samples, or ``None``.
 
     Args:
         session: Open read-only session.
@@ -143,38 +161,45 @@ def _stride_filter(session: Session, activity_id: str, points: int) -> ColumnEle
         points: How many samples the caller wants.
 
     Returns:
-        A predicate selecting every ``total // points``-th row plus the final
-        one, or ``None`` when the track already fits in *points* rows.
+        A predicate selecting the wanted rows, or ``None`` when the track
+        already fits in *points* rows.
     """
-    total, last_seq = session.execute(
-        select(func.count(), func.max(models.TrackPoint.seq)).where(
-            models.TrackPoint.activity_id == activity_id
-        )
-    ).one()
+    total = session.scalar(
+        select(func.count())
+        .select_from(models.TrackPoint)
+        .where(models.TrackPoint.activity_id == activity_id)
+    )
     if total <= points:
         return None
-    stride = total // points
-    # The modulo keeps the first sample; the last one is added back because a
-    # route's end point is what makes the downsampled track look complete.
-    return or_(models.TrackPoint.seq % stride == 0, models.TrackPoint.seq == last_seq)
+    # Positions, not seq arithmetic: row_number stays evenly spaced even if a
+    # track is ever stored with gaps in seq. The IN list is bounded by
+    # MAX_TRACK_POINTS, well under SQLite's bound-parameter ceiling.
+    position = (func.row_number().over(order_by=models.TrackPoint.seq) - 1).label("position")
+    numbered = (
+        select(models.TrackPoint.seq.label("seq"), position)
+        .where(models.TrackPoint.activity_id == activity_id)
+        .subquery()
+    )
+    wanted = select(numbered.c.seq).where(numbered.c.position.in_(_even_positions(total, points)))
+    return models.TrackPoint.seq.in_(wanted)
 
 
 def track(session: Session, activity_id: str, points: int | None = None) -> list[dict]:
     """Return the stored track for an activity, optionally downsampled to *points*.
 
-    The thinning happens in SQL, so asking for a handful of samples never
-    materialises the several hundred rows a run stores.
+    The thinning happens in SQL and once only: an earlier version narrowed the
+    rows with a floor stride and then downsampled the survivors again, and the
+    two passes compounded into gaps that differed by a factor of two.
     """
     stmt = select(models.TrackPoint).where(models.TrackPoint.activity_id == activity_id)
     if points:
-        stride = _stride_filter(session, activity_id, points)
-        if stride is not None:
-            stmt = stmt.where(stride)
-    rows = [
+        sample = _even_sample_filter(session, activity_id, points)
+        if sample is not None:
+            stmt = stmt.where(sample)
+    return [
         {col: getattr(p, col) for col in TRACK_COLUMNS}
         for p in session.scalars(stmt.order_by(models.TrackPoint.seq))
     ]
-    return downsample(rows, points) if points else rows
 
 
 def weight(
