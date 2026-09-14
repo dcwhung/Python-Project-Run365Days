@@ -383,9 +383,13 @@ class TestHourlyFetchRange:
             assert_bounded_timeout(timeout)
 
 
-def warning_routes(day_fixture: str = "hko_warning_day.html") -> dict:
+def warning_routes(
+    day_fixture: str = "hko_warning_day.html",
+    *,
+    legend_fixture: str = "hko_warning_legend.html",
+) -> dict:
     return {
-        warnings._SIGNALS_URL: read_fixture("hko_warning_legend.html"),
+        warnings._SIGNALS_URL: read_fixture(legend_fixture),
         warnings._HISTORY_URL: read_fixture(day_fixture),
     }
 
@@ -406,6 +410,36 @@ class TestWarningSignalMetadata:
         warnings._load_signal_metadata()
 
         assert_bounded_timeout(recorder.calls[0]["timeout"])
+
+    def test_reads_the_icon_index_from_a_src_without_a_file_extension(self, monkeypatch):
+        # ``rfind(".")`` answered -1 on an extensionless src, and src[start:-1]
+        # is a legal slice, so the index quietly lost its last character.
+        routes = warning_routes(legend_fixture="hko_warning_legend_no_extension.html")
+        install_fake_get(monkeypatch, warnings, routes)
+
+        meta = warnings._load_signal_metadata()
+
+        assert meta["Cold Weather Warning"]["Idx"] == "cold"
+        assert meta["Frost Warning"]["Idx"] == "frost"
+        assert meta["Standby Signal No.1"]["Idx"] == "tc1"
+
+    def test_skips_a_legend_table_that_does_not_carry_both_cells(self, monkeypatch):
+        routes = warning_routes(legend_fixture="hko_warning_legend_short_row.html")
+        install_fake_get(monkeypatch, warnings, routes)
+
+        meta = warnings._load_signal_metadata()
+
+        assert meta == {"Cold Weather Warning": {"Idx": "cold", "Type": "Cold Weather Warning"}}
+
+    def test_logs_a_warning_for_each_legend_table_it_skipped(self, monkeypatch, caplog):
+        routes = warning_routes(legend_fixture="hko_warning_legend_short_row.html")
+        install_fake_get(monkeypatch, warnings, routes)
+
+        with caplog.at_level(logging.WARNING, logger=WARNINGS_LOGGER):
+            warnings._load_signal_metadata()
+
+        skipped = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(skipped) == 2
 
 
 class TestWarningsFetchDay:

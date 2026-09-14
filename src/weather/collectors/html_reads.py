@@ -10,6 +10,7 @@ single absent element took down a whole day of observations.
 
 Every helper here answers ``None`` for "not there" so the caller has to decide
 what that means, rather than inheriting an ``AttributeError`` it never chose.
+``cells`` extends the same contract to a row that arrived too short to index.
 """
 
 from bs4.element import Tag
@@ -49,3 +50,21 @@ def child_attr(parent: Tag, name: str, attr: str) -> str | None:
         return None
     value = child.get(attr)
     return None if value is None else str(value)
+
+
+def cells(parent: Tag, minimum: int) -> list[Tag] | None:
+    """Return *parent*'s ``<td>`` cells when it carries at least *minimum* of them.
+
+    Args:
+        parent: Element whose cells to read.
+        minimum: Smallest cell count the caller can work with.
+
+    Returns:
+        The cells, or ``None`` when there are fewer than *minimum* -- so a short
+        row becomes a decision the caller makes, not an ``IndexError`` it
+        inherits from a header, a spacer or a page that shed a column.
+    """
+    found = parent.find_all("td")
+    if len(found) < minimum:
+        return None
+    return found

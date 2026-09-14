@@ -2,13 +2,14 @@
 
 import logging
 from datetime import datetime
+from pathlib import PurePosixPath
 
 import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 from bs4.element import Tag
 
-from run365days.weather.collectors.html_reads import child_attr
+from run365days.weather.collectors.html_reads import cells, child_attr
 from run365days.weather.models import WeatherWarning
 
 logger = logging.getLogger(__name__)
@@ -41,19 +42,44 @@ _CELL_END_DATE = 5
 
 _HKO_TIMESTAMP_FORMAT = "%d/%b/%Y %H:%M"
 
+# A legend entry pairs the icon cell with the warning-type cell beside it.
+# Anything shorter is a header or a spacer and names no signal.
+_LEGEND_ROW_CELLS = 2
+_LEGEND_CELL_ICONS = 0
+_LEGEND_CELL_TYPE = 1
+
 
 def _load_signal_metadata() -> dict[str, dict]:
-    """Return {signal_name: {Idx, Type}} from the HKO warnings reference page."""
+    """Return {signal_name: {Idx, Type}} from the HKO warnings reference page.
+
+    A legend table that arrived without both cells is logged and skipped; the
+    remaining tables still load, so one shed column no longer costs the whole
+    legend an ``IndexError`` (CUI-0017).
+
+    Returns:
+        One entry per legend icon, keyed by its title-cased alt text.
+    """
     bs = BeautifulSoup(requests.get(_SIGNALS_URL, timeout=_REQUEST_TIMEOUT).text, "html.parser")
     result = {}
-    for table in bs.find_all(class_="self_row2_table"):
-        tds = table.find_all("td")
-        for img in tds[0].find_all("img"):
-            src = img.get("src", "")
+    for position, table in enumerate(bs.find_all(class_="self_row2_table")):
+        tds = cells(table, _LEGEND_ROW_CELLS)
+        if tds is None:
+            logger.warning(
+                "Skipping HKO legend table %d: it does not carry the %d cells a signal needs",
+                position,
+                _LEGEND_ROW_CELLS,
+            )
+            continue
+        warning_type = tds[_LEGEND_CELL_TYPE].text.strip()
+        for img in tds[_LEGEND_CELL_ICONS].find_all("img"):
             name = img.get("alt", "").lower().title()
+            # The src is a URL path, so PurePosixPath answers the basename
+            # without extension outright. ``rfind(".")`` answered -1 on a src
+            # with no dot, and src[start:-1] is a legal slice, so the index used
+            # to lose its last character in silence (CUI-0017).
             result[name] = {
-                "Idx": src[src.rfind("/") + 1 : src.rfind(".")],
-                "Type": tds[1].text.strip(),
+                "Idx": PurePosixPath(str(img.get("src", ""))).stem,
+                "Type": warning_type,
             }
     return result
 
