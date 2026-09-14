@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useActivities, useMeta } from "@/data/hooks";
 import type { Activity } from "@/data/types";
 import { MONTHS, fmtDuration, fmtKm, fmtPace, fmtShortDate } from "@/lib/format";
+import { activateOnKey } from "@/lib/a11y";
 import { actTemp, wxEmoji } from "@/lib/weather";
 import { WarningIcons } from "@/components/WarningIcons";
 import { DEFAULT_FILTERS, filterAndSort, toCsv, type Filters, type SortKey } from "./model";
@@ -168,34 +169,50 @@ export function ActivitiesView() {
           <thead className="text-left text-muted">
             <tr>
               {COLUMNS.map((c) => (
+                // aria-sort belongs on the header cell; the sort control itself is
+                // a real <button> so it is reachable and announced as one. The cell
+                // padding moves onto the button so its hit area still fills the cell.
                 <th
                   key={c.key}
-                  className={`cursor-pointer select-none px-3 py-2 font-medium hover:text-text ${c.numeric ? "text-right" : ""} ${sort.key === c.key ? "text-text" : ""}`}
-                  onClick={() => setSortKey(c.key)}
+                  aria-sort={
+                    sort.key === c.key ? (sort.dir > 0 ? "ascending" : "descending") : "none"
+                  }
+                  className={`font-medium ${sort.key === c.key ? "text-text" : ""}`}
                 >
-                  {c.label}
-                  {sort.key === c.key ? (sort.dir > 0 ? " ↑" : " ↓") : ""}
+                  <button
+                    type="button"
+                    className={`block w-full cursor-pointer select-none px-3 py-2 font-medium hover:text-text ${c.numeric ? "text-right" : "text-left"}`}
+                    onClick={() => setSortKey(c.key)}
+                  >
+                    {c.label}
+                    {sort.key === c.key ? (sort.dir > 0 ? " ↑" : " ↓") : ""}
+                  </button>
                 </th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {rows.map((a) => (
-              <tr
-                key={a.id}
-                className="cursor-pointer border-t border-border hover:bg-surface2"
-                onClick={() => navigate(`/activity/${a.id}`)}
-              >
-                {COLUMNS.map((c) => (
-                  <td
-                    key={c.key}
-                    className={`px-3 py-1.5 ${c.numeric ? "text-right tabular-nums" : ""}`}
-                  >
-                    {c.render(a)}
-                  </td>
-                ))}
-              </tr>
-            ))}
+            {rows.map((a) => {
+              const open = () => navigate(`/activity/${a.id}`);
+              return (
+                <tr
+                  key={a.id}
+                  className="cursor-pointer border-t border-border hover:bg-surface2"
+                  tabIndex={0}
+                  onClick={open}
+                  onKeyDown={activateOnKey(open)}
+                >
+                  {COLUMNS.map((c) => (
+                    <td
+                      key={c.key}
+                      className={`px-3 py-1.5 ${c.numeric ? "text-right tabular-nums" : ""}`}
+                    >
+                      {c.render(a)}
+                    </td>
+                  ))}
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

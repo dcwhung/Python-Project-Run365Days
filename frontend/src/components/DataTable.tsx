@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
+import { activateOnKey } from "@/lib/a11y";
 
 export interface Col {
   h: ReactNode;
@@ -28,22 +29,30 @@ export function DataTable({ cols, rows, testId }: { cols: Col[]; rows: Row[]; te
           </tr>
         </thead>
         <tbody>
-          {rows.map((r, ri) => (
-            <tr
-              key={r.key ?? r.id ?? ri}
-              className={`border-t border-border ${r.id ? "cursor-pointer hover:bg-surface2" : ""} ${r.bold ? "font-semibold" : ""}`}
-              onClick={() => r.id && navigate(`/activity/${r.id}`)}
-            >
-              {r.c.map((v, i) => (
-                <td
-                  key={i}
-                  className={`py-1.5 pr-3 ${cols[i]?.num ? "text-right tabular-nums" : ""}`}
-                >
-                  {v}
-                </td>
-              ))}
-            </tr>
-          ))}
+          {rows.map((r, ri) => {
+            // A row cannot hold a <button> without breaking the row/cell
+            // semantics screen readers rely on, so the row itself is made
+            // focusable and answers to the same keys a button would.
+            const open = r.id ? () => navigate(`/activity/${r.id}`) : undefined;
+            return (
+              <tr
+                key={r.key ?? r.id ?? ri}
+                className={`border-t border-border ${r.id ? "cursor-pointer hover:bg-surface2" : ""} ${r.bold ? "font-semibold" : ""}`}
+                tabIndex={open ? 0 : undefined}
+                onClick={open}
+                onKeyDown={open && activateOnKey(open)}
+              >
+                {r.c.map((v, i) => (
+                  <td
+                    key={i}
+                    className={`py-1.5 pr-3 ${cols[i]?.num ? "text-right tabular-nums" : ""}`}
+                  >
+                    {v}
+                  </td>
+                ))}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>

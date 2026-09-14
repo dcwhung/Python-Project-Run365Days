@@ -25,20 +25,24 @@ export function PersonalBestList({
     <Card title="Personal Bests">
       <ul className="space-y-2 text-xs" data-testid="pbs">
         {rows.map((r) => (
-          <li
-            key={r.label}
-            className="flex cursor-pointer items-center gap-3 hover:text-text"
-            onClick={() => navigate(`/activity/${r.activity.id}`)}
-          >
-            <span className="w-20 text-muted">{r.label}</span>
-            <span className="h-1.5 flex-1 overflow-hidden rounded bg-surface2">
-              <span
-                className={`block h-full ${BAR[r.color]}`}
-                style={{ width: `${Math.round(r.ratio * 100)}%` }}
-              />
-            </span>
-            <span className="w-20 text-right font-medium">{r.value}</span>
-            <span className="w-14 text-right text-muted">{fmtShortDate(r.activity.date)}</span>
+          <li key={r.label}>
+            {/* A real <button> rather than a clickable <li>: it is focusable,
+                announced as a control, and answers Enter and Space for free. */}
+            <button
+              type="button"
+              className="flex w-full cursor-pointer items-center gap-3 text-left hover:text-text"
+              onClick={() => navigate(`/activity/${r.activity.id}`)}
+            >
+              <span className="w-20 text-muted">{r.label}</span>
+              <span className="h-1.5 flex-1 overflow-hidden rounded bg-surface2">
+                <span
+                  className={`block h-full ${BAR[r.color]}`}
+                  style={{ width: `${Math.round(r.ratio * 100)}%` }}
+                />
+              </span>
+              <span className="w-20 text-right font-medium">{r.value}</span>
+              <span className="w-14 text-right text-muted">{fmtShortDate(r.activity.date)}</span>
+            </button>
           </li>
         ))}
       </ul>

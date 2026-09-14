@@ -1,5 +1,6 @@
 import { useNavigate } from "react-router-dom";
 import type { Activity } from "@/data/types";
+import { activateOnKey } from "@/lib/a11y";
 import { fmtDuration, fmtKm, fmtPace, fmtShortDate } from "@/lib/format";
 import { Card } from "@/components/Card";
 import { WarningIcons } from "@/components/WarningIcons";
@@ -35,24 +36,29 @@ export function RecentActivities({ activities }: { activities: Activity[] }) {
           </tr>
         </thead>
         <tbody>
-          {recent.map((a) => (
-            <tr
-              key={a.id}
-              className="cursor-pointer border-t border-border hover:bg-surface2"
-              onClick={() => navigate(`/activity/${a.id}`)}
-            >
-              <td className="py-1.5">{fmtShortDate(a.date)}</td>
-              <td className="py-1.5">{fmtKm(a.distanceKm)} km</td>
-              <td className="py-1.5">{fmtDuration(a.durationSec)}</td>
-              <td className="py-1.5 text-accent2">{fmtPace(a.paceSecPerKm)}/km</td>
-              <td className="py-1.5">
-                <WeatherTag activity={a} />
-              </td>
-              <td className="py-1.5">
-                <WarningIcons signals={a.warnings} />
-              </td>
-            </tr>
-          ))}
+          {recent.map((a) => {
+            const open = () => navigate(`/activity/${a.id}`);
+            return (
+              <tr
+                key={a.id}
+                className="cursor-pointer border-t border-border hover:bg-surface2"
+                tabIndex={0}
+                onClick={open}
+                onKeyDown={activateOnKey(open)}
+              >
+                <td className="py-1.5">{fmtShortDate(a.date)}</td>
+                <td className="py-1.5">{fmtKm(a.distanceKm)} km</td>
+                <td className="py-1.5">{fmtDuration(a.durationSec)}</td>
+                <td className="py-1.5 text-accent2">{fmtPace(a.paceSecPerKm)}/km</td>
+                <td className="py-1.5">
+                  <WeatherTag activity={a} />
+                </td>
+                <td className="py-1.5">
+                  <WarningIcons signals={a.warnings} />
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </Card>
