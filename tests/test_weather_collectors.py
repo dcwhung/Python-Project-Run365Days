@@ -235,13 +235,70 @@ class TestHourlyFetchDay:
         assert records[0].humidity_pct == 24.0
         assert records[0].description == "Clear weather"
 
+    def test_reads_the_wind_speed_from_the_bearing_form(self, monkeypatch):
+        # "Northeast 50° 24 Km/h" -- the form that names a compass bearing.
+        install_fake_get(monkeypatch, hourly, {hourly._URL: read_fixture("freemeteo_day.html")})
+
+        records = hourly.fetch_day("2021-01-01")
+
+        assert records[0].wind_kmh == 24.0
+
     def test_reads_the_wind_speed_from_the_variable_direction_form(self, monkeypatch):
+        # Rewritten for CUI-0018. This test used to pass for the wrong reason:
+        # "Variable at 20 Km/h" carries no degree sign, find("°") answered -1,
+        # and the slice parsed only because -1 + 1 started it at the front. That
+        # made the sentinel load-bearing, so any guard added to find() would
+        # have broken this form while the test named nothing about it. The
+        # assertion is now the speed the page states, for each form in its own
+        # test, so the two forms stay pinned however the cell is read.
         install_fake_get(monkeypatch, hourly, {hourly._URL: read_fixture("freemeteo_day.html")})
 
         records = hourly.fetch_day("2021-01-01")
 
         assert records[1].wind_kmh == 20.0
-        assert records[1].description == "Cloudy skies"
+
+    def test_maps_a_wind_cell_matching_neither_form_to_none(self, monkeypatch):
+        # The fixture's first cell reads "Variable at 20 mph". The old read
+        # stripped the prefix, then dropped five characters for "Km/h" -- which
+        # ate one digit too many off "20 mph" and reported 2.0 Km/h. A speed
+        # nobody wrote must not be reported as one.
+        install_fake_get(
+            monkeypatch, hourly, {hourly._URL: read_fixture("freemeteo_unreadable_wind.html")}
+        )
+
+        records = hourly.fetch_day("2021-01-01")
+
+        assert records[0].wind_kmh is None
+        assert records[1].wind_kmh == 22.0
+
+    def test_logs_a_warning_when_the_wind_cell_matches_neither_form(self, monkeypatch, caplog):
+        install_fake_get(
+            monkeypatch, hourly, {hourly._URL: read_fixture("freemeteo_unreadable_wind.html")}
+        )
+
+        with caplog.at_level(logging.WARNING, logger=HOURLY_LOGGER):
+            hourly.fetch_day("2021-01-01")
+
+        unreadable = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(unreadable) == 1
+        message = unreadable[0].getMessage()
+        assert "2021-01-01" in message
+        assert "00:00" in message
+
+    def test_keeps_the_rest_of_a_row_whose_wind_cell_matches_neither_form(self, monkeypatch):
+        # The page arrived and every other cell is readable, so the observation
+        # is real data; only the one column is a gap. Dropping the row would
+        # cost the hour its temperature, humidity and description as well.
+        install_fake_get(
+            monkeypatch, hourly, {hourly._URL: read_fixture("freemeteo_unreadable_wind.html")}
+        )
+
+        records = hourly.fetch_day("2021-01-01")
+
+        assert [r.time for r in records] == ["00:00", "00:30"]
+        assert records[0].temperature_c == 11.0
+        assert records[0].humidity_pct == 24.0
+        assert records[0].description == "Clear weather"
 
     def test_maps_an_unreadable_temperature_to_none(self, monkeypatch):
         install_fake_get(monkeypatch, hourly, {hourly._URL: read_fixture("freemeteo_day.html")})
