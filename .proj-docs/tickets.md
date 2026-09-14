@@ -1,6 +1,6 @@
 # Ticket Registry — Run365Days
 
-**最後更新**：2026-09-14（CUI-0016 + CUI-0017 完成）
+**最後更新**：2026-09-14（P3 一次清 + AU-035 + CUI-0019 完成）
 
 > 由 `/audit`（AU-NNN）同 `/review`（C/W/S-NNN）產生嘅 ticket 集中登記處。
 > 編號全局唯一、永不重用。已完成嘅保留紀錄，只改狀態。
@@ -106,10 +106,10 @@ TCX 對同樣 8 個 id 全部解析成功（365/365），而 dashboard 係由 TC
 |---|---|---|---|
 | **W-011** | P1 | `workflow_dispatch` 由任何 branch 都會做 production Pages 部署 | ✅ **Done** `12ad224`（隨 AU-004 調整一併關閉） |
 | **S-005** | P2 | `src/cli/process_activities.py:55-58` 寫 0 行 JSONL 仍然 exit 0 | ✅ **Done** `2d69a9d` |
-| **S-007** | P2 | `_SUMMARY_ROW_COLSPAN` 喺 `kml.py` 身兼三個無關語義（:130 colspan、:132 min cells、:148 min coordinate parts） | Lane D |
-| **S-009** | P3 | KML 時間戳被解析兩次 | Lane D |
-| **S-011** | P2 | static mode 仍然當 `points: 0` 為「攞全部」，api mode 已拒絕 —— 兩個 data mode 對同一個 `useTrack(id, 0)` 行為不一致 | Lane E |
-| **S-012** | P3 | `MAX_TRACK_POINTS` / `MAX_PAGE_SIZE` 邊界只存在於 Python docstring 同 runtime error，冇寫入 SDL description | Lane E |
+| **S-007** | P2 | `_SUMMARY_ROW_COLSPAN` 喺 `kml.py` 身兼三個無關語義 | ✅ **Done** `3564f53` |
+| **S-009** | P3 | KML 時間戳被解析兩次 | ✅ **Done** `adb2052` |
+| **S-011** | P2 | static mode 仍然當 `points: 0` 為「攞全部」，api mode 已拒絕 | ✅ **Done** `b82e6f5` |
+| **S-012** | P3 | 四個上限只存在於 Python docstring 同 runtime error，冇寫入 SDL description | ✅ **Done** `4bc7c0b` |
 
 ### W-011 詳情
 
@@ -139,9 +139,9 @@ Lane D 為 `ActivitySkipped` 加咗 `# noqa: N818`。ruff 嘅 `N818` 要求 exce
 |---|---|---|---|
 | CUI-0001 | 🟡 Major | 必填數值行裸 `float()` 繞過 W-005；`inf` 令 Pages build 崩潰但 Vercel 照 ship `Infinity` | ✅ **Done** `3723849` `e5b04f1` |
 | CUI-0002 | 🟡 Major | 改用 `zoneinfo` 後未宣告 `tzdata`，`pytz` 成死依賴 | ✅ **Done** `9559231` |
-| CUI-0003 | 🟢 Minor | depth limit 實際永遠唔會觸發（schema 最深 4 層，limiter 要 `max_depth=3` 先拒） | pending |
-| CUI-0004 | 🟢 Minor | `track(points: 1)` 只回最後一點，同 docstring 承諾不符 | pending |
-| CUI-0005 | 🟢 Minor | `app.test_client()` 過 ~130 request 洩漏 session（已確認係 test client artifact，真 WSGI server 400/400 正常） | pending |
+| CUI-0003 | 🟢 Minor | depth limit 實際永遠唔會觸發（schema 最深 4 層，limiter 要 `max_depth=3` 先拒） | ✅ **Done** `75abcda` |
+| CUI-0004 | 🟢 Minor | `track(points: 1)` 只回最後一點，同 docstring 承諾不符 | ✅ **Done** `abc591c` |
+| CUI-0005 | 🟢 Minor | `app.test_client()` 過 ~130 request 洩漏 session（**實測係 50，浮動**；真 WSGI server 400/400 正常） | ✅ **Done** `2f9ced4` |
 | **CUI-0006** | 🟢 Low | `parse_datetime` 嘅 ISO-with-offset 分支無視 `timezone` 參數 | ✅ **Done** `323fba9` |
 
 ### CUI-0002 修復摘要
@@ -196,7 +196,7 @@ Developer 用三種方式驗證 `MissingTimeZoneDataError` 仍然逃得出 `pars
 | ID | 級別 | 標題 | 狀態 |
 |---|---|---|---|
 | **CUI-0007** | 🟡 High | `dashboard/builder.py:22-31` 嘅 `_num()` 有同 CUI-0001 一模一樣嘅 ±inf 缺口 | ✅ **Done** `3d83e71` |
-| **CUI-0008** | 🟢 Low | `haversine_distance` 對非有限座標只出 `RuntimeWarning` 唔拒絕 | pending |
+| **CUI-0008** | 🟢 Low | `haversine_distance` 對非有限座標只出 `RuntimeWarning` 唔拒絕 | ✅ **Done** `07f158b`（連 AU-039 向量化） |
 
 **CUI-0007 值得留意**：developer 為咗避開呢個缺口，**要削弱自己嗰個 writer parity 測試**。一個測試要繞路先過到，本身就係被繞開嗰度有嘢未修嘅證據。修佢嗰陣順帶處理 AU-024（`_num()` 同 `_round()` 本來就係重複 helper，應收歸 `src/common/numeric.py`），並將 parity 測試恢復到未削弱嘅版本。
 
@@ -328,7 +328,7 @@ exporter 會讀嘅欄位，`DailyWeather` 完全冇宣告（同 AU-037 係同一
 |---|---|---|---|
 | **CUI-0011** | 🔴 Critical（latent） | Collector 寫出嘅 schema 同 exporter 讀嘅唔夾，重新採集即炸 pipeline | ✅ **Done** `755fdd5` `7092964`（方案 C） |
 | **CUI-0012** | 🟡 Medium | 三處無防護 `.find()`：`hourly.py:57` 硬崩、`warnings.py:55` **靜默錯**、`warnings.py:70` 硬崩 | ✅ **Done** `f392d19` `ce8c4ff` |
-| **CUI-0013** | 🟢 Low | `collect_weather.py` 0% 覆蓋 + `print()`；`_REQUEST_TIMEOUT` 三份重複；magic index | pending |
+| **CUI-0013** | 🟢 Low | `collect_weather.py` **45%**（唔係 0%）+ `print()`；`_REQUEST_TIMEOUT` 三份重複；magic index | ✅ **Done** `a27690d` `40a1414` `d658bfb` |
 
 **CUI-0012 之中 `warnings.py:55` 最陰險**：`html.find(marker)` 搵唔到返 `-1`，加 `len(marker)` 之後變 `31` ——
 即係由整頁第 31 個字元開始 parse，而唔係乜都唔 parse。HKO 一改標題，collector 唔會失敗，
@@ -416,7 +416,7 @@ Developer 冇求其揀一邊，佢揾到決定性證據：
 | ID | 級別 | 標題 | 狀態 |
 |---|---|---|---|
 | **AU-037** | 🟡 **升級** | `SunMoon` 冇 collector —— 而家變成 load-bearing | pending |
-| **CUI-0014** | 🟢 Low | `from_raw_row()` 對缺失 STRING 欄位預設 `""` 而舊 code 出 `None` | pending |
+| **CUI-0014** | 🟢 Low | `from_raw_row()` 對缺失 STRING 欄位預設 `""` 而舊 code 出 `None`（實際係**七**個欄位唔係五個） | ✅ **Done** `a5ed956`（接受 `""`） |
 
 **AU-037 升級理由**：排除 sunrise/sunset 之後，一次重新採集會寫出一個冇 sun/moon 欄位嘅 `hko_daily_weather_extract.json`，令 export 出嘅 sunrise/sunset 變 `None`。資料唔會損壞、export 亦唔會爆，但 dashboard 會失去呢兩個欄位，直到 `SunMoon` collector 移植好為止。**呢個係排除決定嘅誠實代價，唔係新引入嘅 regression** —— collector 從來都冇呢啲值。
 
@@ -699,7 +699,7 @@ Main agent 曾兩次向用戶建議：「`models.Activity.num_points` 已經存�
 
 | ID | 級別 | 標題 | 狀態 |
 |---|---|---|---|
-| **CUI-0019** | 🟡 Medium | `num_points` 係降採樣前點數，但讀落似「可取得點數」；已經經 GraphQL 到咗前端 | pending |
+| **CUI-0019** | 🟡 Medium | `num_points` 係降採樣前點數，但讀落似「可取得點數」；已經經 GraphQL 到咗前端 | ✅ **Done** `209ea43`（方案 D：整條移走） |
 
 ---
 
@@ -808,7 +808,7 @@ Main agent 獨立驗證三個情境（**注意：要避開 pipeline `$?` 陷阱*
 
 | ID | 級別 | 標題 | 狀態 |
 |---|---|---|---|
-| **CUI-0020** | 🟢 Low | `--year` help text 講「其他年份會 skip」，實際係**下限**過濾（`year < current_year` 先 skip） | pending |
+| **CUI-0020** | 🟢 Low | `--year` help text 講「其他年份會 skip」，實際係**下限**過濾 | ✅ **Done** `878f905` |
 
 實測：`--year 1999` 保留全部 365 條 2021 activity。Developer 就係因為呢點，砌真實零記錄案例時要用 `2030` 而唔係 `1999`。
 
@@ -819,3 +819,224 @@ Main agent 獨立驗證三個情境（**注意：要避開 pipeline `$?` 陷阱*
 `grep` 確認 `TCX_JSON` / `GPX_JSON` / `KML_JSON` 三個 config 常數**只被 `process_activities.py` 自己引用**。加完 guard 之後，呢個 CLI 誠實嘅描述係「一個順便留低三個檔案嘅 parser smoke-test」—— 佢唯一真實價值係**全 repo 唯一行使 `KMLParser` 嘅入口**，而 guard 正正將呢點變成一個真檢查。
 
 兩個自洽嘅終局（另開一票）：(a) 正式變成驗證指令；(b) 令 `export_data` 讀呢啲 jsonl 而唔係重新 parse，同時消除雙重 parse。**唔應該**維持現狀 —— 一個產出冇人讀嘅 CLI。
+
+---
+
+## P3 一次清 + AU-035 + CUI-0019 修復摘要（2026-09-14）
+
+五條並行 lane 清晒餘下 12 張 P3，加 main agent 做嘅 AU-035 文件同步，再加用戶拍板嘅 CUI-0019。
+
+### ⚠️ 新基準（本 session 第一次、亦係唯一一次刻意打破 byte-identical）
+
+| 項目 | 舊基準 `1896778` | **新基準 `772b6ca`** |
+|---|---|---|
+| 總 bytes | 6,857,102 | **6,850,896** |
+| 檔案數 | 370 | 370（不變） |
+| `activities.json` | 152,649 | **146,443** |
+
+**由今日起，byte-identical gate 對比嘅係 `772b6ca`，唔再係 `1896778`。**
+
+打破基準之前先寫低精確預測，收貨時逐個對：四個數字全中，而且差異證明到**只係** `num_points` 一個 key ——
+`re.sub(r'"num_points":\d+,', '', 舊檔)` 逐 byte 等於新檔，365 行每行只差呢個 key，其餘 368 個檔案完全冇郁。
+呢個做法值得沿用：**「接受基準會變」同「知道佢會變成點」係兩件事**，後者先捉得到夾帶。
+
+| 指標 | 開始 | 完成 |
+|---|---|---|
+| Python tests | 392 | **459** |
+| Frontend tests | 87 | **96**（19 files） |
+| Coverage TOTAL | 93% | **94%** |
+| `api/schema.py`、`api/service.py`、`api/app.py`、`api/db.py`、`common/geo.py` | — | **全部 100%** |
+| `cli/collect_weather.py` | 45% | **98%** |
+
+### Lane 分工同衝突分析
+
+| Lane | Tickets | 擁有檔案 |
+|---|---|---|
+| A | CUI-0003, CUI-0004, S-011, S-012 | `api/schema.py`、`api/service.py`、`frontend/.../source.ts`、`tests/test_api.py` |
+| B | CUI-0005 | `api/app.py`、`api/db.py`、新測試檔 |
+| C | S-007, S-009, CUI-0020 | `parsers/kml.py`、`cli/process_activities.py` |
+| D | CUI-0013, CUI-0014 | `cli/collect_weather.py`、`weather/**`、`common/config.py` |
+| E | CUI-0008, AU-023, AU-024 餘 | `common/geo.py`、`activities/metrics.py`、`src/__init__.py` |
+
+AU-035 **刻意唔開 lane** —— 佢同 Lane E 嘅 `metrics.py` 生死、Lane C 嘅 `--year` 講法、`ci-facts` 塊全部有交集，
+由 main agent 喺全部 merge 之後做，令文件描述**最終狀態**而唔係中途狀態。事後證明係啱：`metrics.py` 真係刪咗，
+如果 docs lane 同時跑就會寫錯。
+
+---
+
+## ⛔ Main agent 派咗一個由頭到尾唔可能綠嘅 gate（派咗五份）
+
+我喺五條 lane 嘅 brief 都寫咗：
+
+```
+ruff check . && ruff format --check .
+```
+
+**呢個 gate 喺 base commit `e844926` 已經 exit=1，531 個 pre-existing error，100% 喺 `legacy/`**（N816 232 個、E501 127 個…）。
+CI 實際跑嘅係 `.github/workflows/pages.yml:54,57` 嘅 `ruff check src tests` / `ruff format --check src tests`，兩條都 exit=0。
+
+三條 lane 喺我發更正之前已經自己量到並改用 CI 形式。最壞情況冇發生（冇 lane 為咗令個 gate 變綠而去改 `legacy/`），
+但呢個係本輪最大嘅單一失誤 —— **一個錯 gate 乘以五**。
+
+根因（Lane E 追到）：`legacy/` 嘅排除只寫喺 `.pre-commit-config.yaml` 嘅 `exclude:`，**冇寫入 `[tool.ruff]`**，
+所以 bare `ruff check .` 永遠唔可能通過。已開 **CUI-0022**。
+
+---
+
+## 四次 lane 推翻 main agent 而且係啱嘅
+
+| 我寫 | 實測 |
+|---|---|
+| 「KML parser 直接喺 export path 上」 | `src/cli/export_data.py` **零 KML 引用**（只用 TCX + GPX）。即 static JSON gate **結構上捉唔到 KML regression**。Lane C 自己補 `activities_kml.jsonl` md5（`fd5e260f…` / 357 records），main agent 獨立重跑脗合 |
+| 「`metrics.py` 可以搬入 `legacy/`」 | `legacy/met.py` **已經存在**（127 行），而 `legacy/README.md:19` 寫住 `run365days.activities.metrics` 係**佢嘅取代品**。搬入去 = 將取代品擺返被取代品隔籬，仲會拖第 5 份 `datetime(1900,1,1)` idiom 入去，**而且 AU-024 嗰個重複唔會消失** |
+| 「CUI-0018 冇做溫度/濕度，因為加 WARNING 會撞爛兩條 exact-warning-count 斷言」 | **假**。兩個 fixture 都冇 unreadable 溫度/濕度，所以唔會多出 record。Lane D 對 `test_weather_collectors.py` 係**純新增、零刪改**，八條 exact-count 斷言全部原封不動 |
+| 「CUI-0003 要補一條真正行過 limiter 拒絕分支嘅測試」 | 嗰條測試 base 已經有（`build_schema(max_depth=2)` 真係會拒）。真正缺口係**佢只證明一個人為造淺嘅 schema 會拒絕，從未證明出貨嗰個會** |
+
+### AU-035 我自己亦冇照抄 audit —— 佢兩處寫錯
+
+| Audit 講 | 實際 |
+|---|---|
+| BMI 用 `config.BODY_HEIGHT_CM` | 用 `weight/analysis.py:21 _HEIGHT_CM_DEFAULT = 170.0`。而 `BODY_HEIGHT_CM` **零消費者**（AU-036 死常數） |
+| api 仲依賴 `export.sqlite`、`dashboard.builder` | `export.sqlite` ✅，但 **`dashboard.builder` 根本冇被 api import**（只有 `dashboard.stats`） |
+
+另外按 CUI-0015 嘅教訓，將散文入面兩個手維護嘅 test count（README 寫 93 / 87，實際 455 / 95）**刪走而唔係更新** ——
+一個由人手維護嘅數字係同 branch 名一樣嘅缺陷。
+
+---
+
+## 各 lane 值得記低嘅發現
+
+### CUI-0003 —— depth limiter 對 introspection 完全豁免
+
+Lane A 讀咗 `strawberry/extensions/query_depth_limiter.py` 而唔係靠估，揾到決定性事實：`is_introspection_key` 令 limiter
+**完全跳過 introspection**，實測 `max_depth=1` 之下完整 introspection query 照過。
+
+即係「留 headroom 保護 GraphiQL」呢個唯一理由**根本唔成立**。而喺一個 acyclic graph 加 introspection 豁免之下，
+**任何高過 graph 深度嘅 limit 都永遠拒絕唔到嘢**。所以夾到 `MAX_QUERY_DEPTH = 4`。
+
+三條測試取代原本一條，最有價值嗰條係**由已發佈嘅 SDL 推導最深 chain 再同常數比對**（而且對 cyclic graph 有斷言而唔係遞歸落去）。
+實測 tripwire 真係會響：喺 `RunWeather` 底下多加一層 composite →
+`AssertionError: deepest query the schema allows is ... at depth 5, but MAX_QUERY_DEPTH is 4`。
+
+**Lane A 自我更正咗一次**：佢第一版將 `track` field description 改成「first and last always included」——
+**正正就係 CUI-0004 要修嗰個 overclaim**。佢自己 revert 咗，將 edge case 全部放喺 `points` argument description，
+令兩段描述唔可能互相矛盾。
+
+### CUI-0005 —— 三個 main agent / QA 都漏咗嘅點
+
+1. **「第 ~134 個 request 開始爆」係浮動數** —— 實測第一次失敗喺 **request 50**。leaked Session 幾時被 GC 回收會影響幾時爆，
+   即係話呢個 bug 本身 flaky，更難查。
+2. **失敗係靜默嘅** —— pool 爆咗之後 HTTP status **仍然係 200**，錯誤收喺 `{'data': None, 'errors': [QueuePool limit...]}`。
+   任何只 check status code 嘅 harness 會報「400/400 全過」然後收到 341 個 unique id 當 365。已開 **CUI-0021**。
+3. **順帶拆咗一個 production 地雷** —— `get_context` 喺 `execute_operation` **之前**行，而 Strawberry 撞到 `HTTPException`
+   （malformed body / 冇 `query` / 錯 content-type）會**掉咗個 `sub_response`**，連 `call_on_close` 一齊掉。
+   今日只 leak 一個未用過嘅 Session（唔佔 connection），但只要將來有 code 喺 error 之前掂過 session 就即刻變真 leak。
+
+**否決咗 `NullPool` 方案**，理由講得準：嗰個係令 leak **變免費**而唔係修 lifecycle，session 照樣永遠唔 close。
+`src/api/db.py` 一行都冇改。
+
+### CUI-0008 + AU-039 —— 向量化 16x 而且一個 bit 都冇郁
+
+Main agent 獨立 A/B（134,744 座標，其中 37,565 個帶 `None`）：
+
+```
+old (DataFrame.apply)    2.412s
+new (vectorised)         0.170s
+bit-identical totals : 365 / 365
+identical seg counts : 365 / 365
+```
+
+我 brief 特別警告過嘅「浮點運算次序一變第 6 位小數就唔同」**冇出現** —— `np.sin` array-vs-scalar 喺呢個 build
+實測 20000/20000 bit-identical，而且刻意保留 pandas 嗰個會跳過 nan 嘅 `.sum()`，因為嗰個正正就係產生已 commit bytes 嘅實作。
+
+`geo.py:45` 嗰個函數體內 `import pandas`（為 API cold-start 而設）維持喺函數體內，並補返 AU-039 要求嘅 WHY comment。
+
+### CUI-0013 —— 真正嘅缺陷唔係 `print()`
+
+我 brief 將重點放喺 print vs logger。Lane D 指出嗰啲 print 係進度輸出、同 `process_activities.py` / `export_data.py` 一致，
+異常本來就已經行 module logger。**該檔案真正嘅缺陷係另一個**：
+
+`_write_jsonl` 喺**未知道 collector 有冇回嘢之前**就用 `"w"` 開目標檔 ——
+一個乜都攞唔到嘅 source 會將已 commit 嘅檔案 truncate 成空，然後 print `Wrote 0 records` 並 exit 0。
+即 AU-002 / S-005 同一個洞，而且係喺**唯一一個入口**，偏偏 CUI-0012 之後每個 guard 都將「頁面改版」轉成空 list。
+
+順帶：`data[11]` 係 collector 最後一個 all-or-nothing 讀取 —— 一行冇咗 wind block 就 `IndexError` 飛出 loop，賠上成年。
+而家記低日期再 skip。
+
+**溫度/濕度切片實測到嘅靜默錯**（同 CUI-0018 個 wind 完全同一家族）：
+
+```
+'52 °F' -> [:-2] -> '52 '  -> 報 52.0 °C      ← 華氏當攝氏
+'24'    -> [:-1] -> '2'    -> 報 2.0 %        ← 冇 % 號就食少一位
+```
+
+### CUI-0014 —— 三個量度支撐一個「接受現狀」
+
+1. 已 commit 資料上不可達（17,984 / 461 / 363 行，每個檔案剛好一個 distinct key set）
+2. `""` **本來就係呢個格式嘅 in-band 值**，唔係 reader 發明出嚟 —— `warnings.py` 自己寫 `icon_url=""`，
+   `tests/conftest.py` 亦有 literal `"Warning_Signal": ""`
+3. 改成 `str | None` 會將 `None` 塞入 `export/models.py` 嘅 `WeatherWarning.signal`（`Mapped[str]`，**NOT NULL**）——
+   即係用一個**真實**嘅型別衝突去換一個**不可達**嘅
+
+而且加咗 parametrised 測試每次重新量度 key-set 呢個前提，**前提唔再成立就會自動 reopen**。
+
+### CUI-0019 —— 方案 D 嘅決定性證據係「零 `.tsx` 消費」
+
+`numPoints` 由 `records.py` 一路行到 `mappers.ts`，三條前端 query 每次都攞，但 main agent 掃晒 `frontend/src` 全部
+`.ts` / `.tsx`：只出現喺 codegen 生成物、型別宣告、query 選欄、測試 fixture，**任何 `.tsx` 零出現**。
+
+所以 A（改語義）/ B（拆兩個欄位）/ C（補文件）三個方案都係**喺養一個冇人食嘅欄位**。呢個選項之所以到最後先講得出，
+正正因為「有冇人 render」呢點要掃過先知 —— 而三張前置票都冇掃。
+
+Lane 亦實測確認冇留半截：`PRAGMA table_info(activities)` 18 欄冇咗佢；
+`{ activities { numPoints } }` → `Cannot query field 'numPoints' on type 'Activity'.`；正常 query 照行。
+
+**AU-047 嘅捷徑至此永久消失**，真解法確定係 DataLoader 或 window function（見下面 AU-047 補充）。
+
+---
+
+## AU-047 補充（CUI-0019 lane 讀碼後嘅設計註記）
+
+`_even_sample_filter`（`src/api/service.py:162-191`）**已經砌緊一個 `row_number() OVER (ORDER BY seq)` subquery** ——
+即係 window function 嘅機件已經有一半喺度。一個 `PARTITION BY activity_id` 嘅單一 query 可以將 COUNT 同 sampling
+摺埋一個 round trip，同時消走 2N fan-out。**未做，只係註記。**
+
+---
+
+## 新開
+
+| ID | 級別 | 標題 | 來源 |
+|---|---|---|---|
+| **CUI-0021** | 🟡 Medium | 基建故障（pool 耗盡）回 HTTP **200** + `data: null` + `errors` —— 前端同監控都會當成功 | Lane B |
+| **CUI-0022** | 🟢 Low | `ruff check .` 永遠唔可能綠：`legacy/` 排除只寫喺 pre-commit，冇入 `[tool.ruff]` | Lane E |
+| **CUI-0023** | 🟢 Low | `dashboard/builder.py:31 downsample` 帶住同 CUI-0004 一模一樣嗰句 overclaim | Lane A |
+| **CUI-0024** | 🟢 Low | 兩個必須一致嘅手寫 `600` 分處兩種語言，冇任何 check | Lane A |
+| **CUI-0025** | 🟢 Low | `tests/conftest.py` 冇 socket guard —— 冇嘢阻止將來嘅測試打去 `127.0.0.1` 嘅 agent proxy | Lane A |
+| **CUI-0026** | 🟢 Low | `export_data.py --year` 一個 flag 三個無關語義，而且**完全冇 help text** | Lane C |
+| **CUI-0027** | 🟢 Low | 冇任何 CLI 設定 logging；`process_activities.py` 叫用戶「re-run with logging at WARNING」，但冇任何 flag 提供得到 | Lane D |
+| **CUI-0028** | 🟢 Low | `cli/export_schema.py` **0%**、`cli/check_ci_docs.py` 62% —— CUI-0013 為 `collect_weather.py` 補好嘅同一個缺口 | Lane D |
+
+### CUI-0024 詳情（Lane A 講得最清楚）
+
+```
+src/cli/export_data.py:27            DEFAULT_POINT_LIMIT = 600    （export 存幾多點）
+frontend/src/data/api/source.ts:20   DEFAULT_TRACK_POINTS = 600   （api mode 預設攞幾多點）
+```
+
+**今日相等純屬巧合。** 調高 export limit → static mode 嘅 `undefined` 會回超過 600，而 api mode 仍然回 600 ——
+**一個 S-011 形狀完全相同嘅新分歧，而且正正落喺 S-011 冇改嗰個 input 上。**
+
+### CUI-0026 詳情
+
+`src/cli/export_data.py:33` 嘅 `--year` 冇 help text，而且餵三個無關用途：
+`:52,:54` parser 嘅**下限過濾**、`:65` `parse_weight_file(year=)` 係**貼落 bare day/month 上嘅年份**（constructor 唔係 filter）、
+`:47` `config.daily_weight_file(args.year)` 係**檔案選擇器**。同 S-007 完全同一個形狀，只係高一層。
+
+---
+
+## 兩個仍然只有人手保證嘅項目（本 session 由頭到尾未確認過）
+
+1. GitHub → Settings → Environments → `github-pages` → Deployment branches 要容許 `develop`
+2. Vercel → Settings → Git → Production Branch 應為 `develop`
+
+`run365-ci-docs` 明確講明佢覆蓋唔到呢兩樣（喺 dashboard，checkout 讀唔到）。
