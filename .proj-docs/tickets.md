@@ -1,6 +1,6 @@
 # Ticket Registry — Run365Days
 
-**最後更新**：2026-09-14（P0 + Warning + CUI-0002 / 0001 / 0007 / 0010 / 0009 完成）
+**最後更新**：2026-09-14（AU-047 實測 + 修復；更正 Lane E 嘅 `num_points` 假設；分拆 AU-050）
 
 > 由 `/audit`（AU-NNN）同 `/review`（C/W/S-NNN）產生嘅 ticket 集中登記處。
 > 編號全局唯一、永不重用。已完成嘅保留紀錄，只改狀態。
@@ -27,6 +27,7 @@
 | **AU-047** | P1 | `Activity.track` N+1 fan-out 仍未解決 | Lane C 申報，main agent 核實 `src/api/schema.py:137-139` |
 | **AU-048** | P1 | epoch-ms path 語義錯 8 小時；測試常數係捏造 | Lane B 申報，證據見下 |
 | **AU-049** | P2 | `create_app(..., graphiql: bool = True)` 預設仍然開 | Lane C 申報 |
+| **AU-050** | P2 | `{ activities { track } }` 仍然係 2N round-trip（AU-047 加咗 budget 但冇 batch） | 2026-09-14 AU-047 實測分拆 |
 
 #### AU-047 — `Activity.track` N+1 fan-out
 
@@ -37,7 +38,25 @@ AU-001 修好咗**每次 query 嘅讀取放大**（SQL 層 stride，唔再讀晒
 
 單次請求資料量降咗一個數量級，但 500 次 query 嘅 round-trip 仍然要喺 15 秒 function 入面行完。
 
-**建議解法**：Strawberry DataLoader（keyed by `activity_id`），或 field-level complexity extension 去 bound `activities × points` 個乘積。
+**原建議解法**：Strawberry DataLoader（keyed by `activity_id`），或 field-level complexity extension 去 bound `activities × points` 個乘積。
+
+##### 2026-09-14 實測 —— 推翻「fan-out 係主因」
+
+建一個同真實 export 同形狀嘅 DB（365 activities × 600 stored points，17.1 MB SQLite），逐條 query 用 SQLAlchemy `before_cursor_execute` 數語句：
+
+| Query | SQL 語句數 | 耗時 | Track rows |
+|---|---|---|---|
+| `activities(limit: 365) { id }` | 2 | 0.01 s | 0 |
+| `+ track(points: 5)` | 732 | 0.60 s | 1,825 |
+| `+ track(points: 150)`（default） | 732 | 1.81 s | 54,750 |
+| `+ track(points: 1000)`（`MAX_TRACK_POINTS`） | **732** | **8.29 s** | **219,000** |
+| `activity(id) { track(points: 1000) }`（前端真實路徑） | 4 | 0.03 s | 600 |
+
+第 2 行同第 5 行係同一組 732 條 query、但差 217,175 行：**730 條額外 query 嘅 round-trip 成本只係 0.60 s，8.29 s 入面 93% 係 row materialisation。** 即係話 DataLoader 就算做到完美（732 → 2 條），最壞情況仍然 ~7.7 s，貼住 Vercel 15 秒 function 上限；真正冇 bound 嘅係 `activities × points` 個乘積本身。
+
+**採用方案（2026-09-14 用戶拍板）**：per-request track point budget（`MAX_TRACK_POINTS_PER_REQUEST`），喺 `Activity.track` resolver 按 requested points 扣數，扣爆即拒。直接 bound 最壞情況，零 SQL 取樣語義改動。DataLoader batching 另開 follow-up（見 AU-050）。
+
+**前端零影響**：`frontend/src/data/api/queries.ts` 由頭到尾冇發過 `activities { track }` —— `TrackQuery` 係單 activity。呢條係敵意 query 曝險，唔係 client 路徑。
 
 #### AU-048 — epoch-ms path 語義錯 8 小時（含捏造測試常數）
 
@@ -119,11 +138,27 @@ TCX 對同樣 8 個 id 全部解析成功（365/365），而 dashboard 係由 TC
 
 ### AU-047 補充（Lane E 發現）
 
-除咗 N+1 fan-out，`{ activities { track } }` 而家係 **2N** query —— 每個 activity 一個 COUNT 加一個 SELECT。`models.Activity.num_points` 已經存住該數目，可以直接消走個 COUNT；徹底解法係 window function。
+除咗 N+1 fan-out，`{ activities { track } }` 而家係 **2N** query —— 每個 activity 一個 COUNT 加一個 SELECT。~~`models.Activity.num_points` 已經存住該數目，可以直接消走個 COUNT~~；徹底解法係 window function。
+
+> ⛔ **2026-09-14 更正：「用 `num_points` 消走 COUNT」呢個假設係錯嘅，唔好照做。**
+>
+> `src/export/records.py:120` 嘅 `num_points = len(points)` 係 **downsample 之前**嘅原始點數，而 `records.py:230` 存落 DB 嘅係 `downsample(track_rows(...), point_limit)` 之後嘅行數（`run365-export` 預設 `DEFAULT_POINT_LIMIT = 600`，`src/cli/export_data.py:27`）。兩者只喺原始點數 ≤ 600 嗰陣先啱。
+>
+> **實測 365 個真實 TCX 嘅 `<Trackpoint>` 數**：min 250、median 366、**max 1,250**、**2 個 activity > 600**。即係話照做會令嗰批 activity 嘅 `_even_positions(total, points)` 用一個大過實際行數嘅 `total` 去計位置，downsample 位置全錯而且**唔會拋錯**（`seq IN (...)` 只係撈唔到嘢），係靜默資料錯誤。
+>
+> 要消個 COUNT 嘅話得兩條路：export 時另存一個 `stored_points` 欄位，或者用 `count(*) OVER (PARTITION BY activity_id)` 喺同一句 SQL 計。兩條都要先過 `test_track_samples_match_the_reference_downsampler`（佢將 SQL 取樣同 `dashboard.builder.downsample` 釘到完全一致）。實測顯示呢個 COUNT 只值成個最壞情況嘅 ~7%，唔值得為咗佢冒語義風險 —— 撥入 AU-050。
 
 ### AU-049 補充（實測確認）
 
 W-008 令 flag 喺 `schema.py` 讀取之後，`src/api/app.py:28` 嘅 `create_app(graphiql=True)` 成為**唯一一條可以喺 introspection 關閉之下仍然服務 IDE 嘅路徑**。實測：`create_app(graphiql=False)` GET → 404（生產路徑）；`create_app()` GET → **200**（預設值路徑）。目前潛伏 —— `api/graphql.py` 係唯一 production caller 且傳 `graphiql_enabled()`。
+
+### AU-050 — `{ activities { track } }` 嘅 2N round-trip（AU-047 分拆）
+
+AU-047 用 per-request budget 封住咗最壞情況嘅資料量，但冇改 fan-out 本身：每個 activity 仍然係 1 個 COUNT + 1 個 SELECT。實測值 0.60 s / 730 條額外 query（見 AU-047 實測表），即最壞情況嘅 ~7%。
+
+**點解唔喺 AU-047 一次過做**：唯一乾淨嘅 batch 寫法係 `row_number() OVER (PARTITION BY activity_id ORDER BY seq)` 加 `count(*) OVER (PARTITION BY activity_id)` 一句過；但 `_even_positions()` 嘅 `round(i * step)` 係 Python 層計，搬入 SQL 要保證 SQLite 嘅 rounding 同 Python round-half-even 完全一致，否則撞爆 `test_track_samples_match_the_reference_downsampler`（byte-level 釘死）。風險同工作量都遠高於佢慳嘅 7%。
+
+**做嘅時候順帶**：同一句 window function 可以一併消走 `_even_sample_filter()` 嗰個 COUNT（見上面「AU-047 補充」嘅更正 —— 唔可以用 `num_points` 代替）。
 
 ### `ActivitySkipped` 命名（需團隊決定）
 
