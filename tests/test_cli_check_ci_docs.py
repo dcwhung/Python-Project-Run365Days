@@ -53,7 +53,9 @@ def _write(tmp_path: Path, text: str) -> Path:
 
 
 def _run(*args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
+    # S603: the executable is sys.executable and the arguments come from the test
+    # body, not from input -- no shell, so nothing to inject through.
+    return subprocess.run(  # noqa: S603
         [sys.executable, "-m", "run365days.cli.check_ci_docs", *args],
         cwd=REPO,
         capture_output=True,

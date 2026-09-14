@@ -62,7 +62,11 @@ class KMLParser(BaseActivityParser):
             ActivityParseError: If a mandatory element is missing, or the file
                 carries no track points and therefore no start time.
         """
-        root = ET.parse(file_path).getroot()
+        # S314: the input is the user's own Garmin export on local disk
+        # (config.KML_DIR), never a network fetch or an upload, so an
+        # entity-expansion bomb would have to be self-planted. Moving to
+        # defusedxml is a dependency change rather than a lint change.
+        root = ET.parse(file_path).getroot()  # noqa: S314
 
         activity_id = file_path.stem.rsplit("_", 1)[-1]
         folder = root.find("ns:Folder", _NS)

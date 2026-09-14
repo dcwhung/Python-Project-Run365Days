@@ -108,6 +108,16 @@ select = [
     "SIM", # flake8-simplify
     "N",   # pep8-naming
     "D",   # pydocstyle (Google convention)
+    "S",   # flake8-bandit (security)
+    # api/graphql.py already carried two `# noqa: BLE001` directives with written
+    # justifications, so a previous author expected this rule to be on. It was not,
+    # which made those directives dead text. Enabling it adds no new finding --
+    # those two sites are the only ones -- and makes their reasoning load-bearing.
+    "BLE", # flake8-blind-except
+    # Every `# noqa` must suppress something that is actually enabled. Without this
+    # a directive keeps looking like a considered decision long after the rule it
+    # names is gone, and a reader has no way to tell the live ones from the fossils.
+    "RUF100", # unused noqa directive
 ]
 ignore = [
     "D105", # magic methods need no docstring
@@ -115,7 +125,11 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["D"]                  # test names are the documentation
+# S101 only, never the whole "S" prefix: `assert` is how a pytest test states its
+# expectation, and pytest rewrites the statement to produce the failure message, so
+# banning it would ban testing. Every other security rule still applies to tests --
+# a hardcoded password or an unsafe deserialisation in a fixture is still a finding.
+"tests/*" = ["D", "S101"]          # test names are the documentation; assert is the idiom
 "src/cli/*" = ["D103"]             # main() is described by the module docstring
 "src/api/schema.py" = ["D101", "D102"]  # GraphQL types carry descriptions in the schema
 "api/*" = ["D"]

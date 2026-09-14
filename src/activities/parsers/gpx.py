@@ -55,7 +55,11 @@ class GPXParser(BaseActivityParser):
                 or is not a running activity.
             ActivityParseError: If a mandatory element is missing.
         """
-        root = ET.parse(file_path).getroot()
+        # S314: the input is the user's own Garmin export on local disk
+        # (config.GPX_DIR), never a network fetch or an upload, so an
+        # entity-expansion bomb would have to be self-planted. Moving to
+        # defusedxml is a dependency change rather than a lint change.
+        root = ET.parse(file_path).getroot()  # noqa: S314
 
         activity_id = file_path.stem.rsplit("_", 1)[-1]
 
