@@ -79,6 +79,34 @@ packages = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
+# The threshold lives here rather than as a --cov-fail-under flag in the workflow,
+# for the reason AU-010 exists: a number kept in CI is a number a developer running
+# the suite locally does not have, and the two drift. `pytest --cov` now enforces
+# exactly what CI enforces.
+[tool.coverage.run]
+source = ["src"]
+
+[tool.coverage.report]
+show_missing = true
+# 90, chosen against the measured distribution rather than by taste. The suite
+# covers 1733 of 1843 statements, 94.031%, and 78 of the 110 misses sit in two CLI
+# entry points (check_ci_docs, export_schema); the rest of src/ is at or near 100%.
+#
+# Not 94: the margin there is 0.03 percentage points, which is zero statements. The
+# first legitimate uncovered line -- a defensive branch, an error path -- turns CI
+# red, and a gate that fires on correct work gets lowered or deleted rather than
+# obeyed. That is a tripwire, not a gate.
+#
+# Not 80, the DoD floor: it would admit 259 uncovered statements, 149 more than
+# today, so the core could lose its tests entirely without the gate ever firing.
+# Restating a floor nothing approaches is not a check.
+#
+# 90 allows 184 misses, 74 more than today: about one substantial module merged
+# with no tests at all, which is the event worth catching, while absorbing the
+# handful of uncovered lines that normal work adds. It is also 10 points clear of
+# the DoD, so the DoD is satisfied with room rather than balanced on the edge.
+fail_under = 90
+
 [tool.ruff]
 line-length = 100
 # No target-version here. It used to say "py310" beside a requires-python of
