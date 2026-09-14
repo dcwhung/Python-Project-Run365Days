@@ -105,7 +105,7 @@ TCX 對同樣 8 個 id 全部解析成功（365/365），而 dashboard 係由 TC
 | ID | 優先 | 標題 | 來源 |
 |---|---|---|---|
 | **W-011** | P1 | `workflow_dispatch` 由任何 branch 都會做 production Pages 部署 | ✅ **Done** `12ad224`（隨 AU-004 調整一併關閉） |
-| **S-005** | P2 | `src/cli/process_activities.py:55-58` 寫 0 行 JSONL 仍然 exit 0 | Lane D |
+| **S-005** | P2 | `src/cli/process_activities.py:55-58` 寫 0 行 JSONL 仍然 exit 0 | ✅ **Done** `2d69a9d` |
 | **S-007** | P2 | `_SUMMARY_ROW_COLSPAN` 喺 `kml.py` 身兼三個無關語義（:130 colspan、:132 min cells、:148 min coordinate parts） | Lane D |
 | **S-009** | P3 | KML 時間戳被解析兩次 | Lane D |
 | **S-011** | P2 | static mode 仍然當 `points: 0` 為「攞全部」，api mode 已拒絕 —— 兩個 data mode 對同一個 `useTrack(id, 0)` 行為不一致 | Lane E |
@@ -681,7 +681,7 @@ date-only `"2021-10-17"` 之前 raise，而家回午夜。現行資料唔可達�
 
 | ID | 級別 | 標題 | 狀態 |
 |---|---|---|---|
-| **CUI-0018** | 🟡 Medium | `hourly.py:112` wind `find("°")` —— `-1` sentinel 係 load-bearing，refactor 就會靜默出錯 | pending |
+| **CUI-0018** | 🟡 Medium | `hourly.py:112` wind `find("°")` —— `-1` sentinel 係 load-bearing，refactor 就會靜默出錯 | ✅ **Done** `f6dce6b` |
 
 ---
 
@@ -751,3 +751,71 @@ PyYAML 喺呢個環境只係 pre-commit 嘅 transitive，**唔係 package 宣告
 **冇覆蓋而且明講咗**：Vercel production branch（喺 dashboard，checkout 讀唔到）、`github-pages` environment rule（同上）、`tag-release.yml` 嘅 `ref` default（tool 只讀 `pages.yml`）。六件人手項目全部保住，其中兩件 repo 外嘅仍然標明人手。
 
 順帶刪咗 `architecture.md` 嘅「(133 tests)」—— 實際 381，而**散文入面手維護嘅數字係同一個缺陷嘅縮影**，唔值得為佢再開一個 gate。
+
+---
+
+## CUI-0018 + S-005 修復摘要（2026-09-14）
+
+| 指標 | 目前 |
+|---|---|
+| Tests | **392 passed**（381 → 385 → 392） |
+| Coverage TOTAL | 93% |
+| `src/cli/process_activities.py` | 56% → **96%** |
+| 三個 collector + `html_reads.py` | 維持 **100%** |
+| Static JSON vs `1896778` | byte-identical |
+
+### CUI-0018 —— 舊 code 唔止靜默，係**靜默俾一個錯嘅數字**
+
+Ticket 寫「最壞情況回 `None`」。實測更差：
+
+```
+舊 code: 'Variable at 20 mph' -> 切出 '2' -> 回 2.0 Km/h
+```
+
+`.replace()` 掃走前綴之後 `[:-5]` 多食一個位，所以一個寫住 20 mph 嘅 cell 會報 **2.0 Km/h**。Main agent 獨立重現。
+
+修復後：`24.0` / `20.0` / `None` + WARNING（「states neither a bearing nor a variable direction」）。
+
+**揀 regex 而唔係 `if "Variable at" in ...` 分支**，第一條理由最有力：分支寫法**唔會真係移走 sentinel** —— bearing 路徑仍然要搵 `°`，即係要自己加 `find(...) != -1` guard，等於將要拆走嗰個算術重新 import 再貼膠布。
+
+速度 pattern 用 `\d+(?:\.\d+)?` 而唔係 `[\d.]+` —— match 到就保證 parse 到，所以 cast 用純 `float()`；用 `to_float()` 會加一個**永遠唔會觸發嘅 guard**。
+
+**F-2 部分做並講得出界線**：wind 個 `[:-5]` 順手做咗（regex 自然帶出，而且令第三個 case 可示範）；temperature `[:-2]` / humidity `[:-1]` **冇做**，因為加 WARNING 會撞爛兩條現有「exact warning count == 1」斷言，diff 翻倍。
+
+**一個誠實嘅未知**：`'Calm'` 回 `None` + WARNING（同舊 code 一樣，冇回歸）。Developer 指出語義上應該係 `0 Km/h`，但**冇編呢個映射** —— 冇證據該 form 存在，而憑空加映射就係呢張票要拆走嗰種估估下。
+
+✅ **`find()` / `-1` 家族四個實例到此全部處理完**（CUI-0012 ×1、CUI-0017 ×2、CUI-0018 ×1）。
+
+### S-005 —— 三個判斷位都揀得有理由
+
+| 判斷 | 決定 | 理由 |
+|---|---|---|
+| 「0 條」vs「357/365」 | **只睇 `len == 0`**，冇門檻 | 冇 magic number 要維護，357 亦唔可能漂入範圍 |
+| 零記錄時寫唔寫 | **唔寫** | 將舊有好檔案 truncate 成空再 exit 非零，比原本個 bug 更差。`export_data` 亦係喺 write 之前 exit |
+| `--format all` 一個空 | **跑埋三個先報** | 三個 format 互相獨立；「全部空」= `RUN365_DATA_DIR`/年份錯，「一個空」= 嗰個 parser/資料夾問題 —— **fail-fast 會毀掉呢個分辨訊號** |
+
+Main agent 獨立驗證三個情境（**注意：要避開 pipeline `$?` 陷阱**，`cmd \| tail` 攞到嘅係 `tail` 嘅退出碼）：
+
+```
+正常年份 2021    exit=0   KML 357（冇誤觸發）
+零記錄 2030      exit=1   列出三個 format，冇寫任何檔案
+目錄唔存在        exit=0   維持 continue，唔算失敗
+```
+
+---
+
+## 新開
+
+| ID | 級別 | 標題 | 狀態 |
+|---|---|---|---|
+| **CUI-0020** | 🟢 Low | `--year` help text 講「其他年份會 skip」，實際係**下限**過濾（`year < current_year` 先 skip） | pending |
+
+實測：`--year 1999` 保留全部 365 條 2021 activity。Developer 就係因為呢點，砌真實零記錄案例時要用 `2030` 而唔係 `1999`。
+
+### S-005 順帶回答咗一個我叫佢諗嘅問題
+
+我問「呢個 CLI 輸出冇下游消費者，加 guard 係咪令佢定位更尷尬」。佢答：**係，而且 guard 令矛盾更尖銳而唔係解決咗**。
+
+`grep` 確認 `TCX_JSON` / `GPX_JSON` / `KML_JSON` 三個 config 常數**只被 `process_activities.py` 自己引用**。加完 guard 之後，呢個 CLI 誠實嘅描述係「一個順便留低三個檔案嘅 parser smoke-test」—— 佢唯一真實價值係**全 repo 唯一行使 `KMLParser` 嘅入口**，而 guard 正正將呢點變成一個真檢查。
+
+兩個自洽嘅終局（另開一票）：(a) 正式變成驗證指令；(b) 令 `export_data` 讀呢啲 jsonl 而唔係重新 parse，同時消除雙重 parse。**唔應該**維持現狀 —— 一個產出冇人讀嘅 CLI。
