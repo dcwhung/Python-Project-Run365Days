@@ -1,4 +1,13 @@
+import json
+
+import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
+
+from run365days.export import models
 from run365days.export.records import TRACK_COLUMNS, activity_record, build_records
+from run365days.export.sqlite import sqlite_url, write_sqlite
+from run365days.export.static_json import write_static_json
 
 
 def test_activities_sorted_by_start(sample_records):
@@ -95,3 +104,65 @@ def test_activity_record_without_points():
     assert rec["elevation_min_m"] is None
     assert rec["ascent_m"] == 0
     assert rec["has_gps"] is False
+
+
+# ── CUI-0001: the record layer is the last line before the two writers diverge ──
+_PARITY_FIELDS = (
+    "distance_km",
+    "duration_sec",
+    "pace_sec_per_km",
+    "avg_cadence",
+    "avg_temp_c",
+    "elevation_min_m",
+    "elevation_max_m",
+    "ascent_m",
+)
+
+
+def _poisoned_records():
+    """Records whose summary numbers are non-finite, as if a parser guard leaked."""
+    from tests.conftest import make_activity
+
+    activity = make_activity(
+        "p",
+        distance_km=float("inf"),
+        distance_by_coord_km=float("nan"),
+        total_sec=float("inf"),
+    )
+    gpx = make_activity("p", avg_temp=float("inf"))
+    return build_records(
+        2021, [activity], [gpx], [], [], [], [], generated_at="2026-01-01T00:00:00"
+    )
+
+
+@pytest.mark.parametrize("field", ["distance_km", "duration_sec"])
+def test_not_null_columns_stay_numeric_when_the_source_value_is_not_finite(field):
+    # These two are NOT NULL in the SQLite schema, so mapping them to None would
+    # trade the crash in one writer for a crash in the other.
+    assert isinstance(_poisoned_records().activities[0][field], (int, float))
+
+
+def test_non_numeric_summary_values_are_dropped_rather_than_raising():
+    from tests.conftest import make_activity
+
+    gpx = make_activity("p", avg_temp="not a number")
+    assert activity_record(make_activity("p"), gpx, None, [])["avg_temp_c"] is None
+
+
+def test_nullable_columns_become_none_when_the_source_value_is_not_finite():
+    record = _poisoned_records().activities[0]
+    assert record["pace_sec_per_km"] is None
+    assert record["avg_temp_c"] is None
+
+
+def test_both_writers_agree_on_an_activity_carrying_non_finite_numbers(tmp_path):
+    records = _poisoned_records()
+    write_static_json(records, tmp_path / "static")
+    write_sqlite(records, tmp_path / "run365.db")
+
+    static_row = json.loads((tmp_path / "static" / "activities.json").read_text())[0]
+    with Session(create_engine(sqlite_url(tmp_path / "run365.db", read_only=True))) as session:
+        stored = session.get(models.Activity, "p")
+        db_row = {field: getattr(stored, field) for field in _PARITY_FIELDS}
+
+    assert {field: static_row[field] for field in _PARITY_FIELDS} == db_row

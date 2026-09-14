@@ -2,6 +2,7 @@ import logging
 import sys
 import xml.etree.ElementTree as ET
 import zoneinfo
+from pathlib import Path
 
 import pytest
 
@@ -10,6 +11,7 @@ from run365days.activities.parsers.base import (
     ActivitySkipped,
     optional_float,
     optional_int,
+    parse_finite_float,
     required_text,
 )
 from run365days.activities.parsers.gpx import GPXParser
@@ -366,3 +368,109 @@ class TestParseAllWithoutTimeZoneDatabase:
         with pytest.raises(MissingTimeZoneDataError) as excinfo:
             TCXParser(CHALLENGE_YEAR).parse_all(fixtures_dir)
         assert "tzdata" in str(excinfo.value)
+
+    def test_should_not_catch_an_environment_error_raised_from_a_parser(
+        self, fixtures_dir, monkeypatch
+    ):
+        # CUI-0002 relies on MissingTimeZoneDataError being a RuntimeError that no
+        # parse_all except branch can absorb. Pin the property on the base class so
+        # a later widening of that list has to break this test to break CUI-0002.
+        parser = TCXParser(CHALLENGE_YEAR)
+        monkeypatch.setattr(
+            parser, "parse", lambda fp: (_ for _ in ()).throw(RuntimeError("environment fault"))
+        )
+        with pytest.raises(RuntimeError, match="environment fault"):
+            parser.parse_all(fixtures_dir)
+
+
+@pytest.fixture
+def non_finite_dir(fixtures_dir) -> Path:
+    """One healthy export per format beside the non-finite variants of each."""
+    return fixtures_dir / "non_finite"
+
+
+class TestNonFiniteRequiredValues:
+    """CUI-0001: a mandatory reading has no ``None`` to fall back to.
+
+    ``optional_float`` answers a non-finite reading with ``None`` (W-005), but a
+    mandatory one has no such answer, so the file itself is unreadable. Letting it
+    through split the two deployment targets: the static writer refused ``inf``
+    while SQLite stored it, and ``nan`` was silently summed away to zero in both.
+    """
+
+    _BAD_TCX = [
+        "time_nan_1102.tcx",
+        "time_inf_1103.tcx",
+        "time_neg_inf_1104.tcx",
+        "dist_nan_1105.tcx",
+        "dist_inf_1106.tcx",
+        "dist_neg_inf_1107.tcx",
+    ]
+
+    @pytest.mark.parametrize("name", _BAD_TCX)
+    def test_should_raise_parse_error_when_a_tcx_lap_total_is_not_finite(
+        self, non_finite_dir, name
+    ):
+        with pytest.raises(ActivityParseError, match="finite"):
+            TCXParser(CHALLENGE_YEAR).parse(non_finite_dir / name)
+
+    def test_should_keep_the_healthy_tcx_when_six_others_are_not_finite(
+        self, non_finite_dir, caplog
+    ):
+        with caplog.at_level(logging.WARNING, logger="run365days.activities.parsers.base"):
+            activities = TCXParser(CHALLENGE_YEAR).parse_all(non_finite_dir)
+        assert [a.activity_id for a in activities] == ["1101"]
+        warned = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(warned) == len(self._BAD_TCX)
+        assert set(self._BAD_TCX) == {r.getMessage().split()[1].rstrip(":") for r in warned}
+
+    def test_should_raise_parse_error_when_a_mandatory_reading_is_not_a_number(self):
+        with pytest.raises(ActivityParseError, match="is not a number"):
+            parse_finite_float("abc", "lap distance")
+
+    @pytest.mark.parametrize("name", ["lat_inf_2102.gpx", "lon_nan_2103.gpx"])
+    def test_should_raise_parse_error_when_a_gpx_coordinate_is_not_finite(
+        self, non_finite_dir, name
+    ):
+        with pytest.raises(ActivityParseError, match="finite"):
+            GPXParser(CHALLENGE_YEAR).parse(non_finite_dir / name)
+
+    def test_should_keep_the_healthy_gpx_when_coordinates_are_not_finite(self, non_finite_dir):
+        activities = GPXParser(CHALLENGE_YEAR).parse_all(non_finite_dir)
+        assert [a.activity_id for a in activities] == ["2101"]
+
+    @pytest.mark.parametrize("name", ["dist_inf_3102.kml", "coord_nan_3103.kml"])
+    def test_should_raise_parse_error_when_a_kml_required_number_is_not_finite(
+        self, non_finite_dir, name
+    ):
+        with pytest.raises(ActivityParseError, match="finite"):
+            KMLParser(CHALLENGE_YEAR).parse(non_finite_dir / name)
+
+    def test_should_keep_the_healthy_kml_when_required_numbers_are_not_finite(self, non_finite_dir):
+        activities = KMLParser(CHALLENGE_YEAR).parse_all(non_finite_dir)
+        assert [a.activity_id for a in activities] == ["3101"]
+
+    @pytest.mark.filterwarnings("ignore:overflow encountered in reduce:RuntimeWarning")
+    def test_should_raise_parse_error_when_finite_lap_times_sum_to_infinity(self, tmp_path):
+        # Guarding each reading is not enough: two finite laps can still overflow
+        # to inf in the sum, and int(inf) is the OverflowError that used to abort
+        # the whole run. The aggregate carries the same guarantee as its inputs.
+        lap = """
+      <Lap StartTime="2021-01-08T04:04:52.000Z">
+        <TotalTimeSeconds>1.5e308</TotalTimeSeconds>
+        <DistanceMeters>2000.0</DistanceMeters>
+      </Lap>"""
+        (tmp_path / "activity_1108.tcx").write_text(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<TrainingCenterDatabase xmlns="http://www.garmin.com/xmlschemas/'
+            'TrainingCenterDatabase/v2">\n'
+            "  <Activities>\n"
+            '    <Activity Sport="Running">\n'
+            "      <Id>2021-01-08T04:04:52.000Z</Id>"
+            f"{lap}{lap}\n"
+            "    </Activity>\n"
+            "  </Activities>\n"
+            "</TrainingCenterDatabase>\n"
+        )
+        with pytest.raises(ActivityParseError, match="finite"):
+            TCXParser(CHALLENGE_YEAR).parse(tmp_path / "activity_1108.tcx")

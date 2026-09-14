@@ -19,6 +19,7 @@ from run365days.activities.parsers.base import (
     element_text,
     optional_float,
     optional_int,
+    parse_finite_float,
     required_text,
 )
 from run365days.common.geo import total_track_distance
@@ -103,7 +104,12 @@ class GPXParser(BaseActivityParser):
 
     @staticmethod
     def _track_points(trk: ET.Element) -> list[TrackPoint]:
-        """Return the track's points, skipping any without a timestamp or position."""
+        """Return the track's points, skipping any without a timestamp or position.
+
+        Raises:
+            ActivityParseError: If a point carries a coordinate that is present
+                but not a finite number.
+        """
         points = []
         for trkpt in trk.findall(".//ns:trkpt", _NS):
             # ele and the TrackPointExtension block are optional in GPX 1.1;
@@ -115,8 +121,8 @@ class GPXParser(BaseActivityParser):
 
             points.append(
                 TrackPoint(
-                    lat=float(lat),
-                    lon=float(lon),
+                    lat=parse_finite_float(lat, "trkpt lat"),
+                    lon=parse_finite_float(lon, "trkpt lon"),
                     time=parse_datetime(time_text).strftime(_TIMESTAMP_FORMAT),
                     elevation=optional_float(trkpt, "ns:ele", _NS),
                     temperature=optional_float(trkpt, ".//ns3:atemp", _NS),
