@@ -46,6 +46,21 @@ class TestParseWeightFile:
         f.write_text("some random text\n154.8 lbs (1/1)\nmore text\n")
         records = parse_weight_file(f, year=2021)
         assert len(records) == 1
+        # Counting skipped lines would make this weigh-in the second one.
+        assert records[0].day_number == 1
+
+    def test_numbers_weigh_ins_rather_than_file_lines(self, tmp_path):
+        f = tmp_path / "noisy.txt"
+        f.write_text("# exported from the scale app\n154.8 lbs (1/1)\n\n153.6 lbs (2/1)\n")
+        records = parse_weight_file(f, year=2021)
+        assert [r.day_number for r in records] == [1, 2]
+        assert [r.date for r in records] == ["2021-01-01", "2021-01-02"]
+
+    def test_numbers_stay_consecutive_across_a_gap_in_the_calendar(self, tmp_path):
+        f = tmp_path / "gap.txt"
+        f.write_text("154.8 lbs (1/1)\n153.6 lbs (9/3)\n")
+        records = parse_weight_file(f, year=2021)
+        assert [r.day_number for r in records] == [1, 2]
 
 
 class TestBuildDataframe:

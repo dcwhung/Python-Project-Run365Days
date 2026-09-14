@@ -21,6 +21,28 @@ __all__ = [
 _HEIGHT_CM_DEFAULT = 170.0
 
 
+_DATED_LINE = re.compile(r"([\d.]+)\s*lbs\s*\((\d+)/(\d+)\)")
+_UNDATED_LINE = re.compile(r"^\s*([\d.]+)\s*lbs\s*$")
+
+
+def _read_weigh_in(
+    line: str, year: int, last_date: datetime | None
+) -> tuple[float, datetime] | None:
+    """Read one file line as ``(weight_lbs, date)``, or ``None`` if it is not a weigh-in.
+
+    An undated weight is dated the day after *last_date*; with no dated record
+    before it there is nothing to count from, so the line is not a weigh-in.
+    """
+    dated = _DATED_LINE.search(line)
+    if dated:
+        day, month = int(dated.group(2)), int(dated.group(3))
+        return float(dated.group(1)), datetime(year, month, day)
+    undated = _UNDATED_LINE.match(line)
+    if not undated or last_date is None:
+        return None
+    return float(undated.group(1)), last_date + timedelta(days=1)
+
+
 def parse_weight_file(
     file_path: Path,
     year: int | None = None,
@@ -33,6 +55,11 @@ def parse_weight_file(
     final entry is often written this way) is taken as the day after the
     previous dated record. Lines that match neither form are skipped.
 
+    ``day_number`` counts the weigh-ins kept, not the lines read: numbering by
+    line meant a header or a blank line shifted every number after it, so a
+    file starting with one comment produced day numbers 2 and 3 for the first
+    and second weigh-ins (AU-007).
+
     Args:
         file_path: Path to the text file.
         year: Calendar year for the day/month values (default: current year).
@@ -44,35 +71,22 @@ def parse_weight_file(
     if year is None:
         year = datetime.today().year
 
-    pattern = re.compile(r"([\d.]+)\s*lbs\s*\((\d+)/(\d+)\)")
-    undated = re.compile(r"^\s*([\d.]+)\s*lbs\s*$")
     records: list[WeightRecord] = []
     last_date: datetime | None = None
-
     with open(file_path) as f:
-        for day_number, line in enumerate(f, start=1):
-            match = pattern.search(line)
-            if match:
-                weight_lbs = float(match.group(1))
-                day = int(match.group(2))
-                month = int(match.group(3))
-                date_obj = datetime(year, month, day)
-            else:
-                match = undated.match(line)
-                if not match or last_date is None:
-                    continue
-                weight_lbs = float(match.group(1))
-                date_obj = last_date + timedelta(days=1)
-            last_date = date_obj
+        for line in f:
+            weigh_in = _read_weigh_in(line, year, last_date)
+            if weigh_in is None:
+                continue
+            weight_lbs, last_date = weigh_in
             weight_kg = weight_lbs * 0.454
-            bmi = weight_kg / ((height_cm / 100) ** 2)
             records.append(
                 WeightRecord(
-                    day_number=day_number,
-                    date=date_obj.strftime("%Y-%m-%d"),
+                    day_number=len(records) + 1,
+                    date=last_date.strftime("%Y-%m-%d"),
                     weight_lbs=weight_lbs,
                     weight_kg=round(weight_kg, 2),
-                    bmi=round(bmi, 2),
+                    bmi=round(weight_kg / ((height_cm / 100) ** 2), 2),
                 )
             )
     return records
