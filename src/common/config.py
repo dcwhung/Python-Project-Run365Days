@@ -20,7 +20,10 @@ GARMIN_DIR = RAW_DIR / "garmin"
 TCX_DIR = GARMIN_DIR / "tcx"
 GPX_DIR = GARMIN_DIR / "gpx"
 KML_DIR = GARMIN_DIR / "kml"
-SUMMARIZED_ACTIVITIES_JSON = GARMIN_DIR / "summarized_activities.json"
+# No SUMMARIZED_ACTIVITIES_JSON. The file is there and docs/data-pipeline.md
+# lists it as not yet consumed, which is the honest place to say so; a constant
+# here says something stronger and false, because this module is where a reader
+# looks to find out where the data it loads comes from (AU-036).
 
 # Normalised activity output (one JSON object per line)
 TCX_JSON = PROCESSED_DIR / "activities_tcx.jsonl"
@@ -28,6 +31,12 @@ GPX_JSON = PROCESSED_DIR / "activities_gpx.jsonl"
 KML_JSON = PROCESSED_DIR / "activities_kml.jsonl"
 
 # Weather sources (one JSON object per line)
+#
+# SUN_MOON_JSON was on the same dead-path list as the two constants deleted
+# above and came off it rather than being spared: AU-037 gave SunMoon a
+# collector, so run365-weather --source sun-moon now writes this file. Had the
+# two tickets been settled in the other order it would have been deleted and
+# immediately added back.
 WEATHER_DIR = RAW_DIR / "weather"
 WEATHER_HISTORY_JSON = WEATHER_DIR / "weather_history.json"
 WEATHER_WARNING_JSON = WEATHER_DIR / "weather_warning_history.json"
@@ -35,8 +44,12 @@ SUN_MOON_JSON = WEATHER_DIR / "sun_moon_rise_set_history.json"
 HKO_DAILY_JSON = WEATHER_DIR / "hko_daily_weather_extract.json"
 
 # Body weight
+#
+# No DAILY_WEIGHT_JSON. It named data/processed/daily_weight.jsonl, which no
+# code wrote and no code read; that directory has never held anything but a
+# .gitkeep. The weigh-ins go straight from the text file below into the export
+# (AU-036).
 WEIGHT_DIR = RAW_DIR / "weight"
-DAILY_WEIGHT_JSON = PROCESSED_DIR / "daily_weight.jsonl"
 
 # Processed data set (run365-export)
 PROCESSED_DB = PROCESSED_DIR / "run365.db"

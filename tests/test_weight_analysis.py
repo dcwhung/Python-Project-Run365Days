@@ -1,7 +1,17 @@
+import subprocess
+import sys
+from datetime import datetime
+
 import pytest
 
 from run365days.common.config import BODY_HEIGHT_CM, LBS_TO_KG
-from run365days.weight.analysis import build_dataframe, parse_weight_file
+from run365days.weight import analysis
+from run365days.weight.analysis import parse_weight_file
+
+# What the API already refuses to load (tests/test_api_imports.py). The weight
+# package is held to the same list so the two cannot drift into disagreeing
+# about which dependencies count as the parsing stack.
+PARSING_STACK = ("pandas", "numpy", "lxml", "bs4", "requests")
 
 _SAMPLE_WEIGHT_DATA = """\
 154.8 lbs (1/1)
@@ -73,34 +83,58 @@ class TestParseWeightFile:
         records = parse_weight_file(f, year=2021)
         assert [r.day_number for r in records] == [1, 2]
 
+    def test_dates_an_undated_final_weigh_in_to_the_day_after(self, tmp_path):
+        f = tmp_path / "trailing.txt"
+        f.write_text("154.8 lbs (1/1)\n153.6 lbs\n")
+        records = parse_weight_file(f, year=2021)
+        assert [r.date for r in records] == ["2021-01-01", "2021-01-02"]
 
-class TestBuildDataframe:
-    def test_full_year_length(self, weight_file):
-        records = parse_weight_file(weight_file, year=2021)
-        df = build_dataframe(records, year=2021)
-        assert len(df) == 365
+    def test_skips_an_undated_weigh_in_with_no_dated_record_before_it(self, tmp_path):
+        # Nothing to count from, so the line is not a weigh-in at all.
+        f = tmp_path / "headless.txt"
+        f.write_text("153.6 lbs\n154.8 lbs (1/1)\n")
+        records = parse_weight_file(f, year=2021)
+        assert [r.date for r in records] == ["2021-01-01"]
 
-    def test_plus_minus_column(self, weight_file):
-        records = parse_weight_file(weight_file, year=2021)
-        df = build_dataframe(records, year=2021)
-        # day 1 to day 2: 154.8 -> 153.6 = decrease (-)
-        assert df.iloc[1]["+/-"] == "-"
-        # day 2 to day 3: 153.6 -> 154.2 = increase (+)
-        assert df.iloc[2]["+/-"] == "+"
+    def test_dates_against_the_current_year_when_none_is_given(self, tmp_path):
+        # The default is read at call time, so it is pinned against the clock
+        # rather than a literal year that would rot every January.
+        f = tmp_path / "undated_year.txt"
+        f.write_text("154.8 lbs (1/1)\n")
+        records = parse_weight_file(f)
+        assert records[0].date == f"{datetime.today().year}-01-01"
 
-    def test_carries_the_parsed_kg_and_bmi_at_a_non_default_height(self, tmp_path):
-        # The two steps of the pipeline must agree: parse_weight_file is told the
-        # height, so build_dataframe may not quietly re-derive BMI at another one.
-        f = tmp_path / "tall.txt"
-        f.write_text(_SAMPLE_WEIGHT_DATA)
-        records = parse_weight_file(f, year=2021, height_cm=180)
-        df = build_dataframe(records, year=2021)
-        assert [df.iloc[i]["BMI"] for i in range(len(records))] == [r.bmi for r in records]
-        assert [df.iloc[i]["Weight_(kg)"] for i in range(len(records))] == [
-            r.weight_kg for r in records
-        ]
 
-    def test_leaves_a_day_without_a_weigh_in_blank(self, weight_file):
-        df = build_dataframe(parse_weight_file(weight_file, year=2021), year=2021)
-        assert df.iloc[6]["Weight_(kg)"] == "/"
-        assert df.iloc[6]["BMI"] == "/"
+class TestPublicSurface:
+    """AU-029: ``weight`` publishes what production calls, and nothing else.
+
+    ``build_dataframe``, ``monthly_summary``, ``weekday_summary`` and
+    ``describe_weight`` were the ported half of
+    ``legacy/05_GetDailyWeightSummary.py`` that only ever printed to a console
+    and drew matplotlib figures. They were exported as package API, and in that
+    shape they had no caller at all: ``cli/export_data.py`` imports
+    ``parse_weight_file`` and nothing else, three of the four had no test
+    either, and the fourth was reachable only from its own tests.
+
+    They were also the whole reason this package needed pandas and numpy, so
+    dropping them is a real narrowing rather than a tidy-up -- the same trade
+    AU-023 made when it deleted ``activities/metrics.py`` outright.
+    """
+
+    def test_the_module_publishes_only_what_production_calls(self):
+        assert analysis.__all__ == ["WeightRecord", "parse_weight_file"]
+
+    def test_importing_the_weight_package_loads_no_parsing_dependency(self):
+        # A subprocess, not sys.modules: this test session has pandas loaded
+        # long before it gets here, so only a fresh interpreter can answer.
+        code = (
+            "import sys; import run365days.weight.analysis, run365days.weight.models; "
+            f"heavy = [m for m in {PARSING_STACK!r} if m in sys.modules]; "
+            "print(','.join(heavy))"
+        )
+        # S603: argument list is a literal, the executable is sys.executable, and
+        # no shell is involved -- there is no untrusted input to inject through.
+        out = subprocess.run(  # noqa: S603
+            [sys.executable, "-c", code], capture_output=True, text=True, check=True
+        )
+        assert out.stdout.strip() == "", f"weight import loaded: {out.stdout.strip()}"

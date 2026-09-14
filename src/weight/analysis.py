@@ -1,11 +1,23 @@
-"""Daily weight analysis: parsing, derived metrics, and summaries."""
+"""Daily weight parsing.
+
+Only the parse step lives here. The module used to publish four more
+functions -- ``build_dataframe``, ``monthly_summary``, ``weekday_summary`` and
+``describe_weight`` -- ported from the half of
+``legacy/05_GetDailyWeightSummary.py`` that printed tables to a console and
+drew matplotlib figures. Ported into a package they became public API with no
+caller: ``cli/export_data.py`` imports ``parse_weight_file`` and nothing else,
+and the API reads weight through ``WeightRecord``. Three of the four never had
+a test; the fourth was reachable only from its own (AU-029).
+
+They were also the only reason this package imported pandas and numpy, so
+removing them leaves ``weight`` importable from the stdlib alone --
+``tests/test_weight_analysis.py`` keeps that true, on the same dependency list
+``tests/test_api_imports.py`` holds the API to.
+"""
 
 import re
 from datetime import datetime, timedelta
 from pathlib import Path
-
-import numpy as np
-import pandas as pd
 
 from run365days.common.config import BODY_HEIGHT_CM, LBS_TO_KG
 from run365days.weight.models import WeightRecord
@@ -13,10 +25,6 @@ from run365days.weight.models import WeightRecord
 __all__ = [
     "WeightRecord",
     "parse_weight_file",
-    "build_dataframe",
-    "monthly_summary",
-    "weekday_summary",
-    "describe_weight",
 ]
 
 
@@ -89,122 +97,3 @@ def parse_weight_file(
                 )
             )
     return records
-
-
-def _column(daily: list[WeightRecord | None], field: str) -> list[float]:
-    """Read one field off each day's weigh-in, ``NaN`` for a day without one."""
-    return [getattr(record, field) if record is not None else np.nan for record in daily]
-
-
-def build_dataframe(
-    records: list[WeightRecord],
-    year: int | None = None,
-) -> pd.DataFrame:
-    """Expand weigh-ins into a full-year table with one row per day.
-
-    ``Weight_(kg)`` and ``BMI`` are the values :func:`parse_weight_file`
-    already derived, not a second calculation. Re-deriving them here meant a
-    second copy of the height and the pound-to-kilogram factor, and the copy
-    could not see the ``height_cm`` the caller passed to the parse step, so a
-    non-default height produced two different BMIs for one weigh-in (AU-006).
-    This step therefore takes no height at all: there is nothing left to
-    configure in two places.
-
-    Args:
-        records: Parsed weigh-ins.
-        year: Calendar year to cover (default: current year).
-
-    Returns:
-        A DataFrame with ``Day``, ``Date``, ``Weight_(lbs)``, ``Month``,
-        ``Weekday``, ``Weight_(kg)``, ``BMI``, ``+/-`` (direction versus the
-        previous day) and ``%`` (percentage change). Missing days are filled
-        with ``"/"``.
-    """
-    if year is None:
-        year = datetime.today().year
-
-    date_range = pd.date_range(f"{year}-01-01", f"{year}-12-31")
-    by_date = {r.date: r for r in records}
-    daily = [by_date.get(d.strftime("%Y-%m-%d")) for d in date_range]
-
-    df = pd.DataFrame(
-        {
-            "Day": range(1, len(date_range) + 1),
-            "Date": date_range,
-            "Weight_(lbs)": _column(daily, "weight_lbs"),
-        }
-    )
-    df["Month"] = df["Date"].dt.month
-    df["Weekday"] = df.apply(
-        lambda row: f"{row['Date'].weekday()} - {row['Date'].strftime('%A').upper()[:3]}",
-        axis=1,
-    )
-    df["Weight_(kg)"] = _column(daily, "weight_kg")
-    df["BMI"] = _column(daily, "bmi")
-    df["+/-"] = (
-        df["Weight_(lbs)"]
-        .diff()
-        .map(lambda x: "+" if x > 0 else "-" if x < 0 else "/" if pd.notna(x) else "/")
-    )
-    df["%"] = df["Weight_(lbs)"].pct_change().mul(100)
-    return df.fillna("/")
-
-
-def monthly_summary(df: pd.DataFrame) -> pd.DataFrame:
-    """Count up / down / unchanged days per month.
-
-    Args:
-        df: Output of :func:`build_dataframe`.
-
-    Returns:
-        A pivot table indexed by ``+/-`` with one column per month.
-    """
-    grp = (
-        df.groupby(["Month", "+/-"])[["Weight_(lbs)"]]
-        .count()
-        .reset_index()
-        .pivot(index="+/-", columns="Month", values="Weight_(lbs)")
-    )
-    return grp
-
-
-def weekday_summary(df: pd.DataFrame) -> pd.DataFrame:
-    """Count up / down / unchanged days per weekday.
-
-    Args:
-        df: Output of :func:`build_dataframe`.
-
-    Returns:
-        A pivot table indexed by ``+/-`` with one column per weekday.
-    """
-    grp = (
-        df.groupby(["Weekday", "+/-"])[["Weight_(lbs)"]]
-        .count()
-        .reset_index()
-        .pivot(index="+/-", columns="Weekday", values="Weight_(lbs)")
-    )
-    return grp
-
-
-def describe_weight(df: pd.DataFrame) -> dict:
-    """Summarise the year's weight trend.
-
-    Args:
-        df: Output of :func:`build_dataframe`.
-
-    Returns:
-        A dict with ``min``, ``max`` and ``mean`` weight in pounds,
-        ``drop_max_pct`` (max to min) and ``drop_cur_pct`` (max to latest).
-    """
-    series = df["Weight_(lbs)"].apply(lambda x: np.nan if x == "/" else x).dropna()
-    stats = series.describe()
-    last_valid = series.iloc[-1] if not series.empty else np.nan
-    drop_max = pd.Series([stats["max"], stats["min"]]).pct_change().mul(100).iloc[1]
-    drop_cur = pd.Series([stats["max"], last_valid]).pct_change().mul(100).iloc[1]
-    return {
-        "min": stats["min"],
-        "max": stats["max"],
-        "mean": stats["mean"],
-        "drop_max_pct": round(drop_max, 2),
-        "drop_cur_pct": round(drop_cur, 2),
-    }

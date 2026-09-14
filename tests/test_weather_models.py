@@ -23,6 +23,7 @@ from run365days.weather.models import (
     SUN_MOON_SUNSET_COLUMN,
     DailyWeather,
     HourlyWeather,
+    SunMoon,
     WeatherWarning,
 )
 
@@ -58,6 +59,18 @@ HOURLY = HourlyWeather(
     description="Clear weather",
 )
 
+SUN_MOON = SunMoon(
+    date="2021-01-08",
+    sunrise="07:04",
+    sunset="17:57",
+    solar_noon="12:31",
+    day_length="10:52:41",
+    moonrise="02:19",
+    moon_transit="07:31",
+    moonset="12:44",
+    moon_illumination_pct=24.3,
+)
+
 WARNING = WeatherWarning(
     date="2021-01-08",
     warning_type="Fire Danger Warnings",
@@ -85,6 +98,26 @@ class TestRoundTrip:
 
     def test_weather_warning_round_trips_through_its_raw_row(self):
         assert WeatherWarning.from_raw_row(WARNING.to_raw_row()) == WARNING
+
+    def test_sun_moon_round_trips_through_its_raw_row(self):
+        assert SunMoon.from_raw_row(SUN_MOON.to_raw_row()) == SUN_MOON
+
+    def test_sun_moon_round_trips_when_the_moon_neither_rises_nor_sets(self):
+        # The three moon-event columns are "/" in the committed file on the days
+        # the event falls outside the calendar day, so None has to survive the
+        # trip out to "/" and back rather than becoming the string.
+        absent = SunMoon(
+            date="2021-01-28",
+            sunrise="07:03",
+            sunset="18:09",
+            solar_noon="12:36",
+            day_length="11:05:55",
+            moonrise=None,
+            moon_transit=None,
+            moonset=None,
+            moon_illumination_pct=None,
+        )
+        assert SunMoon.from_raw_row(absent.to_raw_row()) == absent
 
     def test_daily_weather_round_trips_when_every_reading_is_absent(self):
         empty = DailyWeather(date="2021-01-08")
@@ -155,6 +188,56 @@ class TestCommittedFileFormat:
             end_time="2021-01-02 20:00:00",
             icon_url="/images_e/firer.gif",
         )
+
+    def test_sun_moon_reads_every_column_of_a_committed_row(self):
+        row = read_rows("raw_sun_moon_sample.json")[0]
+
+        record = SunMoon.from_raw_row(row)
+
+        assert record == SunMoon(
+            date="2021-01-01",
+            sunrise="07:02",
+            sunset="17:50",
+            solar_noon="12:26",
+            day_length="10:47:58",
+            moonrise="19:51",
+            moon_transit="01:50",
+            moonset="08:44",
+            moon_illumination_pct=97.2,
+        )
+
+    @pytest.mark.parametrize(
+        ("index", "field"),
+        [(1, "moonrise"), (2, "moonset"), (3, "moon_transit")],
+        ids=["no moonrise", "no moonset", "no meridian passing"],
+    )
+    def test_sun_moon_reads_the_committed_absent_marker_as_none(self, index, field):
+        # One real row apiece out of the committed file: the moon skips a rise,
+        # a set or a meridian passing roughly once a lunar month.
+        row = read_rows("raw_sun_moon_sample.json")[index]
+
+        assert getattr(SunMoon.from_raw_row(row), field) is None
+
+    def test_sun_moon_reads_a_committed_illumination_as_a_number(self):
+        rows = read_rows("raw_sun_moon_sample.json")
+
+        assert [SunMoon.from_raw_row(r).moon_illumination_pct for r in rows] == [
+            97.2,
+            55.6,
+            45.8,
+            100.0,
+        ]
+
+    def test_sun_moon_writes_the_column_names_the_committed_file_uses(self):
+        assert set(SUN_MOON.to_raw_row()) == set(read_rows("raw_sun_moon_sample.json")[0])
+
+    def test_sun_moon_writes_the_absent_marker_the_committed_file_uses(self):
+        row = read_rows("raw_sun_moon_sample.json")[1]
+        rewritten = SunMoon.from_raw_row(row).to_raw_row()
+
+        # Byte-for-byte the same row, so re-collecting a day the moon skips
+        # cannot quietly change how that day is spelled on disk.
+        assert rewritten == row
 
     def test_daily_writes_the_column_names_the_committed_file_uses(self):
         committed = set(read_rows("raw_hko_daily_sample.json")[0])
@@ -280,7 +363,26 @@ class TestMissingStringColumns:
         assert hourly.time is not None
         assert hourly.description is not None
 
-    @pytest.mark.parametrize("model", [HourlyWeather, WeatherWarning, DailyWeather])
+    def test_sun_moon_reads_every_missing_sun_column_as_empty_text(self):
+        record = SunMoon.from_raw_row({RAW_DATE_COLUMN: "2021-01-08"})
+
+        assert record.sunrise == ""
+        assert record.sunset == ""
+        assert record.solar_noon == ""
+        assert record.day_length == ""
+
+    def test_sun_moon_reads_every_missing_moon_column_as_none(self):
+        # The moon fields are the other half of the same rule: they are declared
+        # optional because "/" is a value the committed file really carries, so
+        # absence has somewhere to go that is not a string.
+        record = SunMoon.from_raw_row({RAW_DATE_COLUMN: "2021-01-08"})
+
+        assert record.moonrise is None
+        assert record.moonset is None
+        assert record.moon_transit is None
+        assert record.moon_illumination_pct is None
+
+    @pytest.mark.parametrize("model", [HourlyWeather, WeatherWarning, DailyWeather, SunMoon])
     def test_a_row_without_a_date_is_refused_rather_than_defaulted(self, model):
         # Date is the one column with no sensible empty value: a record that
         # cannot say which day it describes joins to nothing. It is read with
@@ -300,8 +402,13 @@ class TestCommittedRowsCarryEveryColumn:
 
     @pytest.mark.parametrize(
         "path",
-        [config.WEATHER_HISTORY_JSON, config.WEATHER_WARNING_JSON, config.HKO_DAILY_JSON],
-        ids=["hourly", "warnings", "hko-daily"],
+        [
+            config.WEATHER_HISTORY_JSON,
+            config.WEATHER_WARNING_JSON,
+            config.HKO_DAILY_JSON,
+            config.SUN_MOON_JSON,
+        ],
+        ids=["hourly", "warnings", "hko-daily", "sun-moon"],
     )
     def test_every_row_of_the_committed_file_has_the_same_columns(self, path):
         if not path.exists():

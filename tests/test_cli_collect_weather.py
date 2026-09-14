@@ -22,8 +22,8 @@ import pytest
 
 from run365days.cli import collect_weather
 from run365days.common import config
-from run365days.weather.collectors import hko_daily, hourly, warnings
-from run365days.weather.models import DailyWeather, HourlyWeather, WeatherWarning
+from run365days.weather.collectors import hko_daily, hourly, sun_moon, warnings
+from run365days.weather.models import DailyWeather, HourlyWeather, SunMoon, WeatherWarning
 
 HOURLY = HourlyWeather(
     date="2021-01-01",
@@ -42,6 +42,17 @@ WARNING = WeatherWarning(
     icon_url="/images/amber.gif",
 )
 DAILY = DailyWeather(date="2021-01-01", max_temp_c=15.0, mean_temp_c=11.8)
+SUN_MOON = SunMoon(
+    date="2021-01-01",
+    sunrise="07:02",
+    sunset="17:50",
+    solar_noon="12:26",
+    day_length="10:47:58",
+    moonrise="19:51",
+    moon_transit="01:50",
+    moonset="08:44",
+    moon_illumination_pct=97.2,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -61,17 +72,24 @@ def destinations(monkeypatch, tmp_path):
         "hourly": tmp_path / "weather_history.json",
         "warnings": tmp_path / "weather_warning_history.json",
         "hko-daily": tmp_path / "hko_daily_weather_extract.json",
+        "sun-moon": tmp_path / "sun_moon_rise_set_history.json",
     }
     monkeypatch.setattr(config, "WEATHER_HISTORY_JSON", paths["hourly"])
     monkeypatch.setattr(config, "WEATHER_WARNING_JSON", paths["warnings"])
     monkeypatch.setattr(config, "HKO_DAILY_JSON", paths["hko-daily"])
+    monkeypatch.setattr(config, "SUN_MOON_JSON", paths["sun-moon"])
     return paths
 
 
 def install_collectors(
-    monkeypatch, *, hourly_rows=(HOURLY,), warning_rows=(WARNING,), daily_rows=(DAILY,)
+    monkeypatch,
+    *,
+    hourly_rows=(HOURLY,),
+    warning_rows=(WARNING,),
+    daily_rows=(DAILY,),
+    sun_moon_rows=(SUN_MOON,),
 ):
-    """Replace the three collectors with fakes that record how they were called."""
+    """Replace the four collectors with fakes that record how they were called."""
     calls: dict[str, tuple] = {}
 
     def fake_hourly(start, end) -> list[HourlyWeather]:
@@ -86,9 +104,14 @@ def install_collectors(
         calls["hko-daily"] = (year,)
         return list(daily_rows)
 
+    def fake_sun_moon(year) -> list[SunMoon]:
+        calls["sun-moon"] = (year,)
+        return list(sun_moon_rows)
+
     monkeypatch.setattr(hourly, "fetch_range", fake_hourly)
     monkeypatch.setattr(warnings, "fetch_range", fake_warnings)
     monkeypatch.setattr(hko_daily, "fetch_year", fake_daily)
+    monkeypatch.setattr(sun_moon, "fetch_year", fake_sun_moon)
     return calls
 
 
@@ -142,6 +165,17 @@ class TestRun:
         assert calls["hourly"] == ("2021-03-01", "2021-03-31")
         assert calls["warnings"] == ("2021-03-01", "2021-03-31")
         assert calls["hko-daily"] == ("2021",)
+        assert calls["sun-moon"] == ("2021",)
+
+    def test_writes_the_sun_moon_history_where_config_points(self, monkeypatch, destinations):
+        # AU-037: SunMoon had no writer, so config.SUN_MOON_JSON named a file
+        # nothing in the package could produce and re-collecting the weather
+        # could only ever shrink what data/raw/weather/ holds.
+        install_collectors(monkeypatch)
+
+        collect_weather.run("sun-moon", "2021-01-01", "2021-01-31", 2021)
+
+        assert read_rows(destinations["sun-moon"]) == [SUN_MOON.to_raw_row()]
 
     def test_names_the_source_that_collected_nothing(self, monkeypatch, destinations):
         install_collectors(monkeypatch, warning_rows=())
@@ -203,7 +237,7 @@ class TestMain:
 
         collect_weather.main()
 
-        assert sorted(calls) == ["hko-daily", "hourly", "warnings"]
+        assert sorted(calls) == ["hko-daily", "hourly", "sun-moon", "warnings"]
 
     def test_exits_zero_when_every_source_produced_records(self, monkeypatch, destinations):
         install_collectors(monkeypatch)

@@ -20,8 +20,9 @@ from run365days.cli.collect_weather import _write_jsonl
 from run365days.common import config
 from run365days.dashboard.builder import hourly_at, load_jsonl, warnings_by_date
 from run365days.export.records import daily_weather_record, warning_record
-from run365days.weather.collectors import hko_daily, hourly, warnings
+from run365days.weather.collectors import hko_daily, hourly, sun_moon, warnings
 from run365days.weather.collectors.html_reads import child_attr, child_string
+from run365days.weather.models import SunMoon
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "weather"
 
@@ -38,6 +39,58 @@ HKO_MAR_URL = "https://www.weather.gov.hk/cis/dailyExtract/dailyExtract_202103.x
 HKO_DAILY_LOGGER = "run365days.weather.collectors.hko_daily"
 HOURLY_LOGGER = "run365days.weather.collectors.hourly"
 WARNINGS_LOGGER = "run365days.weather.collectors.warnings"
+SUN_MOON_LOGGER = "run365days.weather.collectors.sun_moon"
+
+# The four January days the sun and moon fixtures carry. Each is a real row out
+# of data/raw/weather/sun_moon_rise_set_history.json, so what the collector is
+# checked against is the file the legacy scraper actually produced rather than
+# an expectation invented alongside the parser.
+COMMITTED_JANUARY = [
+    SunMoon(
+        date="2021-01-01",
+        sunrise="07:02",
+        sunset="17:50",
+        solar_noon="12:26",
+        day_length="10:47:58",
+        moonrise="19:51",
+        moon_transit="01:50",
+        moonset="08:44",
+        moon_illumination_pct=97.2,
+    ),
+    SunMoon(
+        date="2021-01-06",
+        sunrise="07:04",
+        sunset="17:54",
+        solar_noon="12:29",
+        day_length="10:49:56",
+        moonrise=None,
+        moon_transit="06:03",
+        moonset="12:13",
+        moon_illumination_pct=55.6,
+    ),
+    SunMoon(
+        date="2021-01-20",
+        sunrise="07:04",
+        sunset="18:03",
+        solar_noon="12:34",
+        day_length="10:58:53",
+        moonrise="11:46",
+        moon_transit="18:04",
+        moonset=None,
+        moon_illumination_pct=45.8,
+    ),
+    SunMoon(
+        date="2021-01-28",
+        sunrise="07:03",
+        sunset="18:09",
+        solar_noon="12:36",
+        day_length="11:05:55",
+        moonrise="17:40",
+        moon_transit=None,
+        moonset="06:36",
+        moon_illumination_pct=100.0,
+    ),
+]
 
 
 def read_fixture(name: str) -> str:
@@ -92,6 +145,46 @@ def install_fake_get(monkeypatch, module, routes: dict) -> RequestRecorder:
     return recorder
 
 
+class MonthlyRequestRecorder(RequestRecorder):
+    """A ``requests.get`` stand-in keyed by ``(url, month)``.
+
+    The sun and moon pages are one URL apiece for the whole year and differ
+    only by query string, so a URL-keyed map cannot tell January from February
+    and would answer twelve identical months.
+    """
+
+    def __call__(self, url, params=None, timeout=None) -> FakeResponse:
+        self.calls.append({"url": url, "params": params, "timeout": timeout})
+        answer = self.routes[(url, params["month"])]
+        if isinstance(answer, Exception):
+            raise answer
+        return FakeResponse(answer)
+
+
+def install_fake_monthly_get(monkeypatch, module, routes: dict) -> MonthlyRequestRecorder:
+    recorder = MonthlyRequestRecorder(routes)
+    monkeypatch.setattr(module.requests, "get", recorder)
+    return recorder
+
+
+def sun_moon_routes(*, sun=None, moon=None, blank_months=True) -> dict:
+    """Answer January from the fixtures and, by default, the rest with no table."""
+    routes = {
+        (sun_moon._SUN_URL, "01"): read_fixture(
+            "timeanddate_sun_202101.html" if sun is None else sun
+        ),
+        (sun_moon._MOON_URL, "01"): read_fixture(
+            "timeanddate_moon_202101.html" if moon is None else moon
+        ),
+    }
+    if blank_months:
+        empty = read_fixture("timeanddate_no_table.html")
+        for month in range(2, 13):
+            routes[(sun_moon._SUN_URL, f"{month:02d}")] = empty
+            routes[(sun_moon._MOON_URL, f"{month:02d}")] = empty
+    return routes
+
+
 def hko_routes(*, feb=None, mar=None) -> dict:
     year_body = read_fixture("hko_daily_year.json")
     month_body = read_fixture("hko_daily_month_02.json")
@@ -100,6 +193,31 @@ def hko_routes(*, feb=None, mar=None) -> dict:
         HKO_FEB_URL: month_body if feb is None else feb,
         HKO_MAR_URL: "" if mar is None else mar,
     }
+
+
+class TestTheNetworkGuardItself:
+    """The one test here that installs no fake, so the guard is shown rather than assumed.
+
+    This module's docstring called ``block_real_sockets`` "the proof that none
+    of them reaches the real network" while nothing ever exercised it -- the
+    same shape as the collector CUI-0010 found had never worked, believed
+    correct because nothing had run it. "The sandbox has no internet" would not
+    have covered for it either: the agent proxy listens on 127.0.0.1 and an
+    unfaked collector connects to it happily.
+    """
+
+    @pytest.mark.parametrize(
+        ("collect", "argument"),
+        [
+            (hourly.fetch_day, "2021-01-01"),
+            (hko_daily.fetch_year, "2021"),
+            (sun_moon.fetch_year, "2021"),
+        ],
+        ids=["hourly", "hko-daily", "sun-moon"],
+    )
+    def test_the_socket_block_refuses_an_unfaked_collector_call(self, collect, argument):
+        with pytest.raises(AssertionError, match="real network connection"):
+            collect(argument)
 
 
 class TestGuardedHtmlReads:
@@ -830,3 +948,208 @@ class TestCollectThenExport:
             "start_time": collected[0].start_time,
             "end_time": collected[0].end_time,
         }
+
+
+class TestSunMoonCollector:
+    """The port of ``legacy/03_GetSunMoonRiseSetHistory.py`` (AU-037).
+
+    ``SunMoon`` had no writer at all, so ``config.SUN_MOON_JSON`` named a file
+    nothing in the package could produce. What the collector must reproduce is
+    not a guess: ``data/raw/weather/sun_moon_rise_set_history.json`` is the
+    output of that legacy script, and :data:`COMMITTED_JANUARY` is four of its
+    rows copied verbatim. The fixtures are built to the layout the legacy
+    script reads -- and that reading is corroborated by the file itself, where
+    all twelve ``Moon Transit`` of ``"/"`` fall on a full moon and carry
+    ``100.0%`` illumination, exactly the branch the script hard-codes.
+    """
+
+    def test_reads_a_month_into_the_rows_the_committed_file_already_holds(self, monkeypatch):
+        install_fake_monthly_get(monkeypatch, sun_moon, sun_moon_routes())
+
+        assert sun_moon.fetch_month("2021", "01") == COMMITTED_JANUARY
+
+    def test_reads_a_day_the_moon_never_rises_on(self, monkeypatch):
+        install_fake_monthly_get(monkeypatch, sun_moon, sun_moon_routes())
+
+        day = {r.date: r for r in sun_moon.fetch_month("2021", "01")}["2021-01-06"]
+
+        assert day.moonrise is None
+        assert day.moonset == "12:13"
+
+    def test_reads_a_day_the_moon_never_sets_on(self, monkeypatch):
+        install_fake_monthly_get(monkeypatch, sun_moon, sun_moon_routes())
+
+        day = {r.date: r for r in sun_moon.fetch_month("2021", "01")}["2021-01-20"]
+
+        assert day.moonset is None
+        assert day.moonrise == "11:46"
+
+    def test_reads_a_full_moon_with_no_meridian_passing(self, monkeypatch):
+        # The legacy script answers 100.0% whenever the meridian block is one
+        # merged cell, and the committed file bears that out: every one of the
+        # twelve such days is a full moon.
+        install_fake_monthly_get(monkeypatch, sun_moon, sun_moon_routes())
+
+        day = {r.date: r for r in sun_moon.fetch_month("2021", "01")}["2021-01-28"]
+
+        assert day.moon_transit is None
+        assert day.moon_illumination_pct == 100.0
+
+    def test_drops_a_day_whose_moon_row_runs_out_mid_walk(self, monkeypatch, caplog):
+        # Day 30 is a full sun row, but its moon row ends before the meridian
+        # block. The merge is an inner join, so the day is dropped rather than
+        # published with the moon columns silently blank.
+        install_fake_monthly_get(monkeypatch, sun_moon, sun_moon_routes())
+
+        with caplog.at_level(logging.WARNING, logger=SUN_MOON_LOGGER):
+            collected = sun_moon.fetch_month("2021", "01")
+
+        assert "2021-01-30" not in {r.date for r in collected}
+        assert "2021-01-30" in caplog.text
+
+    def test_drops_a_row_too_short_to_read_by_position(self, monkeypatch, caplog):
+        install_fake_monthly_get(monkeypatch, sun_moon, sun_moon_routes())
+
+        with caplog.at_level(logging.WARNING, logger=SUN_MOON_LOGGER):
+            collected = sun_moon.fetch_month("2021", "01")
+
+        assert "2021-01-29" not in {r.date for r in collected}
+        assert "2021-01-29" in caplog.text
+
+    def test_reports_a_cell_that_states_no_time_rather_than_slicing_one_out(
+        self, monkeypatch, caplog
+    ):
+        # "7:05 pm" is a real time in the wrong clock, and the character slice
+        # the legacy script used would have reported it as 07:05 -- twelve
+        # hours out, silently. The column becomes a gap and the rest of the row
+        # survives (CUI-0018).
+        install_fake_monthly_get(
+            monkeypatch,
+            sun_moon,
+            sun_moon_routes(sun="timeanddate_sun_unreadable.html", blank_months=False),
+        )
+
+        with caplog.at_level(logging.WARNING, logger=SUN_MOON_LOGGER):
+            days = sun_moon._sun_month("2021", "01")
+
+        assert days["2021-01-01"] == {
+            "sunrise": "",
+            "sunset": "",
+            "solar_noon": "12:21",
+            "day_length": "",
+        }
+        assert "7:05 pm" in caplog.text
+
+    def test_reports_an_illumination_cell_that_states_no_percentage(self, monkeypatch, caplog):
+        install_fake_monthly_get(
+            monkeypatch,
+            sun_moon,
+            sun_moon_routes(moon="timeanddate_moon_unreadable.html", blank_months=False),
+        )
+
+        with caplog.at_level(logging.WARNING, logger=SUN_MOON_LOGGER):
+            days = sun_moon._moon_month("2021", "01")
+
+        assert days["2021-01-01"]["moon_illumination_pct"] is None
+        # The rest of the row survives the one unreadable column.
+        assert days["2021-01-01"]["moon_transit"] == "01:50"
+        assert "not available" in caplog.text
+
+    def test_a_slot_whose_colspan_is_not_a_number_is_read_as_a_filled_slot(self, monkeypatch):
+        # colspan="two" is the shape that used to raise out of the whole month.
+        # Treating an unreadable span as "this slot holds an event" keeps the
+        # walk aligned with the cells that follow it.
+        install_fake_monthly_get(
+            monkeypatch,
+            sun_moon,
+            sun_moon_routes(moon="timeanddate_moon_unreadable.html", blank_months=False),
+        )
+
+        day = sun_moon._moon_month("2021", "01")["2021-01-02"]
+
+        assert day["moonrise"] == "20:30"
+        assert day["moonset"] == "09:20"
+        assert day["moon_illumination_pct"] == 92.1
+
+    def test_skips_a_month_whose_sun_page_carries_no_table(self, monkeypatch, caplog):
+        install_fake_monthly_get(
+            monkeypatch, sun_moon, sun_moon_routes(sun="timeanddate_no_table.html")
+        )
+
+        with caplog.at_level(logging.WARNING, logger=SUN_MOON_LOGGER):
+            collected = sun_moon.fetch_month("2021", "01")
+
+        assert collected == []
+        assert "as-monthsun" in caplog.text
+
+    def test_skips_a_month_whose_moon_page_carries_no_table(self, monkeypatch, caplog):
+        install_fake_monthly_get(
+            monkeypatch, sun_moon, sun_moon_routes(moon="timeanddate_no_table.html")
+        )
+
+        with caplog.at_level(logging.WARNING, logger=SUN_MOON_LOGGER):
+            collected = sun_moon.fetch_month("2021", "01")
+
+        assert collected == []
+        assert "tb-7dmn" in caplog.text
+
+    def test_walks_all_twelve_months_in_date_order(self, monkeypatch):
+        recorder = install_fake_monthly_get(monkeypatch, sun_moon, sun_moon_routes())
+
+        collected = sun_moon.fetch_year("2021")
+
+        # Twelve months, two pages each; only January's carries a table.
+        assert len(recorder.calls) == 24
+        assert [r.date for r in collected] == [r.date for r in COMMITTED_JANUARY]
+
+    def test_sends_the_configured_timeout_pair(self, monkeypatch):
+        recorder = install_fake_monthly_get(monkeypatch, sun_moon, sun_moon_routes())
+
+        sun_moon.fetch_month("2021", "01")
+
+        assert recorder.timeouts
+        assert all(timeout is config.HTTP_TIMEOUT for timeout in recorder.timeouts)
+
+    def test_an_unreachable_page_is_raised_rather_than_read_as_an_empty_month(self, monkeypatch):
+        # A host that cannot be reached says nothing about that month, so
+        # swallowing it would turn one outage into twelve empty months (AU-013).
+        routes = sun_moon_routes()
+        routes[(sun_moon._SUN_URL, "01")] = requests.ConnectionError("boom")
+        install_fake_monthly_get(monkeypatch, sun_moon, routes)
+
+        with pytest.raises(requests.ConnectionError):
+            sun_moon.fetch_month("2021", "01")
+
+
+class TestSunMoonCollectThenWrite:
+    """Collect -> _write_jsonl -> read back, the pairing CUI-0011 was found by.
+
+    The daily-extract collector was rewritten with a field name the model did
+    not have and nothing noticed, because no test ever drove a freshly
+    collected record through the writer and back. This one does, and what it
+    compares against is the committed file's own rows.
+    """
+
+    def test_collected_rows_write_the_committed_rows_back_unchanged(self, monkeypatch, tmp_path):
+        install_fake_monthly_get(monkeypatch, sun_moon, sun_moon_routes())
+        collected = sun_moon.fetch_month("2021", "01")
+        path = tmp_path / "sun_moon_rise_set_history.json"
+
+        _write_jsonl(collected, path)
+        written = load_jsonl(path)
+
+        sample = load_jsonl(FIXTURE_DIR / "raw_sun_moon_sample.json")
+        committed = {row["Date"]: row for row in sample}
+        assert [row["Date"] for row in written] == sorted(committed)
+        assert written == [committed[row["Date"]] for row in written]
+
+    def test_collected_rows_read_back_as_the_records_they_were_written_from(
+        self, monkeypatch, tmp_path
+    ):
+        install_fake_monthly_get(monkeypatch, sun_moon, sun_moon_routes())
+        collected = sun_moon.fetch_month("2021", "01")
+        path = tmp_path / "sun_moon_rise_set_history.json"
+
+        _write_jsonl(collected, path)
+
+        assert [SunMoon.from_raw_row(row) for row in load_jsonl(path)] == collected
