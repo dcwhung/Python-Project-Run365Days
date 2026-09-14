@@ -490,7 +490,7 @@ Repo 外：GitHub `github-pages` environment deployment branch｜Vercel Producti
 
 | ID | 級別 | 標題 | 狀態 |
 |---|---|---|---|
-| **CUI-0015** | 🟢 Low | `docs/architecture.md:142` 嘅 CI 描述**同一 session 內過時兩次**，應改為自動同步 | pending |
+| **CUI-0015** | 🟢 Low | `docs/architecture.md:142` 嘅 CI 描述**同一 session 內過時兩次**，應改為自動同步 | ✅ **Done** `10a1b08` `d4b9da4` |
 
 呢段喺 AU-004 之後由 W-001 修好，W-011 之後**又再過時**。根本問題係一段描述 CI 行為嘅文字同 `pages.yml` 之間冇任何同步機制。建議參考本 repo 已經證明有效嘅 `run365-schema --check frontend/schema.graphql` pattern。
 
@@ -700,3 +700,54 @@ Main agent 曾兩次向用戶建議：「`models.Activity.num_points` 已經存�
 | ID | 級別 | 標題 | 狀態 |
 |---|---|---|---|
 | **CUI-0019** | 🟡 Medium | `num_points` 係降採樣前點數，但讀落似「可取得點數」；已經經 GraphQL 到咗前端 | pending |
+
+---
+
+## CUI-0015 修復摘要（2026-09-14）
+
+Tests **362 → 381**（+19）｜byte-identical｜新 CLI `run365-ci-docs`，`pages.yml:70` 已接入 CI。
+
+### 我只寫目標唔寫方法，結果比我構想嘅好
+
+Ticket 原本列咗三個方向（生成 / drift 檢查 / 收窄描述）。Developer **三個都唔係單獨採用**，並逐個講出點解唔夠：
+
+| 方向 | 點解單獨唔夠 |
+|---|---|
+| 只做生成 | 塊外面嘅散文仍然自由咁同塊入面矛盾 |
+| 只做收窄 | 刪走讀者想要嘅資訊；而且 W-001 已證明「啱但冇釘住」嘅句子捱唔過一條 lane |
+| 只做 drift 檢查 | **workflow 由頭到尾自己同自己一致，落後嘅係英文** —— 呢個檢查喺今次乜都捉唔到 |
+
+最終做法：**生成 + 收窄一齊用** —— 每份文件將 branch 事實**只講一次**，放喺 `<!-- ci-facts:start/end -->` 塊入面由 `pages.yml` 生成，塊外嘅散文改到唔提 branch 名。
+
+### 三條規則各自對應一個真實漂移過嘅位
+
+1. **塊同步** —— 正正係 AU-004 同 W-011 打爛嗰樣
+2. **禁止塊外出現 `refs/heads/...`** —— 一個具體 gate 唔可以喺冇嘢驗證嘅地方被引述
+3. **README badge `?branch=` 要等於部署 branch** —— 呢個聲明本來**冇任何人擁有**，而佢會喺錯嘅 branch 上render 出一個綠剔
+
+另加兩條 workflow 自檢（取自 `deployment.md` 已有嘅半途切換警告）：`build` 同 `deploy` 必須用同一個 gate；檔案入面每個 `refs/heads/` 都要指向同一條 branch 且該 branch 喺 push trigger 清單內。
+
+### Fail-closed 設計
+
+Reader 只 match 佢需要嗰幾個 key，搵唔到就 raise —— **workflow 一改結構就 CI 紅，而唔係靜靜咁用預設值報一個佢從未驗證過嘅「一致」**。
+
+### 冇加新依賴
+
+PyYAML 喺呢個環境只係 pre-commit 嘅 transitive，**唔係 package 宣告嘅依賴** —— 所以 reader 用純標準庫寫。
+
+### Gate 實證（main agent 獨立三次整壞）
+
+| 整壞方式 | 結果 |
+|---|---|
+| `pages.yml` 部署 branch `develop` → `master` | ❌ exit=1，三份文件 + badge 都報 |
+| **只改 `build` 唔改 `deploy`**（半完成切換） | ❌ exit=1，`error: the workflow names 2 branches... Every gate must agree on a single deploy branch` |
+| 手改文件塊內文字 | ❌ exit=1 |
+| 還原 | ✅ exit=0 |
+
+第二個特別有價值 —— 嗰個正正係 `docs/deployment.md` 警告過但**之前冇任何嘢擋住**嘅失敗模式。
+
+### 邊界誠實
+
+**冇覆蓋而且明講咗**：Vercel production branch（喺 dashboard，checkout 讀唔到）、`github-pages` environment rule（同上）、`tag-release.yml` 嘅 `ref` default（tool 只讀 `pages.yml`）。六件人手項目全部保住，其中兩件 repo 外嘅仍然標明人手。
+
+順帶刪咗 `architecture.md` 嘅「(133 tests)」—— 實際 381，而**散文入面手維護嘅數字係同一個缺陷嘅縮影**，唔值得為佢再開一個 gate。
