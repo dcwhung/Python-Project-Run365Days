@@ -317,6 +317,45 @@ class TestHourlyFetchDay:
         assert "2021-01-01" in message
         assert "00:00" in message
 
+    def test_reports_unknown_when_the_script_carries_no_icon_call(self, monkeypatch):
+        # The fixture's first script has lost its writeWeatherIcon( name, so
+        # ``find("n(")`` answered -1. -1 + 2 = 1 is a legal index, so the slice
+        # ran from character 1 and handed back "7" -- a code that maps to "Rain".
+        # A description nobody read out of the page must not be reported as one.
+        install_fake_get(
+            monkeypatch, hourly, {hourly._URL: read_fixture("freemeteo_unreadable_script.html")}
+        )
+
+        records = hourly.fetch_day("2021-01-01")
+
+        assert records[0].description == "Unknown"
+        assert records[1].description == "Cloudy skies"
+
+    def test_logs_a_warning_when_the_script_carries_no_icon_call(self, monkeypatch, caplog):
+        install_fake_get(
+            monkeypatch, hourly, {hourly._URL: read_fixture("freemeteo_unreadable_script.html")}
+        )
+
+        with caplog.at_level(logging.WARNING, logger=HOURLY_LOGGER):
+            hourly.fetch_day("2021-01-01")
+
+        unreadable = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(unreadable) == 1
+        message = unreadable[0].getMessage()
+        assert "2021-01-01" in message
+        assert "00:00" in message
+
+    def test_keeps_the_rest_of_a_row_whose_script_carries_no_icon_call(self, monkeypatch):
+        install_fake_get(
+            monkeypatch, hourly, {hourly._URL: read_fixture("freemeteo_unreadable_script.html")}
+        )
+
+        records = hourly.fetch_day("2021-01-01")
+
+        assert [r.time for r in records] == ["00:00", "00:30"]
+        assert records[0].temperature_c == 11.0
+        assert records[0].wind_kmh == 24.0
+
 
 class TestHourlyFetchRange:
     def test_fetches_one_page_per_day_in_the_inclusive_range(self, monkeypatch):
@@ -344,9 +383,13 @@ class TestHourlyFetchRange:
             assert_bounded_timeout(timeout)
 
 
-def warning_routes(day_fixture: str = "hko_warning_day.html") -> dict:
+def warning_routes(
+    day_fixture: str = "hko_warning_day.html",
+    *,
+    legend_fixture: str = "hko_warning_legend.html",
+) -> dict:
     return {
-        warnings._SIGNALS_URL: read_fixture("hko_warning_legend.html"),
+        warnings._SIGNALS_URL: read_fixture(legend_fixture),
         warnings._HISTORY_URL: read_fixture(day_fixture),
     }
 
@@ -367,6 +410,36 @@ class TestWarningSignalMetadata:
         warnings._load_signal_metadata()
 
         assert_bounded_timeout(recorder.calls[0]["timeout"])
+
+    def test_reads_the_icon_index_from_a_src_without_a_file_extension(self, monkeypatch):
+        # ``rfind(".")`` answered -1 on an extensionless src, and src[start:-1]
+        # is a legal slice, so the index quietly lost its last character.
+        routes = warning_routes(legend_fixture="hko_warning_legend_no_extension.html")
+        install_fake_get(monkeypatch, warnings, routes)
+
+        meta = warnings._load_signal_metadata()
+
+        assert meta["Cold Weather Warning"]["Idx"] == "cold"
+        assert meta["Frost Warning"]["Idx"] == "frost"
+        assert meta["Standby Signal No.1"]["Idx"] == "tc1"
+
+    def test_skips_a_legend_table_that_does_not_carry_both_cells(self, monkeypatch):
+        routes = warning_routes(legend_fixture="hko_warning_legend_short_row.html")
+        install_fake_get(monkeypatch, warnings, routes)
+
+        meta = warnings._load_signal_metadata()
+
+        assert meta == {"Cold Weather Warning": {"Idx": "cold", "Type": "Cold Weather Warning"}}
+
+    def test_logs_a_warning_for_each_legend_table_it_skipped(self, monkeypatch, caplog):
+        routes = warning_routes(legend_fixture="hko_warning_legend_short_row.html")
+        install_fake_get(monkeypatch, warnings, routes)
+
+        with caplog.at_level(logging.WARNING, logger=WARNINGS_LOGGER):
+            warnings._load_signal_metadata()
+
+        skipped = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(skipped) == 2
 
 
 class TestWarningsFetchDay:
