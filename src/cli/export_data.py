@@ -3,7 +3,7 @@
 Usage
 -----
     run365-export                          # data/processed/run365.db + data/processed/static/
-    run365-export --year 2021 --points 600
+    run365-export --year 2021 --points 900   # keep more of each track
     run365-export --db /tmp/run365.db --static-dir /tmp/static
 
 or, without installing the package::
@@ -18,14 +18,19 @@ from pathlib import Path
 from run365days.activities.parsers.gpx import GPXParser
 from run365days.activities.parsers.tcx import TCXParser
 from run365days.common import config
+from run365days.common.config import EXPORT_TRACK_POINTS
 from run365days.dashboard.builder import load_jsonl
 from run365days.export.records import build_records
 from run365days.export.sqlite import write_sqlite
 from run365days.export.static_json import write_static_json
 from run365days.weight.analysis import parse_weight_file
 
-DEFAULT_POINT_LIMIT = 600
-"""Track points kept per run; four times the v2 dashboard's 150 for smoother routes."""
+DEFAULT_POINT_LIMIT = EXPORT_TRACK_POINTS
+"""Track points kept per run, from the constant the GraphQL schema also publishes.
+
+Comfortably above the count the API serves by default, so a client that asks
+for the default gets whole samples rather than an interpolation of them.
+"""
 
 
 def _parse_args() -> argparse.Namespace:

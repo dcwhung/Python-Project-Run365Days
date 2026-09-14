@@ -17,6 +17,15 @@ import {
   YearQuery,
 } from "./queries";
 
+/**
+ * Samples to request when a caller names no count.
+ *
+ * Held equal to the number `run365-export` stores per run, which the SDL
+ * publishes in the `track(points:)` description and `source.test.ts` reads
+ * back. Static mode has no argument to pass and simply returns every stored
+ * sample, so any other value here would make the same call mean two different
+ * things depending on the mode (CUI-0024).
+ */
 export const DEFAULT_TRACK_POINTS = 600;
 
 /** GraphQL variables are nullable, not optional: turn undefined into null. */

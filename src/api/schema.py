@@ -22,14 +22,22 @@ from strawberry.extensions import (
 from strawberry.types import Info
 
 from run365days.api import service
+from run365days.common.config import BODY_HEIGHT_CM, EXPORT_TRACK_POINTS, LBS_TO_KG
 from run365days.dashboard import stats
+from run365days.dashboard.builder import TRACK_POINT_LIMIT
 from run365days.export.records import TRACK_COLUMNS
 
-DEFAULT_TRACK_POINTS = 150
-"""Track points returned per activity unless the query asks for more."""
+DEFAULT_TRACK_POINTS = TRACK_POINT_LIMIT
+"""Track points returned per activity unless the query asks for more.
+
+The same count the downsampler hands back when nobody names one, taken from
+its owner rather than retyped here: two copies of a serving default is how the
+API and the export pipeline end up disagreeing about what "no limit given"
+means (AU-008).
+"""
 
 MAX_TRACK_POINTS = 1000
-"""Ceiling for ``track(points:)``, above the 600 samples the export stores per run."""
+"""Ceiling for ``track(points:)``, well above the ``EXPORT_TRACK_POINTS`` the export stores."""
 
 DEFAULT_PAGE_SIZE = 500
 """Rows a list field returns when the client asks for no window.
@@ -81,9 +89,16 @@ OFFSET_DESCRIPTION = "Rows to skip before the page starts. Must not be negative.
 TRACK_POINTS_DESCRIPTION = (
     f"Samples to return: 1 to {MAX_TRACK_POINTS}. Anything outside that range errors, "
     "so 0 is rejected rather than read as `no limit`. A track with fewer stored "
-    "samples is returned whole. 1 is the degenerate case: the final sample alone."
+    "samples is returned whole. 1 is the degenerate case: the final sample alone. "
+    f"The export stores at most {EXPORT_TRACK_POINTS} samples per run."
 )
-"""Description of ``track(points:)``, including what its two edge values mean."""
+"""Description of ``track(points:)``: its edge values, and the ceiling worth asking for.
+
+The stored count is published because a client cannot otherwise tell where
+asking for more stops adding detail -- and because it is the number a client
+must match to get the same track from the static JSON files, which have no
+argument to pass and simply return everything stored (CUI-0024).
+"""
 
 QUERY_DESCRIPTION = (
     "Read-only root. Past the per-argument bounds below, every document is bounded "
@@ -224,7 +239,14 @@ class Activity:
         return [TrackPoint(**row) for row in rows]
 
 
-@strawberry.type
+@strawberry.type(
+    description=(
+        "One daily weigh-in. `weightLbs` is the figure as written in the source "
+        f"file; `weightKg` converts it at 1 lb = {LBS_TO_KG} kg, and `bmi` is that "
+        f"against a fixed height of {BODY_HEIGHT_CM} cm. Both derived values are "
+        "published so a client need not re-derive them and get a third answer."
+    )
+)
 class WeightEntry:
     date: str
     weight_lbs: float

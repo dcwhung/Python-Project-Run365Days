@@ -1,7 +1,12 @@
+import pathlib
+import re
+
 import pytest
 
 from run365days.activities.models import Activity, TrackPoint
+from run365days.common import config
 from run365days.dashboard.builder import (
+    TRACK_POINT_LIMIT,
     downsample,
     hourly_at,
     total_ascent,
@@ -166,3 +171,72 @@ class TestWeightUndatedLine:
         f = tmp_path / "w.txt"
         f.write_text("128.8 lbs\n154.8 lbs (1/1)\n")
         assert len(parse_weight_file(f, year=2021)) == 1
+
+
+_SRC = pathlib.Path(__file__).resolve().parents[1] / "src"
+
+
+def _files_spelling(number: str) -> set[str]:
+    """Modules under ``src`` that write *number* out, as a path relative to ``src``.
+
+    A constant with one owner is spelled once. Comparing this set to a single
+    expected file is what catches the next hand-typed copy, which is how the
+    values in AU-008's table drifted apart in the first place: equality between
+    two named constants only holds them together once someone has already
+    thought to import one from the other.
+    """
+    pattern = re.compile(rf"(?<![\w.]){re.escape(number)}(?![\w.])")
+    return {
+        str(path.relative_to(_SRC))
+        for path in _SRC.rglob("*.py")
+        if pattern.search(path.read_text())
+    }
+
+
+class TestOneOwnerPerConstant:
+    """Every domain constant is written down in exactly one module (AU-008)."""
+
+    @pytest.mark.parametrize(
+        ("value", "owner"),
+        [
+            (config.BODY_HEIGHT_CM, "common/config.py"),
+            (config.LBS_TO_KG, "common/config.py"),
+            (TRACK_POINT_LIMIT, "dashboard/builder.py"),
+            (config.EXPORT_TRACK_POINTS, "common/config.py"),
+        ],
+        ids=["body height cm", "pounds to kilograms", "samples served", "samples stored"],
+    )
+    def test_the_number_is_written_down_once(self, value, owner):
+        # Read off the constant rather than retyped, so changing one of these
+        # values stays a one-line change and this test keeps guarding the shape
+        # of the code -- one owner -- instead of pinning a particular number.
+        assert _files_spelling(str(value)) == {owner}
+
+
+class TestTrackPointBudgets:
+    """The two track-point constants are different questions with one answer each.
+
+    ``TRACK_POINT_LIMIT`` is how many samples a caller gets when it names no
+    count; ``EXPORT_TRACK_POINTS`` is how many the export writes to disk. They
+    are independent numbers but not an independent pair: the export cannot
+    serve a default it never stored, so nothing may raise the served default
+    past the stored one.
+    """
+
+    def test_the_export_stores_at_least_the_served_default(self):
+        assert config.EXPORT_TRACK_POINTS >= TRACK_POINT_LIMIT
+
+    def test_the_api_serves_the_downsampler_default(self):
+        from run365days.api import schema
+
+        assert schema.DEFAULT_TRACK_POINTS == TRACK_POINT_LIMIT
+
+    def test_the_cli_stores_the_configured_count(self):
+        from run365days.cli import export_data
+
+        assert export_data.DEFAULT_POINT_LIMIT == config.EXPORT_TRACK_POINTS
+
+    def test_the_published_schema_states_the_stored_count(self):
+        from run365days.api.schema import TRACK_POINTS_DESCRIPTION
+
+        assert f"{config.EXPORT_TRACK_POINTS} samples per run" in TRACK_POINTS_DESCRIPTION

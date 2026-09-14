@@ -8,7 +8,7 @@ class WeightRecord:
     """One daily weigh-in.
 
     Attributes:
-        day_number: 1-based line number in the source file.
+        day_number: 1-based position of this weigh-in among the file's records.
         date: Calendar date ``YYYY-MM-DD``.
         weight_lbs: Weight in pounds as written in the file.
         weight_kg: Weight converted to kilograms.

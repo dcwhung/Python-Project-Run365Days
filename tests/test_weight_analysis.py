@@ -1,5 +1,6 @@
 import pytest
 
+from run365days.common.config import BODY_HEIGHT_CM, LBS_TO_KG
 from run365days.weight.analysis import build_dataframe, parse_weight_file
 
 _SAMPLE_WEIGHT_DATA = """\
@@ -28,13 +29,23 @@ class TestParseWeightFile:
         r = records[0]
         assert r.weight_lbs == 154.8
         assert r.date == "2021-01-01"
-        assert r.weight_kg == pytest.approx(154.8 * 0.454, rel=1e-3)
+        # Exact, not approximate: the old assertion allowed 0.1% either way,
+        # which is wider than the gap between the 0.454 the parser used and the
+        # exact factor, so it passed on the wrong number for as long as it stood.
+        assert r.weight_kg == round(154.8 * LBS_TO_KG, 2)
 
     def test_bmi_calculation(self, weight_file):
         records = parse_weight_file(weight_file, year=2021, height_cm=170)
         r = records[0]
-        expected_bmi = (154.8 * 0.454) / (1.70**2)
-        assert r.bmi == pytest.approx(expected_bmi, rel=1e-2)
+        assert r.bmi == round((154.8 * LBS_TO_KG) / 1.70**2, 2)
+
+    def test_uses_the_configured_height_when_none_is_given(self, weight_file):
+        default = parse_weight_file(weight_file, year=2021)
+        explicit = parse_weight_file(weight_file, year=2021, height_cm=BODY_HEIGHT_CM)
+        assert [r.bmi for r in default] == [r.bmi for r in explicit]
+
+    def test_converts_pounds_at_the_international_definition(self):
+        assert LBS_TO_KG == 0.45359237
 
     def test_empty_file(self, tmp_path):
         f = tmp_path / "empty.txt"
@@ -46,6 +57,21 @@ class TestParseWeightFile:
         f.write_text("some random text\n154.8 lbs (1/1)\nmore text\n")
         records = parse_weight_file(f, year=2021)
         assert len(records) == 1
+        # Counting skipped lines would make this weigh-in the second one.
+        assert records[0].day_number == 1
+
+    def test_numbers_weigh_ins_rather_than_file_lines(self, tmp_path):
+        f = tmp_path / "noisy.txt"
+        f.write_text("# exported from the scale app\n154.8 lbs (1/1)\n\n153.6 lbs (2/1)\n")
+        records = parse_weight_file(f, year=2021)
+        assert [r.day_number for r in records] == [1, 2]
+        assert [r.date for r in records] == ["2021-01-01", "2021-01-02"]
+
+    def test_numbers_stay_consecutive_across_a_gap_in_the_calendar(self, tmp_path):
+        f = tmp_path / "gap.txt"
+        f.write_text("154.8 lbs (1/1)\n153.6 lbs (9/3)\n")
+        records = parse_weight_file(f, year=2021)
+        assert [r.day_number for r in records] == [1, 2]
 
 
 class TestBuildDataframe:
@@ -61,3 +87,20 @@ class TestBuildDataframe:
         assert df.iloc[1]["+/-"] == "-"
         # day 2 to day 3: 153.6 -> 154.2 = increase (+)
         assert df.iloc[2]["+/-"] == "+"
+
+    def test_carries_the_parsed_kg_and_bmi_at_a_non_default_height(self, tmp_path):
+        # The two steps of the pipeline must agree: parse_weight_file is told the
+        # height, so build_dataframe may not quietly re-derive BMI at another one.
+        f = tmp_path / "tall.txt"
+        f.write_text(_SAMPLE_WEIGHT_DATA)
+        records = parse_weight_file(f, year=2021, height_cm=180)
+        df = build_dataframe(records, year=2021)
+        assert [df.iloc[i]["BMI"] for i in range(len(records))] == [r.bmi for r in records]
+        assert [df.iloc[i]["Weight_(kg)"] for i in range(len(records))] == [
+            r.weight_kg for r in records
+        ]
+
+    def test_leaves_a_day_without_a_weigh_in_blank(self, weight_file):
+        df = build_dataframe(parse_weight_file(weight_file, year=2021), year=2021)
+        assert df.iloc[6]["Weight_(kg)"] == "/"
+        assert df.iloc[6]["BMI"] == "/"

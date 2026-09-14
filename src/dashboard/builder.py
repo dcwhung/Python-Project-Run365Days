@@ -21,7 +21,14 @@ from run365days.weather.models import (
 )
 
 TRACK_POINT_LIMIT = 150
-"""Default number of track points kept per run when downsampling."""
+"""Default number of track points kept per run when downsampling.
+
+The one place this count is written down: the GraphQL layer reads it for
+``track(points:)`` rather than keeping its own. Its counterpart is
+``config.EXPORT_TRACK_POINTS``, the larger count the export writes to disk,
+and nothing may raise this past that -- the export cannot serve a default it
+never stored (AU-008).
+"""
 
 _MIDNIGHT = "00:00"
 """Assumed observation time for an hourly row whose Time column is missing."""

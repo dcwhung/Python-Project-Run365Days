@@ -20,7 +20,7 @@ type Activity {
   """GPS track, evenly downsampled to at most `points` samples."""
   track(
     """
-    Samples to return: 1 to 1000. Anything outside that range errors, so 0 is rejected rather than read as `no limit`. A track with fewer stored samples is returned whole. 1 is the degenerate case: the final sample alone.
+    Samples to return: 1 to 1000. Anything outside that range errors, so 0 is rejected rather than read as `no limit`. A track with fewer stored samples is returned whole. 1 is the degenerate case: the final sample alone. The export stores at most 600 samples per run.
     """
     points: Int! = 150
   ): [TrackPoint!]!
@@ -218,6 +218,9 @@ type WeekSummary {
   activityIds: [ID!]!
 }
 
+"""
+One daily weigh-in. `weightLbs` is the figure as written in the source file; `weightKg` converts it at 1 lb = 0.45359237 kg, and `bmi` is that against a fixed height of 170.0 cm. Both derived values are published so a client need not re-derive them and get a third answer.
+"""
 type WeightEntry {
   date: String!
   weightLbs: Float!

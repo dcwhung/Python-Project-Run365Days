@@ -43,7 +43,33 @@ PROCESSED_DB = PROCESSED_DIR / "run365.db"
 STATIC_JSON_DIR = PROCESSED_DIR / "static"
 
 # Body metrics
+#
+# One owner each, and both of them used. BODY_HEIGHT_CM sat here with no
+# importer while weight/analysis.py kept a private copy of the same 170.0, and
+# the pound conversion was worse: 0.454 inline in the parser against the exact
+# 0.45359237 the frontend already used, so the API and the browser disagreed
+# about the same weigh-in by ~0.09 kg at 70 kg (AU-008).
 BODY_HEIGHT_CM: float = 170.0
+"""Height the BMI column is computed against when a caller names none."""
+
+LBS_TO_KG: float = 0.45359237
+"""Pounds to kilograms. Not a measurement: the international pound is defined
+as exactly this many kilograms, so the digits are the definition and rounding
+them is simply wrong."""
+
+# Track sampling
+#
+# Two questions, so two numbers -- how many samples a caller gets when it asks
+# for no particular count, and how many the export writes to disk -- but they
+# are not independent: the export cannot serve a default it never stored, so
+# the stored count must stay at or above the served one. The served default is
+# owned by dashboard/builder.py, next to the downsampler that applies it;
+# tests/test_dashboard_builder.py holds the pair in order. This one lives here
+# rather than in cli/export_data.py because the GraphQL schema publishes it in
+# the track(points:) description, and the API must not import the CLI's
+# parsing stack to read a number (tests/test_api_imports.py).
+EXPORT_TRACK_POINTS = 600
+"""Track samples ``run365-export`` keeps per run unless ``--points`` says otherwise."""
 
 # Challenge defaults
 DEFAULT_YEAR = 2021

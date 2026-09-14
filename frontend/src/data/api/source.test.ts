@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import type { GraphQLClient } from "graphql-request";
 import { absoluteUrl, createApiSource, DEFAULT_TRACK_POINTS } from "./source";
+// The schema the API publishes, generated from src/api/schema.py by `run365-schema`.
+import SDL from "../../../schema.graphql?raw";
 
 function client(response: unknown) {
   const request = vi.fn<(doc: unknown, vars?: unknown) => Promise<unknown>>(async () => response);
@@ -30,6 +32,17 @@ describe("api source", () => {
     expect(await src.activity("x")).toBeNull();
     expect(await src.track("x")).toEqual([]);
     expect(request.mock.calls[1][1]).toEqual({ id: "x", points: DEFAULT_TRACK_POINTS });
+  });
+
+  // Asking for fewer samples than the export stored would quietly hand api
+  // mode a coarser track than static mode, which has no argument to pass and
+  // returns everything in the file. The two 600s used to be typed out
+  // separately in Python and here and matched only by luck; raising the export
+  // limit would have moved one and not the other (CUI-0024).
+  it("asks for exactly as many samples as the export stores", () => {
+    const [, stored] = SDL.match(/export stores at most (\d+) samples per run/) ?? [];
+    expect(stored, "schema.graphql no longer states the stored sample count").toBeDefined();
+    expect(Number(stored)).toBe(DEFAULT_TRACK_POINTS);
   });
 
   it("unwraps year, meta, weight, weather and warnings", async () => {

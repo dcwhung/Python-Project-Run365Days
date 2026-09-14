@@ -14,8 +14,6 @@ import { RouteMap } from "./RouteMap";
 import { SeriesChart } from "./SeriesChart";
 import { LiveCard } from "./LiveCard";
 
-export const TRACK_POINTS = 600;
-
 const SPECS: SeriesSpec[] = [
   { key: "ele", title: "Elevation (m)", color: "#34d399", area: true, invert: false, pad: 4, format: (v) => String(Math.round(v)), unit: "m" },
   { key: "pace", title: "Pace (min/km)", color: "#4f8ef7", area: true, invert: true, pad: 0.3, format: (v) => fmtPace(v * 60), unit: "/km" },
@@ -30,7 +28,9 @@ export function ActivityView() {
   const list = all.data ?? [];
   const current = id ?? list[list.length - 1]?.id;
   const activity = useActivity(current);
-  const track = useTrack(current, TRACK_POINTS);
+  // No count named: the data layer owns how many samples a track is worth,
+  // and both sources answer with everything the export stored (CUI-0024).
+  const track = useTrack(current);
   const prefs = usePrefs();
 
   const series = useMemo(
