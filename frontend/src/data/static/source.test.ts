@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { createStaticSource } from "./source";
+import { MAX_TRACK_POINTS, MIN_TRACK_POINTS, createStaticSource } from "./source";
 import { STATIC_ACTIVITY } from "@/test/fixtures";
+// The schema the API publishes, generated from src/api/schema.py by `run365-schema`.
+import SDL from "../../../schema.graphql?raw";
 
 const FILES: Record<string, unknown> = {
   "/data/meta.json": { year: 2021, generated_at: "2026-01-01T00:00:00", counts: {} },
@@ -58,6 +60,39 @@ describe("static source", () => {
     expect(await src.track("a")).toHaveLength(5);
     const two = await src.track("a", 2);
     expect(two.map((p) => p.sec)).toEqual([0, 24]);
+  });
+
+  // ── S-011: one call means one thing in both data modes ──────────────────
+  it("treats an unspecified point count as 'every stored sample'", async () => {
+    const { src } = source();
+    expect(await src.track("a")).toHaveLength(5);
+    expect(await src.track("a", undefined)).toHaveLength(5);
+  });
+
+  it("rejects points: 0 the way the API does, instead of reading it as 'no limit'", async () => {
+    const { src } = source();
+    await expect(src.track("a", 0)).rejects.toThrow(
+      `points must be between ${MIN_TRACK_POINTS} and ${MAX_TRACK_POINTS}, got 0`,
+    );
+  });
+
+  it.each([-1, 1.5, Number.NaN, MAX_TRACK_POINTS + 1])(
+    "rejects an out-of-range point count (%s)",
+    async (points) => {
+      const { src } = source();
+      await expect(src.track("a", points)).rejects.toBeInstanceOf(RangeError);
+    },
+  );
+
+  it("returns the final sample alone for points: 1, matching the API", async () => {
+    const { src } = source();
+    expect((await src.track("a", 1)).map((p) => p.sec)).toEqual([24]);
+  });
+
+  it("keeps its track-point bounds in step with the published schema", () => {
+    const bounds = SDL.match(/Samples to return: (\d+) to (\d+)\./);
+    expect(bounds, "schema.graphql no longer states the track-point bounds").not.toBeNull();
+    expect([Number(bounds![1]), Number(bounds![2])]).toEqual([MIN_TRACK_POINTS, MAX_TRACK_POINTS]);
   });
 
   it("applies date ranges to weight, weather and warnings", async () => {
