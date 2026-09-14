@@ -1,4 +1,5 @@
 import math
+import warnings
 
 import pytest
 
@@ -21,6 +22,62 @@ class TestHaversineDistance:
     def test_none_in_destination_returns_nan(self):
         result = haversine_distance((22.3, 114.2), (None, None))
         assert math.isnan(result)
+
+
+class TestHaversineRejectsNonFinite:
+    """``None`` means "indoor run" and stays a nan; inf/nan mean corrupt input."""
+
+    @pytest.mark.parametrize(
+        "origin,destination",
+        [
+            ((math.inf, 114.2), (22.3, 114.2)),
+            ((-math.inf, 114.2), (22.3, 114.2)),
+            ((math.nan, 114.2), (22.3, 114.2)),
+            ((22.3, math.inf), (22.3, 114.2)),
+            ((22.3, math.nan), (22.3, 114.2)),
+            ((22.3, 114.2), (math.inf, 114.2)),
+            ((22.3, 114.2), (22.3, -math.inf)),
+            ((22.3, 114.2), (math.nan, math.nan)),
+        ],
+    )
+    def test_non_finite_coord_raises(self, origin, destination):
+        with pytest.raises(ValueError, match="finite"):
+            haversine_distance(origin, destination)
+
+    def test_error_names_the_offending_pair(self):
+        with pytest.raises(ValueError) as excinfo:
+            haversine_distance((math.inf, 114.2), (22.3, 114.2))
+        assert "inf" in str(excinfo.value)
+
+    def test_non_finite_does_not_emit_a_runtime_warning(self):
+        # The silent path this replaces only ever surfaced as a numpy
+        # "invalid value encountered in sin" RuntimeWarning.
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            with pytest.raises(ValueError):
+                haversine_distance((math.nan, 114.2), (22.3, 114.2))
+
+    def test_finite_coords_still_compute(self):
+        assert haversine_distance((22.3, 114.2), (22.3, 114.2)) == pytest.approx(0.0)
+
+
+class TestTotalTrackDistanceRejectsNonFinite:
+    def test_non_finite_point_raises(self):
+        coords = [(22.2800, 114.1588), (math.inf, 114.1694), (22.3500, 114.2000)]
+        with pytest.raises(ValueError, match="finite"):
+            total_track_distance(coords)
+
+    def test_nan_point_raises(self):
+        coords = [(22.2800, 114.1588), (22.3193, math.nan)]
+        with pytest.raises(ValueError, match="finite"):
+            total_track_distance(coords)
+
+    def test_none_points_are_still_dropped_not_rejected(self):
+        # Indoor stretches inside an outdoor track stay a drop, not an error.
+        coords = [(22.2800, 114.1588), (None, None), (22.3193, 114.1694)]
+        dist, num = total_track_distance(coords)
+        assert num >= 0
+        assert not math.isnan(dist)
 
 
 class TestTotalTrackDistance:
