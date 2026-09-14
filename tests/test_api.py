@@ -527,8 +527,8 @@ def test_the_deepest_client_query_stays_within_the_budget(year_client):
 
 
 def test_every_personal_best_may_carry_a_full_track(year_client):
-    # The most expensive shape the dashboard could ask for: five activities,
-    # each with the largest track the API serves.
+    # The most expensive shape the schema allows a client to ask for: five
+    # activities, each with the largest track the API serves.
     bests = " ".join(
         f"{field} {{ track(points: {MAX_TRACK_POINTS}) {{ sec }} }}"
         for field in PERSONAL_BEST_FIELDS

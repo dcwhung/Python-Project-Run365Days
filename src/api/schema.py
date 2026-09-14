@@ -46,13 +46,22 @@ MAX_TRACK_POINTS_PER_REQUEST = 10000
 ``MAX_TRACK_POINTS`` bounds a single track; nothing bounded the product of
 ``activities x points``, so one legal document could ask for 365 x 1000 =
 365,000 points. Measured at ~27,000 rows/s that is 8.3 s of row
-materialisation -- most of a 15 s Vercel function, and growing with the
-export. The cost is building the rows, not the per-activity round trips, so
-batching the queries would not have bought the headroom back.
+materialisation -- most of a 15 s Vercel function, and growing with the export.
 
-10,000 is twice the most expensive document the dashboard can send: the five
-activities of ``YearQuery``'s ``personalBests``, each carrying a full
-``MAX_TRACK_POINTS`` track, comes to 5,000. 10,000 rows costs about 0.37 s.
+10,000 is a round number chosen as a ceiling, *not* a figure derived from what
+any client needs. The largest track a real client asks for is 600 points on a
+single activity: ``TrackQuery`` is the only document in the front end that
+selects ``track`` (``frontend/src/data/api/queries.ts``), it takes one
+activity, and both call sites pass 600 (``TRACK_POINTS`` in
+``frontend/src/views/activity/ActivityView.tsx``, ``DEFAULT_TRACK_POINTS`` in
+``frontend/src/data/api/source.ts``). ``YearQuery``'s ``personalBests`` spend
+nothing at all: each of its five fields only spreads the ``ActivityFields``
+fragment, which carries no ``track``. So this sits roughly 16x above real
+demand, and exists to keep the worst case finite rather than to fit a caller.
+
+It bounds rows materialised, and nothing else. Round trips are bounded
+separately by :data:`MAX_TRACK_FIELDS_PER_REQUEST`, which is where the cost of
+a wide fan-out actually lands.
 """
 
 MAX_TRACK_FIELDS_PER_REQUEST = 64
@@ -610,7 +619,9 @@ def build_schema(
     return strawberry.Schema(
         query=Query,
         extensions=[
-            # Factories, not instances: Strawberry builds a fresh extension per request.
+            # Factories, not instances: Strawberry builds a fresh extension per
+            # request. A lambda is a factory; so is a class, which is why the
+            # limiters are wrapped and the last two are passed bare.
             lambda: QueryDepthLimiter(max_depth=max_depth),
             lambda: MaxTokensLimiter(max_token_count=max_tokens),
             _introspection_gate,
