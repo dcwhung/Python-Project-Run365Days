@@ -15,9 +15,11 @@ handled here:
 - The SQLite file is bundled via ``includeFiles`` in vercel.json and sits at
   ``data/processed/run365.db`` relative to the repository root;
   ``RUN365_DB_PATH`` overrides that.
-- The GraphiQL IDE (and with it the introspection a browser IDE needs) stays
-  off unless ``RUN365_GRAPHIQL`` is set to a truthy value, so a public
-  deployment exposes the endpoint only.
+- The GraphiQL IDE, and the schema introspection a browser IDE needs, both
+  stay off unless ``RUN365_GRAPHIQL`` is set to a truthy value: the IDE page
+  is not routed and ``__schema``/``__type`` documents are rejected during
+  validation, so a public deployment exposes the POST endpoint only. The flag
+  is read per request in :mod:`run365days.api.schema`, which owns both halves.
 
 If start-up fails, a minimal app still answers ``/api/health`` with the
 error so the cause is visible without digging through function logs.
@@ -34,13 +36,6 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 PACKAGE_NAME = "run365days"
 PACKAGE_DIR = REPO_ROOT / "src"
 DEFAULT_DB = REPO_ROOT / "data" / "processed" / "run365.db"
-GRAPHIQL_ENV = "RUN365_GRAPHIQL"
-GRAPHIQL_ON = frozenset({"1", "true", "yes", "on"})
-
-
-def _graphiql_enabled() -> bool:
-    """Serve the GraphiQL IDE only where the environment asks for it."""
-    return os.environ.get(GRAPHIQL_ENV, "").strip().lower() in GRAPHIQL_ON
 
 
 def _load_package_from_source() -> None:
@@ -88,10 +83,9 @@ def _build_app():
     try:
         _load_package_from_source()
         from run365days.api.app import create_app
+        from run365days.api.schema import graphiql_enabled
 
-        return create_app(
-            os.environ.get("RUN365_DB_PATH", DEFAULT_DB), graphiql=_graphiql_enabled()
-        )
+        return create_app(os.environ.get("RUN365_DB_PATH", DEFAULT_DB), graphiql=graphiql_enabled())
     except Exception as exc:  # noqa: BLE001 - surface any start-up failure
         return _error_app(exc)
 
