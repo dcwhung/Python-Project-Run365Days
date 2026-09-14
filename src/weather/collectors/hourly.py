@@ -32,6 +32,17 @@ _UNKNOWN_DESCRIPTION = "Unknown"
 # and the slice that followed handed back a code nobody wrote (CUI-0017).
 _DESCRIPTION_CODE_RE = re.compile(r"n\(\s*(?P<code>[^,()]+?)\s*,\s*'CurrentWeather'")
 
+# freemeteo writes the wind cell two ways: "Northeast 50° 24 Km/h" names a
+# bearing, "Variable at 20 Km/h" has no degree sign at all. The old read sliced
+# from find("°") + 1, so the second form parsed only because -1 + 1 == 0 started
+# the slice at the front -- the one place in this codebase where the -1 sentinel
+# was load-bearing rather than latent, and the reason a guard added to find()
+# would have broken the Variable form for no stated reason (CUI-0018). Spelling
+# both forms out as alternatives means a third form fails to match and says so.
+# The unit is part of the pattern, not a character count: "Variable at 20 mph"
+# used to lose a digit to [:-5] and report 2.0 Km/h.
+_WIND_SPEED_RE = re.compile(r"(?:\w+°|Variable at)\s*(?P<speed>\d+(?:\.\d+)?)\s*Km/h")
+
 # A socket with no timeout can hang forever, and fetch_range() pays that cost
 # once per day -- 365 times for a full year. Five seconds is generous for a TCP
 # handshake to a reachable host, so an unreachable one fails fast; thirty covers
@@ -81,6 +92,32 @@ def _description(script: str, date_str: str, observed_at: str) -> str:
     return _DESCRIPTION_MAP.get(match.group("code"), _UNKNOWN_DESCRIPTION)
 
 
+def _wind_kmh(wind_text: str, date_str: str, observed_at: str) -> float | None:
+    """Return the wind speed the row's wind cell states, in Km/h.
+
+    Args:
+        wind_text: The wind cell's text, in either of freemeteo's two forms.
+        date_str: The day being queried.
+        observed_at: The row's observation time.
+
+    Returns:
+        The speed, or ``None`` when the cell matches neither form -- the rest of
+        the observation is still good, so the gap stays in this one column.
+    """
+    match = _WIND_SPEED_RE.search(wind_text)
+    if match is None:
+        logger.warning(
+            "%s %s: wind cell %r states neither a bearing nor a variable direction",
+            date_str,
+            observed_at,
+            wind_text.strip(),
+        )
+        return None
+    # The pattern already fixed the digits, so the cast cannot fail and None
+    # keeps one meaning here: the cell stated no speed.
+    return float(match.group("speed"))
+
+
 def _observation_from_row(tds: list[Tag], date_str: str) -> HourlyWeather | None:
     """Build one record from a freemeteo daily-history row.
 
@@ -104,12 +141,11 @@ def _observation_from_row(tds: list[Tag], date_str: str) -> HourlyWeather | None
         )
         return None
 
-    wind_text = tds[_COL_WIND].text
     return HourlyWeather(
         date=date_str,
         time=observed_at,
         temperature_c=to_float(tds[_COL_TEMPERATURE].text.strip()[:-2]),
-        wind_kmh=to_float(wind_text[wind_text.find("°") + 1 :].replace("Variable at ", "")[:-5]),
+        wind_kmh=_wind_kmh(tds[_COL_WIND].text, date_str, observed_at),
         humidity_pct=to_float(tds[_COL_HUMIDITY].text.strip()[:-1]),
         description=_description(script, date_str, observed_at),
     )
@@ -121,7 +157,9 @@ def fetch_day(date_str: str) -> list[HourlyWeather]:
     A row whose weather cell carries no readable ``<script>`` is logged and
     dropped on its own; the rest of the day still parses (CUI-0012). A script
     that carries no icon call keeps its row but reports ``"Unknown"``, rather
-    than a code sliced out of an offset nobody read (CUI-0017).
+    than a code sliced out of an offset nobody read (CUI-0017). A wind cell in
+    neither of freemeteo's two forms keeps its row too, with ``wind_kmh`` as
+    ``None`` instead of a number sliced out of an unexpected unit (CUI-0018).
 
     Args:
         date_str: The day to query, ``YYYY-MM-DD``.
