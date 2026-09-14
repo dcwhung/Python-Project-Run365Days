@@ -2,6 +2,7 @@ import { useNavigate } from "react-router-dom";
 import { Bar, Line, Scatter } from "react-chartjs-2";
 import { useActivities, useWeather, useYear } from "@/data/hooks";
 import { fmtKm, fmtPace, fmtShortDate } from "@/lib/format";
+import { minToSec, paceToPlotMin } from "@/lib/units";
 import { actTemp, wxEmoji } from "@/lib/weather";
 import { BASE, COLORS, GRID, NO_GRID, NO_LEGEND, alpha, dayAxis } from "@/components/charts/theme";
 import { Card } from "@/components/Card";
@@ -196,7 +197,7 @@ export function WeatherView() {
                 labels: bands.map((b) => b.label),
                 datasets: [
                   {
-                    data: bands.map((b) => Math.round((b.pace / 60) * 100) / 100),
+                    data: bands.map((b) => paceToPlotMin(b.pace)),
                     backgroundColor: bands.map((_, i) => `hsl(${210 - i * 30},70%,60%)`),
                     borderRadius: 5,
                   },
@@ -209,7 +210,7 @@ export function WeatherView() {
                   tooltip: {
                     callbacks: {
                       label: (c) =>
-                        `${fmtPace((c.parsed.y ?? 0) * 60)} /km · ${bands[c.dataIndex].runs} runs`,
+                        `${fmtPace(minToSec(c.parsed.y ?? 0))} /km · ${bands[c.dataIndex].runs} runs`,
                     },
                   },
                 },
@@ -218,7 +219,7 @@ export function WeatherView() {
                   y: {
                     grid: GRID,
                     reverse: true,
-                    ticks: { callback: (v) => fmtPace(Number(v) * 60) },
+                    ticks: { callback: (v) => fmtPace(minToSec(Number(v))) },
                   },
                 },
               }}
@@ -249,7 +250,7 @@ export function WeatherView() {
                     callbacks: {
                       label: (c) => {
                         const p = c.raw as (typeof hp)[number];
-                        return `${fmtShortDate(p.date)} · ${p.x}% RH · ${fmtPace(p.y * 60)}/km`;
+                        return `${fmtShortDate(p.date)} · ${p.x}% RH · ${fmtPace(minToSec(p.y))}/km`;
                       },
                     },
                   },
@@ -259,7 +260,7 @@ export function WeatherView() {
                   y: {
                     grid: GRID,
                     reverse: true,
-                    ticks: { callback: (v) => fmtPace(Number(v) * 60) },
+                    ticks: { callback: (v) => fmtPace(minToSec(Number(v))) },
                   },
                 },
               }}

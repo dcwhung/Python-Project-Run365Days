@@ -37,3 +37,8 @@ export function fmtShortDate(isoDate: string): string {
 export function fmtKm(km: number, digits = 2): string {
   return km.toFixed(digits);
 }
+
+/** 123456 -> "123k", for totals where the exact figure is noise. */
+export function fmtThousands(n: number): string {
+  return `${Math.round(n / 1000)}k`;
+}

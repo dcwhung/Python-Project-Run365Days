@@ -1,6 +1,7 @@
 import { Line } from "react-chartjs-2";
 import { useActivities, useWeight, useYear } from "@/data/hooks";
 import { MONTHS, fmtShortDate } from "@/lib/format";
+import { secToHours, secToMin } from "@/lib/units";
 import { toWeightUnit, usePrefs } from "@/lib/prefs";
 import { BASE, COLORS, GRID, NO_LEGEND, alpha, dayAxis } from "@/components/charts/theme";
 import { Card } from "@/components/Card";
@@ -65,9 +66,9 @@ export function YearView() {
             color="text-accent"
           />
           <Big
-            value={(t.durationSec / 3600).toFixed(1)}
+            value={secToHours(t.durationSec).toFixed(1)}
             unit="hrs"
-            label={`${Math.round(t.durationSec / 60 / t.days)} min/day`}
+            label={`${Math.round(secToMin(t.durationSec) / t.days)} min/day`}
             color="text-accent2"
           />
           <Big

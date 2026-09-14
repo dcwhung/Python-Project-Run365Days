@@ -1,6 +1,7 @@
 import type { TrackSeries } from "./series";
 import { SPEEDS } from "./usePlayback";
 import { fmtDuration, fmtPace } from "@/lib/format";
+import { metresToKm, minToSec } from "@/lib/units";
 
 function Stat({ value, unit, label }: { value: string; unit: string; label: string }) {
   return (
@@ -44,9 +45,9 @@ export function LiveCard({
         </div>
       </div>
       <div className="grid grid-cols-3 gap-3">
-        <Stat value={((series.dist[idx] ?? 0) / 1000).toFixed(2)} unit="km" label="Distance" />
+        <Stat value={metresToKm(series.dist[idx] ?? 0).toFixed(2)} unit="km" label="Distance" />
         <Stat
-          value={Number.isFinite(series.pace[idx]) ? fmtPace(series.pace[idx] * 60) : "–"}
+          value={Number.isFinite(series.pace[idx]) ? fmtPace(minToSec(series.pace[idx])) : "–"}
           unit="/km"
           label="Pace"
         />
