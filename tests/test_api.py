@@ -6,10 +6,14 @@ import pytest
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session
 
+from graphql import GraphQLObjectType, get_introspection_query, get_named_type
+from graphql import build_schema as build_sdl_schema
 from run365days.api import db, service
 from run365days.api.app import GRAPHQL_PATH, HEALTH_PATH, create_app
 from run365days.api.schema import (
     MAX_PAGE_SIZE,
+    MAX_QUERY_DEPTH,
+    MAX_QUERY_TOKENS,
     MAX_TRACK_POINTS,
     build_schema,
 )
@@ -336,6 +340,23 @@ def test_track_points_above_the_maximum_are_rejected(year_client):
     assert str(MAX_TRACK_POINTS) in gql_errors(year_client, query)
 
 
+# ── CUI-0004: `points: 1` is a documented degenerate case, not an accident ──
+def test_track_with_one_point_returns_the_final_sample(year_session):
+    rows = service.track(year_session, TRACKED_ACTIVITY_ID, 1)
+    assert [r["sec"] for r in rows] == [STORED_TRACK_POINTS - 1]
+
+
+def test_single_point_track_matches_the_builder_downsample(year_session):
+    """The degenerate case is shared with the dashboard, not local to the API."""
+    rows = service.track(year_session, TRACKED_ACTIVITY_ID, 1)
+    assert [r["sec"] for r in rows] == downsample(list(range(STORED_TRACK_POINTS)), 1)
+
+
+def test_graphql_accepts_one_point_and_returns_the_final_sample(year_client):
+    d = gql(year_client, '{ activity(id: "r0") { track(points: 1) { sec } } }')
+    assert [p["sec"] for p in d["activity"]["track"]] == [STORED_TRACK_POINTS - 1]
+
+
 # ── AU-001: query depth and token limits ───────────────────────────────────
 def test_deepest_client_query_is_within_the_depth_limit(client):
     assert gql(client, DEEPEST_CLIENT_QUERY)["year"] is not None
@@ -351,6 +372,84 @@ def test_query_deeper_than_the_configured_limit_is_rejected():
 def test_document_with_too_many_tokens_is_rejected(client):
     flood = " ".join(f"a{i}: meta {{ year }}" for i in range(500))
     assert "token" in gql_errors(client, f"{{ {flood} }}").lower()
+
+
+# ── CUI-0003: the depth limit is pinned to the schema's own deepest query ──
+def _published_query_type() -> GraphQLObjectType:
+    """Return the Query type as a client sees it, rebuilt from the published SDL."""
+    return build_sdl_schema(build_schema().as_str()).query_type
+
+
+def _deepest_chain(gql_type, seen: frozenset[str] = frozenset()) -> list[str]:
+    """Return the longest field-name path from *gql_type* down to a scalar leaf.
+
+    The path length is the operation depth QueryDepthLimiter would count, minus
+    the trailing leaf, which carries no selection set and so adds no level.
+    A type reachable from itself would make depth unbounded -- the one change
+    that turns MAX_QUERY_DEPTH from a formality into the only bound left -- so
+    this fails loudly rather than recursing.
+    """
+    named = get_named_type(gql_type)
+    if not isinstance(named, GraphQLObjectType):
+        return []
+    assert named.name not in seen, (
+        f"{named.name} is now reachable from itself, so query depth is unbounded "
+        "and MAX_QUERY_DEPTH is the only thing bounding it. Re-argue the value."
+    )
+    return max(
+        ([name, *_deepest_chain(f.type, seen | {named.name})] for name, f in named.fields.items()),
+        key=len,
+    )
+
+
+def _nested_query(chain: list[str]) -> str:
+    """Render *chain* as one nested selection set, outermost field first."""
+    query = chain[-1]
+    for name in reversed(chain[:-1]):
+        query = f"{name} {{ {query} }}"
+    return f"{{ {query} }}"
+
+
+def test_depth_limit_equals_the_deepest_query_the_schema_allows():
+    chain = _deepest_chain(_published_query_type())
+    assert len(chain) - 1 == MAX_QUERY_DEPTH, (
+        f"deepest query the schema allows is {' -> '.join(chain)} at depth "
+        f"{len(chain) - 1}, but MAX_QUERY_DEPTH is {MAX_QUERY_DEPTH}. A limit above "
+        "that depth can never reject anything; one below it rejects a legal query."
+    )
+
+
+def test_configured_schema_rejects_a_document_one_level_too_deep():
+    """The shipped limit, not a test-only shallow one, runs the reject branch."""
+    too_deep = _nested_query([*_deepest_chain(_published_query_type()), "oneLevelTooDeep"])
+    result = build_schema().execute_sync(too_deep)
+    assert any("depth" in str(e).lower() for e in result.errors), result.errors
+
+
+def test_one_level_tighter_would_reject_the_deepest_client_query():
+    result = build_schema(max_depth=MAX_QUERY_DEPTH - 1).execute_sync(DEEPEST_CLIENT_QUERY)
+    assert any("depth" in str(e).lower() for e in result.errors), result.errors
+
+
+def test_introspection_is_exempt_from_the_depth_limit(monkeypatch):
+    """Why a depth tight to the data graph does not break GraphiQL."""
+    monkeypatch.setenv(GRAPHIQL_ENV, "1")
+    result = build_schema(max_depth=1, max_tokens=100_000).execute_sync(get_introspection_query())
+    assert not result.errors
+
+
+# ── S-012: every enforced limit is visible in the SDL ──────────────────────
+@pytest.mark.parametrize(
+    "published",
+    [
+        f"1 to {MAX_PAGE_SIZE}",
+        f"1 to {MAX_TRACK_POINTS}",
+        f"{MAX_QUERY_DEPTH} levels",
+        f"{MAX_QUERY_TOKENS} tokens",
+    ],
+)
+def test_sdl_publishes_the_limits_the_api_enforces(published):
+    assert published in build_schema().as_str()
 
 
 # ── AU-001: GraphiQL is off unless the environment asks for it ─────────────

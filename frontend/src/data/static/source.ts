@@ -16,6 +16,34 @@ import {
   type StaticWeight,
 } from "./mappers";
 
+/**
+ * Bounds on `track(points:)`, mirroring the `points` argument the API publishes
+ * in `schema.graphql` (itself generated from MAX_TRACK_POINTS in
+ * `src/api/schema.py`). `source.test.ts` reads the bounds back out of the SDL
+ * and fails if these two ever disagree with it, so the pair cannot drift.
+ */
+export const MIN_TRACK_POINTS = 1;
+export const MAX_TRACK_POINTS = 1000;
+
+/**
+ * Bounds-check `points` the way the API's `_track_points` does, so the same
+ * call means the same thing in both modes.
+ *
+ * Leaving `points` out and passing `0` are different requests and now get
+ * different answers: omitting it asks for every stored sample, while `0` asks
+ * for none, which no track can satisfy. Reading `0` as "give me everything"
+ * was the wider bug -- api mode rejected it, static mode returned the whole
+ * track, and a caller could not tell which answer it was getting.
+ */
+function trackPoints(points: number): number {
+  if (!Number.isInteger(points) || points < MIN_TRACK_POINTS || points > MAX_TRACK_POINTS) {
+    throw new RangeError(
+      `points must be between ${MIN_TRACK_POINTS} and ${MAX_TRACK_POINTS}, got ${points}`,
+    );
+  }
+  return points;
+}
+
 export type Fetcher = (url: string) => Promise<unknown>;
 
 const defaultFetcher: Fetcher = async (url) => {
@@ -64,7 +92,10 @@ export function createStaticSource(base: string, fetcher: Fetcher = defaultFetch
     },
     async track(id: string, points?: number): Promise<TrackPoint[]> {
       const rows = mapTrack(await load<StaticTrack>(`tracks/${id}.json`));
-      return points ? downsample(rows, points) : rows;
+      // `undefined` only, matching api mode: there a default parameter fills in
+      // for an absent argument, and any value the caller does name is sent on
+      // to the server to be bounds-checked.
+      return points === undefined ? rows : downsample(rows, trackPoints(points));
     },
     async weight(range: DateRange = {}) {
       return (await load<StaticWeight[]>("weight.json")).map(mapWeight).filter((w) => inRange(w.date, range));

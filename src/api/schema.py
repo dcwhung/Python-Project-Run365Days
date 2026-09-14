@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 from datetime import date as date_type
+from typing import Annotated
 
 import strawberry
 from strawberry.extensions import (
@@ -40,13 +41,24 @@ whole year in one request (the dashboard does) need no paging.
 MAX_PAGE_SIZE = 1000
 """Ceiling for ``limit``: the largest single-request page the API will serve."""
 
-MAX_QUERY_DEPTH = 5
-"""Deepest operation the API accepts.
+MAX_QUERY_DEPTH = 4
+"""Deepest operation the API accepts: tight to the schema, deliberately not padded.
 
-The deepest document the dashboard sends is ``YearQuery`` at depth 4
-(year -> personalBests -> longest -> weather -> leaf), which is also the
-deepest the acyclic type graph allows today; 5 leaves one level of headroom
-for a new nested field without reopening the limit question.
+Depth is counted the way ``QueryDepthLimiter`` counts it: a field carrying a
+selection set adds a level, a leaf field adds none, and introspection fields
+are exempt -- so tightening this does not break GraphiQL, whose own query is
+far deeper than anything below.
+
+Four is the deepest document the acyclic type graph allows
+(year -> personalBests -> longest -> weather -> leaf), and also the deepest
+the dashboard sends. The alternative was to pad the value for headroom, which
+is what it used to do at 5: no document a client can write reaches five
+levels, so the limiter could never reject anything and the protection was
+decorative. Tight, it rejects at the first level past the schema, and it is
+ready for the change that actually matters -- a field making some type
+reachable from itself, after which the graph bounds nothing and this number is
+the only bound left. The depth-limit tests fail if the graph ever deepens, so
+the value gets re-argued instead of quietly drifting out of contact.
 """
 
 MAX_QUERY_TOKENS = 1000
@@ -55,6 +67,34 @@ MAX_QUERY_TOKENS = 1000
 The biggest document the dashboard sends lexes to 113 tokens and
 introspection to 163, so this only ever stops alias-flooded documents.
 """
+
+# ── SDL-visible bounds ─────────────────────────────────────────────────────
+# Interpolated from the constants above, never retyped: a client should be able
+# to read every limit off the schema, and a description that repeats a number by
+# hand is a second source of truth waiting to drift away from the first.
+LIMIT_DESCRIPTION = f"Rows to return: 1 to {MAX_PAGE_SIZE}. Anything outside that range errors."
+"""Description shared by the ``limit`` argument of every list field."""
+
+OFFSET_DESCRIPTION = "Rows to skip before the page starts. Must not be negative."
+"""Description shared by the ``offset`` argument of every list field."""
+
+TRACK_POINTS_DESCRIPTION = (
+    f"Samples to return: 1 to {MAX_TRACK_POINTS}. Anything outside that range errors, "
+    "so 0 is rejected rather than read as `no limit`. A track with fewer stored "
+    "samples is returned whole. 1 is the degenerate case: the final sample alone."
+)
+"""Description of ``track(points:)``, including what its two edge values mean."""
+
+QUERY_DESCRIPTION = (
+    "Read-only root. Past the per-argument bounds below, every document is bounded "
+    f"as a whole: at most {MAX_QUERY_DEPTH} levels of nesting and {MAX_QUERY_TOKENS} "
+    "tokens. Introspection is off unless the server runs with GraphiQL enabled."
+)
+"""Description of the root type: the limits that apply to a document, not a field."""
+
+PageLimit = Annotated[int, strawberry.argument(description=LIMIT_DESCRIPTION)]
+PageOffset = Annotated[int, strawberry.argument(description=OFFSET_DESCRIPTION)]
+TrackPoints = Annotated[int, strawberry.argument(description=TRACK_POINTS_DESCRIPTION)]
 
 GRAPHIQL_ENV = "RUN365_GRAPHIQL"
 """Environment variable that opens the endpoint up for local development.
@@ -180,7 +220,7 @@ class Activity:
     warnings: list[str]
 
     @strawberry.field(description="GPS track, evenly downsampled to at most `points` samples.")
-    def track(self, info: Info, points: int = DEFAULT_TRACK_POINTS) -> list[TrackPoint]:
+    def track(self, info: Info, points: TrackPoints = DEFAULT_TRACK_POINTS) -> list[TrackPoint]:
         rows = service.track(info.context["session"], str(self.id), _track_points(points))
         return [TrackPoint(**row) for row in rows]
 
@@ -311,7 +351,7 @@ def _activity(rec: dict | None) -> Activity | None:
 
 
 # ── root ───────────────────────────────────────────────────────────────────
-@strawberry.type
+@strawberry.type(description=QUERY_DESCRIPTION)
 class Query:
     @strawberry.field(description="Export metadata.")
     def meta(self, info: Info) -> Meta:
@@ -328,8 +368,8 @@ class Query:
         to_date: date_type | None = None,
         min_km: float | None = None,
         has_gps: bool | None = None,
-        limit: int = DEFAULT_PAGE_SIZE,
-        offset: int = 0,
+        limit: PageLimit = DEFAULT_PAGE_SIZE,
+        offset: PageOffset = 0,
     ) -> list[Activity]:
         limit, offset = _page(limit, offset)
         rows = service.activities(
@@ -360,8 +400,8 @@ class Query:
         info: Info,
         from_date: date_type | None = None,
         to_date: date_type | None = None,
-        limit: int = DEFAULT_PAGE_SIZE,
-        offset: int = 0,
+        limit: PageLimit = DEFAULT_PAGE_SIZE,
+        offset: PageOffset = 0,
     ) -> list[WeightEntry]:
         limit, offset = _page(limit, offset)
         rows = service.weight(
@@ -381,8 +421,8 @@ class Query:
         info: Info,
         from_date: date_type | None = None,
         to_date: date_type | None = None,
-        limit: int = DEFAULT_PAGE_SIZE,
-        offset: int = 0,
+        limit: PageLimit = DEFAULT_PAGE_SIZE,
+        offset: PageOffset = 0,
     ) -> list[DailyWeather]:
         limit, offset = _page(limit, offset)
         rows = service.daily_weather(
@@ -402,8 +442,8 @@ class Query:
         info: Info,
         from_date: date_type | None = None,
         to_date: date_type | None = None,
-        limit: int = DEFAULT_PAGE_SIZE,
-        offset: int = 0,
+        limit: PageLimit = DEFAULT_PAGE_SIZE,
+        offset: PageOffset = 0,
     ) -> list[WeatherWarning]:
         limit, offset = _page(limit, offset)
         rows = service.warnings(
