@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- Lap 2's HTML table omits Elevation Gain / Loss, and the second track-point
-     placemark carries no <Point>: both shapes appear in real Garmin exports. -->
+     placemark carries no <Point>: both shapes appear in real Garmin exports.
+     Lap 2's table also carries a header-only row and a single-cell row, the
+     Laps folder a placemark with no description, and the Track Points folder
+     a placemark whose coordinates have no latitude. The parser is expected
+     to step over every one of these rather than fail. -->
 <kml xmlns="http://earth.google.com/kml/2.1">
   <Folder>
     <name>Running</name>
@@ -15,10 +19,13 @@
       </Placemark>
       <Placemark>
         <name>Lap 2</name>
-        <description>&lt;table width = "320"&gt;&lt;tr&gt;&lt;td&gt;Time:&lt;/td&gt;&lt;td&gt;00:05:00&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Distance:&lt;/td&gt;&lt;td&gt;1 Kilometers &lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;</description>
+        <description>&lt;table width = "320"&gt;&lt;tr&gt;&lt;td&gt;Time:&lt;/td&gt;&lt;td&gt;00:05:00&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Distance:&lt;/td&gt;&lt;td&gt;1 Kilometers &lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;th&gt;Splits&lt;/th&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Note:&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;</description>
         <Point>
           <coordinates>null,null</coordinates>
         </Point>
+      </Placemark>
+      <Placemark>
+        <name>Lap 3</name>
       </Placemark>
     </Folder>
     <Folder>
@@ -37,6 +44,15 @@
           <begin>2021-06-08T12:14:52+08:00</begin>
           <end>2021-06-08T12:14:52+08:00</end>
         </TimeSpan>
+      </Placemark>
+      <Placemark>
+        <TimeSpan>
+          <begin>2021-06-08T12:24:52+08:00</begin>
+          <end>2021-06-08T12:24:52+08:00</end>
+        </TimeSpan>
+        <Point>
+          <coordinates>114.2019</coordinates>
+        </Point>
       </Placemark>
     </Folder>
   </Folder>

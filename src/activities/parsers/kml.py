@@ -13,6 +13,7 @@ from bs4 import BeautifulSoup
 from run365days.activities.models import Activity, TrackPoint
 from run365days.activities.parsers.base import (
     ActivityParseError,
+    ActivitySkipped,
     BaseActivityParser,
     element_text,
 )
@@ -25,6 +26,7 @@ _TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
 _RUNNING_NAME = "Running"
 _LAPS_FOLDER = "Laps"
 _TRACK_POINTS_FOLDER = "Track Points"
+_LAP_KEY = "Lap"
 _LAP_TIME_KEY = "Time"
 _LAP_DISTANCE_KEY = "Distance"
 _SUMMARY_ROW_COLSPAN = 2
@@ -45,9 +47,10 @@ class KMLParser(BaseActivityParser):
             The parsed activity with lap totals and the coordinate track.
 
         Raises:
-            ValueError: If the file is not a running activity or is older
-                than ``current_year``.
-            ActivityParseError: If a mandatory element is missing.
+            ActivitySkipped: If the file is not a running activity or is
+                older than ``current_year``.
+            ActivityParseError: If a mandatory element is missing, or the file
+                carries no track points and therefore no start time.
         """
         root = ET.parse(file_path).getroot()
 
@@ -55,7 +58,7 @@ class KMLParser(BaseActivityParser):
         folder = root.find("ns:Folder", _NS)
 
         if folder is None or _RUNNING_NAME not in (element_text(folder, "ns:name", _NS) or ""):
-            raise ValueError(f"Not a running activity: {activity_id}")
+            raise ActivitySkipped(f"Not a running activity: {activity_id}")
 
         lap_rows: list[dict] = []
         track_points: list[TrackPoint] = []
@@ -67,9 +70,15 @@ class KMLParser(BaseActivityParser):
             elif name == _TRACK_POINTS_FOLDER:
                 track_points.extend(_parse_track_points(subfolder))
 
-        act_time = parse_datetime(track_points[0].time) if track_points else None
-        if act_time is None or act_time.year < self.current_year:
-            raise ValueError(f"Skipping activity: {activity_id}")
+        # A KML carries no timestamp outside its track points, so a file with
+        # none of them has no start time at all and cannot become an Activity.
+        # That is a data problem to report, not a deliberate year filter (W-004).
+        if not track_points:
+            raise ActivityParseError(f"no track points in {file_path.name}")
+
+        act_time = parse_datetime(track_points[0].time)
+        if act_time.year < self.current_year:
+            raise ActivitySkipped(f"Skipping old activity: {activity_id}")
 
         if not lap_rows:
             raise ActivityParseError(f"no laps found in {file_path.name}")
@@ -103,7 +112,7 @@ def _parse_laps(subfolder: ET.Element) -> list[dict]:
         if "Lap" not in parts[0]:
             continue
 
-        row = {"Lap": parts[1] if len(parts) > 1 else parts[0]}
+        row = {_LAP_KEY: parts[1] if len(parts) > 1 else parts[0]}
         row.update(_lap_table_cells(description))
         rows.append(row)
     return rows
@@ -152,17 +161,33 @@ def _parse_track_points(subfolder: ET.Element) -> list[TrackPoint]:
 def _aggregate_laps(lap_rows: list[dict]) -> tuple[float, float]:
     """Return ``(total_seconds, total_km)`` summed over the lap rows.
 
-    Laps whose HTML table omits a statistic contribute nothing for it rather
-    than discarding the whole activity.
+    Time and Distance are mandatory, matching how TCX reads the same two
+    numbers through ``required_text``. They are the only inputs to
+    ``total_sec``, ``distance_km`` and ``pacing``, so a lap that omits one
+    would publish a short total and a wrong pace with nothing in the log. A
+    reported, dropped activity is the better failure (W-006).
+
+    Args:
+        lap_rows: One ``label -> value`` mapping per lap placemark.
+
+    Returns:
+        The summed seconds and kilometres.
+
+    Raises:
+        ActivityParseError: If any lap omits Time or Distance, or either is
+            unreadable.
     """
     total_sec = 0.0
     total_km = 0.0
     for row in lap_rows:
-        time_text = row.get(_LAP_TIME_KEY)
-        if time_text:
-            total_sec += hhmmss_to_seconds(time_text)
-
-        distance_text = row.get(_LAP_DISTANCE_KEY)
-        if distance_text:
-            total_km += float(distance_text.split()[0])
+        for key in (_LAP_TIME_KEY, _LAP_DISTANCE_KEY):
+            if not row.get(key):
+                raise ActivityParseError(f"lap {row.get(_LAP_KEY)} is missing {key}")
+        try:
+            total_sec += hhmmss_to_seconds(row[_LAP_TIME_KEY])
+            total_km += float(row[_LAP_DISTANCE_KEY].split()[0])
+        except (IndexError, ValueError) as exc:
+            raise ActivityParseError(
+                f"lap {row.get(_LAP_KEY)} has an unreadable total: {exc}"
+            ) from exc
     return total_sec, total_km

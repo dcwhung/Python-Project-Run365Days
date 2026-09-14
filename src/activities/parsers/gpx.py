@@ -14,6 +14,7 @@ import pandas as pd
 from run365days.activities.models import Activity, TrackPoint
 from run365days.activities.parsers.base import (
     ActivityParseError,
+    ActivitySkipped,
     BaseActivityParser,
     element_text,
     optional_float,
@@ -49,8 +50,8 @@ class GPXParser(BaseActivityParser):
             statistics computed from the track.
 
         Raises:
-            ValueError: If the activity is older than ``current_year`` or is
-                not a running activity.
+            ActivitySkipped: If the activity is older than ``current_year``
+                or is not a running activity.
             ActivityParseError: If a mandatory element is missing.
         """
         root = ET.parse(file_path).getroot()
@@ -63,11 +64,11 @@ class GPXParser(BaseActivityParser):
         act_time = parse_datetime(required_text(metadata, "ns:time", _NS))
 
         if act_time.year < self.current_year:
-            raise ValueError(f"Skipping old activity: {activity_id}")
+            raise ActivitySkipped(f"Skipping old activity: {activity_id}")
 
         trk = root.find("ns:trk", _NS)
         if trk is None or element_text(trk, "ns:type", _NS) != _RUNNING_TYPE:
-            raise ValueError(f"Not a running activity: {activity_id}")
+            raise ActivitySkipped(f"Not a running activity: {activity_id}")
 
         track_points = self._track_points(trk)
         total_sec = self._elapsed_seconds(track_points)

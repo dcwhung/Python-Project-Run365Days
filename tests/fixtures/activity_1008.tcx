@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- A running activity that carries no Lap, so there are no totals to sum. -->
+<TrainingCenterDatabase
+  xmlns="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2">
+  <Activities>
+    <Activity Sport="Running">
+      <Id>2021-01-08T04:04:52.000Z</Id>
+    </Activity>
+  </Activities>
+</TrainingCenterDatabase>

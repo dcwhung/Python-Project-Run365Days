@@ -5,6 +5,13 @@
     <Folder>
       <name>Laps</name>
       <Placemark>
+        <name>Start</name>
+        <description>&lt;table width = "320"&gt;&lt;tr&gt;&lt;td colspan="2"&gt; &lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Activity Type:&lt;/td&gt;&lt;td&gt;running&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Distance:&lt;/td&gt;&lt;td&gt;2 Kilometers &lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Time :&lt;/td&gt;&lt;td&gt;0:10:00&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;</description>
+        <Point>
+          <coordinates>114.2019,22.3278</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
         <name>Lap 1</name>
         <description>&lt;table width = "320"&gt;&lt;tr&gt;&lt;td colspan="2"&gt;Summary&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Time:&lt;/td&gt;&lt;td&gt;00:05:00&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Distance:&lt;/td&gt;&lt;td&gt;1 Kilometers &lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Elevation Gain:&lt;/td&gt;&lt;td&gt;2 Meters &lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Elevation Loss:&lt;/td&gt;&lt;td&gt;1 Meters &lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Max Speed:&lt;/td&gt;&lt;td&gt;11.62 Kilometers per Hour&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;</description>
         <Point>
@@ -16,6 +23,13 @@
         <description>&lt;table width = "320"&gt;&lt;tr&gt;&lt;td&gt;Time:&lt;/td&gt;&lt;td&gt;00:05:00&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Distance:&lt;/td&gt;&lt;td&gt;1 Kilometers &lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Elevation Gain:&lt;/td&gt;&lt;td&gt;1 Meters &lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Elevation Loss:&lt;/td&gt;&lt;td&gt;2 Meters &lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Max Speed:&lt;/td&gt;&lt;td&gt;10.91 Kilometers per Hour&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;</description>
         <Point>
           <coordinates>null,null</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>End</name>
+        <description>&lt;table width = "320"&gt;&lt;tr&gt;&lt;td colspan="2"&gt; &lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Activity Type:&lt;/td&gt;&lt;td&gt;running&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Distance:&lt;/td&gt;&lt;td&gt;2 Kilometers &lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Time :&lt;/td&gt;&lt;td&gt;0:10:00&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;</description>
+        <Point>
+          <coordinates>114.2019,22.3368</coordinates>
         </Point>
       </Placemark>
     </Folder>
