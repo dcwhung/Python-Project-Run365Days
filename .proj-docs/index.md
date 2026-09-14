@@ -1,6 +1,6 @@
 # 項目文件索引 — Run365Days
 
-**最後更新**：2026-09-14（AU-047 + CLAUDE.md）
+**最後更新**：2026-09-14（AU-047 review fail → 修正輪；CLAUDE.md）
 
 > 本目錄為 ai-dev-team 產出文件嘅 Single Source of Truth。
 > 每次有新文件輸出，必須喺此更新條目同頂部日期。
@@ -37,7 +37,8 @@
 | 優先級 | 項目 | Finding | 狀態 |
 |---|---|---|---|
 | P0 | 4 條 Critical（AU-001 ~ AU-004） | AU-001 ~ AU-004 | ✅ 已修（PR #11 merge 入 `develop`） |
-| P1 | `Activity.track` 單次請求資料量冇 bound | AU-047 | 🔧 本次 session 處理中 |
+| P1 | `Activity.track` 單次請求資料量冇 bound | AU-047 | 🔧 第一輪已修（`2adf6ba`）；review **fail**，修正輪處理 C-001 round-trip cap 中 |
+| P2 | Client 輸入錯誤一律以 `ValueError` + 完整 traceback 記入 ERROR log | S-018 | pending（AU-047 review 分拆） |
 | P1 | epoch-ms path 語義錯 8 小時（含捏造測試常數） | AU-048 | pending |
 | P1 | ruff 加 `ANN`+`S`、CI 加 `api/`、前端加 prettier、加 coverage gate | AU-010 ~ AU-012, AU-033 | pending |
 | P1 | 常數統一、weight 兩個 bug、security headers、依賴版本上限 | AU-006 ~ AU-008, AU-031, AU-032 | pending |
@@ -54,7 +55,7 @@
 | 類型 | 位置 | 狀態 |
 |---|---|---|
 | Ticket registry（AU / C-W-S / CUI 全部） | [`tickets.md`](tickets.md) | ✅ 現行 SSoT |
-| Code review 報告 | [`reviews/2026-09-13_review_p0-batch.md`](reviews/2026-09-13_review_p0-batch.md) | ✅ 已建立 |
+| Code review 報告 | [`reviews/2026-09-13_review_p0-batch.md`](reviews/2026-09-13_review_p0-batch.md)（84/100 pass）<br>[`reviews/2026-09-14_review_au-047.md`](reviews/2026-09-14_review_au-047.md)（66/100 **fail**，1 🔴） | ✅ 已建立 |
 | QA 報告 | [`qa/2026-09-14_qa_p0-batch.md`](qa/2026-09-14_qa_p0-batch.md) | ✅ 已建立（0 Critical，regression 通過） |
 | CUI ticket 檔案 | `.tickets/pending/0001-0200/` | ✅ CUI-0001 ~ 0015 |
 | 項目 `CLAUDE.md` | repo root | ✅ 2026-09-14 建立（項目速覽 / layout / 指令 / branch 同部署 / conventions / 已知陷阱 / 文件 SSoT） |

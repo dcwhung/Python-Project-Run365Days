@@ -528,3 +528,38 @@ Repo 外：GitHub `github-pages` environment deployment branch｜Vercel Producti
 | **CUI-0015** | 🟢 Low | `docs/architecture.md:142` 嘅 CI 描述**同一 session 內過時兩次**，應改為自動同步 | pending |
 
 呢段喺 AU-004 之後由 W-001 修好，W-011 之後**又再過時**。根本問題係一段描述 CI 行為嘅文字同 `pages.yml` 之間冇任何同步機制。建議參考本 repo 已經證明有效嘅 `run365-schema --check frontend/schema.graphql` pattern。
+
+---
+
+## C/W/S-NNN — 來自 AU-047 Review（2026-09-14）
+
+來源：[`reviews/2026-09-14_review_au-047.md`](reviews/2026-09-14_review_au-047.md)
+審閱 `2adf6ba` + `e088a1b`｜評分 **66/100**｜結果 ❌ **fail**（1 🔴）｜next_action `invoke_developer`
+
+| ID | 級別 | 標題 | 狀態 |
+|---|---|---|---|
+| **C-001** | 🔴 Critical | budget 扣 points 唔扣 round trip：27 alias × `activities(365){track(points:1)}` = 9,855 點（合法）→ **19,764 SQL / 13-14 s**，換算真機約 30 s，爆 15 s Vercel limit | 🔧 修正輪處理中 |
+| **W-012** | 🟡 Warning | `10000` 嘅理據引用咗前端發唔出嘅 document（`ActivityFields` fragment 冇 `track`，`YearQuery` 消耗 0 點；真實上限係 `TrackQuery` 嘅 600 點） | 🔧 修正輪處理中 |
+| **W-013** | 🟡 Warning | `isinstance(context, MutableMapping)` guard 守得住，但註解講嘅理由錯（read-only `Mapping` 去到 `track`，真正安全網係扣數函數嘅 `KeyError`）；client 收到裸 internal key | 🔧 修正輪處理中 |
+| **W-014** | 🟡 Warning | 刻意選擇嘅 fail-closed 行為零測試 —— 加句 `.get(KEY, MAX_...)` 291 條測試全部照綠 | 🔧 修正輪處理中 |
+| **S-014** | 🟢 Suggestion | 被拒請求喺 ERROR log 留完整 traceback（既有行為，非本次引入） | ➡️ 轉 **S-018** 整批處理 |
+| **S-015** | 🟢 Suggestion | 兩處測試斷言／註解偏鬆 | 🔧 修正輪一併修 |
+| **S-016** | 🟢 Suggestion | 「per-request」實為「per-operation」，相等性靠 Strawberry batching 預設熄咗 | 🔧 修正輪一併修 |
+| **S-017** | 🟢 Suggestion | `on_operation` 缺 return annotation；`# Factories, not instances` 註解同下面第四個（class）唔完全對應 | 🔧 修正輪一併修 |
+| **S-018** | 🟢 Suggestion | Client 輸入錯誤（`_page` / `_track_points` / track budget）一律以 `ValueError` + 完整 traceback 記入 ERROR log。應引入 `ClientError` + Strawberry `process_errors` override 整批降級 | pending（**唔喺 AU-047 範圍**） |
+
+### C-001 採用方案
+
+`MAX_TRACK_FIELDS_PER_REQUEST = 64`，同 points budget **正交**嘅第二個 counter。
+
+64 唔係憑空定：points budget 喺 default `points=150` 之下**已經隱含**咗 `10000 // 150 = 66` 個 track field 嘅上限，攻擊就係靠將 `points` 壓到 1 去繞過呢個隱含限制。顯式定 64 對現有合法用法接近零影響，但令「平 budget 換貴 round trip」呢條路徑收窄到最壞 64 × 2 = 128 條 SQL。
+
+未採用：`cost = max(points, K)`（一條公式收兩樣嘢，SDL 難解釋）；淨係調低 budget（攻擊成本同 budget 成線性 —— budget 1000 仍然 2,006 SQL / 1.44 s，只係縮細個洞）。
+
+### ⛔ 連帶更正：AU-050 唔可以再引用「batching 只值 7%」
+
+`MAX_TRACK_POINTS_PER_REQUEST` 原本個 docstring 寫「The cost is building the rows, not the per-activity round trips, so batching the queries would not have bought the headroom back」。
+
+呢句**只喺當時度嗰個 shape（732 條固定 query）成立**。C-001 證明咗 query 條數本身先係冇 bound 嗰樣嘢：同一個 10,000 點預算，喺 alias flood 之下係 19,764 條 SQL / 14 s，round trip 佔 99.9% 成本。兩句被否證嘅結論（連「10,000 rows costs about 0.37 s」）必須喺修正輪刪走。
+
+**AU-050 嘅價值因此上調**：batching 做完之後，每個 `track` field 由 2 條 SQL 變成攤分一條批次查詢，`MAX_TRACK_FIELDS_PER_REQUEST` 可以獨立放寬而唔使郁 points budget。
