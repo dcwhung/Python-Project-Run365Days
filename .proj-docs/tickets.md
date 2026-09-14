@@ -1253,3 +1253,201 @@ plain import run365days -> .../.claude/worktrees/agent-a9420c53e43836d27/src/__i
 
 呢個係**第二次**見到「改動會令一條 guard 測試靜靜變成空殼」。第一次係 CUI-0017 嗰條釘住 `-1` 意外嘅測試。
 分別係：嗰次個測試會**變紅**（所以有人會發現），呢次個測試會**保持綠**（所以冇人會發現）。**後者危險好多。**
+
+---
+
+## P1 Round 2 修復摘要（2026-09-14）—— tooling
+
+兩條 lane：Python tooling（AU-010 / AU-011 / AU-015 / AU-020 / AU-033 / AU-044 / CUI-0022 / `requires-python`）
+同前端 formatter（AU-012）。CI wiring 由 main agent 喺兩者 merge 之後自己加。
+
+**P1 至此全清。**
+
+| 指標 | Round 2 前 | 完成 |
+|---|---|---|
+| Python tests | 504 | 504（tooling 唔加測試） |
+| Coverage TOTAL | 94% | **94.07%**，而且**有 gate**（`fail_under = 90`） |
+| Frontend tests | 100 | 100 |
+| `ruff check .` | ❌ exit 1，531 errors | ✅ **exit 0** |
+| `ruff format --check .` | ❌ | ✅ 64 files |
+| 前端最長一行 | **637** 字元 | **180** |
+| 前端 >100 字元嘅行 | 315 / 5404 | **29** |
+| Static export | 6,850,876 / 370 | **未變** |
+
+---
+
+## 三個我報錯嘅數字，全部係同一種錯法
+
+| 我寫 | 實測 | 點解我會錯 |
+|---|---|---|
+| coverage 1825 statements | **1843** | 抄咗上一輪嘅數 |
+| AU-020「20 個 function 缺 annotation」 | **35 個 ANN finding** | audit 個手數喺寫落去嗰刻已經過時 |
+| AU-015「4 個 `open()`」 | **8 個 text I/O site** | 我 grep `open(`，而 `pathlib` 唔係咁串 |
+
+第三個最值得記：我漏咗嗰四個入面有 **`src/export/static_json.py:32` 嘅 `Path.write_text`** ——
+**即係寫 static JSON export 本身**。JSON 規格就係 UTF-8，一部非 UTF-8 locale 嘅機會寫出瀏覽器解錯碼嘅檔案。
+一個 `grep "open("` 結構上永遠搵唔到佢。
+
+**共通形狀：三個都係「人手數出嚟嘅數字」，而三個都喺被引用嗰刻已經錯。** 呢個正正就係 AU-011 要解決嘅嘢 ——
+所以 lane 揀咗開 rule 而唔係逐點修，係啱嘅。
+
+---
+
+## AU-011 —— 兩條我冇要求、佢自己揾到嘅 rule
+
+| Rule | 點解加 |
+|---|---|
+| `BLE` | `api/graphql.py` **本來已經有兩個 `# noqa: BLE001`**，附埋書面理由 —— 即係有作者以為佢開咗。實際冇開，所以嗰兩行係**死文字**。開咗之後零新 finding，但令佢哋嘅理由變成有效 |
+| `RUF100` | 就係佢揾到上面兩個死 directive。同時保證新加嘅 5 個 suppression 保持 load-bearing |
+
+**每個 ignore 都有理由，而且範圍收得緊**：`S101` 只 ignore 喺 `tests/*`（`assert` 就係 pytest 表達期望嘅方式），
+但**唔係**整個 `S` prefix —— fixture 入面 hardcode 一個 credential 仍然會紅。
+`ANN001/002/003/201` 喺 tests ignore（884 個 hit，全部係 `def test_x() -> None`），
+但 **`ANN202/204/205` 唔 ignore** —— helper 嘅 return type 正正就係 caller 推唔到嗰樣，22 個 test helper 全部補齊。
+
+### 一條 rule 試過逼佢改行為，佢停低咗
+
+`S314` 要求將 `xml.etree` 換做 `defusedxml` —— 即係新依賴 + 換 parser。佢**冇做**，改為 inline suppress
+並將 threat model 寫喺該行（輸入係用戶自己嘅 Garmin export，本機磁碟，從不下載或上傳），另開 follow-up。
+符合我 brief 嗰條「tooling lane 唔准改行為」。
+
+### Preview rule 嘅代價控制得住
+
+`PLW1514`（AU-015）仲係 preview。淨開 `preview = true` 會拉入所有 unstable rule ——
+喺一個 patch-only ruff pin 之下唔值。所以同時設 `explicit-preview-rules = true`，令 preview rule
+**只有被逐個 code 點名嗰啲**先生效。實測：兩個 flag 都設、再移走 `PLW1514`，`ruff check .` 同 preview off 完全一樣。
+
+---
+
+## CUI-0022 —— 第二半我完全冇預料
+
+修 `extend-exclude = ["legacy"]` 之後 `ruff check .` 綠咗。但 **`ruff format --check .` 仍然紅，喺 6 個 Markdown 檔**。
+
+Ruff 0.16 會格式化 Markdown 入面嵌住嘅 Python code block。而本 repo 嘅 review report 同 ticket
+**刻意引用殘缺片段** —— 壞代碼、半截 expression、before/after 對。Formatter 會當佢哋係完整程式重寫。
+
+**Main agent 獨立重現**（`--diff`，冇寫入）：
+
+```
+.proj-docs/reviews/2026-09-13_review_p0-batch.md:393
+-     raise ActivityParseError(f"no track points in {file_path.name}")   # ← 嗰 8 個檔案會喺度出 WARNING
++     raise ActivityParseError(
++         f"no track points in {file_path.name}"
++     )  # ← 嗰 8 個檔案會喺度出 WARNING
+```
+
+**證據必須逐字存活**，所以 `[tool.ruff.format] exclude = ["*.md"]`。冇呢行，任何人打 `ruff format .`
+都會靜靜咁改寫成個 ticket 檔案庫。
+
+---
+
+## AU-033 —— 門檻揀 90，兩個方向都測過
+
+| 選項 | 否決理由 |
+|---|---|
+| 94 | 精確係 94.031%，門檻設 94 剩 0.03pp = **零個 statement** 嘅餘裕。一條未覆蓋嘅防禦分支就令正確嘅改動變紅。**一個會喺好改動上響嘅 gate 會被人調低或刪走** |
+| 80（DoD 下限） | 容許 259 個未覆蓋 statement，比今日實際存在嘅 110 個多 149 個 —— 核心可以整批失去測試而佢一次都唔響 |
+| **90** | 容許 184 個，比今日多 74 個 ≈ 一個實質 module 未測就 merge，正正係值得捉嘅事件 |
+
+**兩個方向都實測過**（一個從未見紅嘅 gate 只係一個聲稱）：
+
+```
+as committed          504 passed, 94.07%  -> exit 0  Required test coverage of 90.0% reached.
++140 unreached lines  504 passed, 81.69%  -> exit 1  FAIL Required ... not reached.
+```
+
+失敗嗰次**504 條測試全部仍然通過** —— 正正就係綠色測試套件會遮住嘅情況。
+
+`fail_under` 放喺 `pyproject.toml` 而唔係 CI flag，理由就係 AU-010 嗰個教訓。
+
+---
+
+## AU-010 —— 佢改法同我 spec 唔同，而且更好
+
+我 spec 話將 CI 改成 `ruff check src tests api`。佢改成 **`ruff check .`**。
+
+理由：喺 workflow 寫一條 path list，係將一個住喺 `pyproject.toml` 嘅決定抄多一份 ——
+**而嗰份抄本已經漂移過一次**（config 寫 `src = ["src","tests","api"]`，CI 只跑兩個）。
+而家 config 係唯一擁有者，將來新增一個 top-level package 一落地即刻被覆蓋。
+
+`64 files = src 42 + tests 21 + api 1`，證明 `.` 同 `src tests api` 係同一個檔案集。
+
+---
+
+## CUI-0030 —— `requires-python` 改為 `>=3.11`，`target-version` **刪除**
+
+```
+pip install --dry-run --python-version 3.10 "numpy>=2.4,<3"
+  ERROR: 3.10 最新只到 numpy 2.2.6，低過宣告嘅 2.4 下限
+pip install --dry-run --python-version 3.11 "numpy>=2.4,<3" "pandas>=3.0,<4"
+  exit 0
+```
+
+`target-version` **刪走而唔係 bump**：ruff 會 fallback 去 `project.requires-python`，
+所以呢一對唔再有第二份可以漂移（`--show-settings` 確認 `target_version = 3.11` 係推導出嚟）。
+
+副作用：開咗 UP017，ruff 將 8 處 `datetime.timezone.utc` 改為 `datetime.UTC`，
+已驗證係精確別名（`datetime.UTC is datetime.timezone.utc` → `True`）。
+
+---
+
+## AU-012 —— 偏離團隊規範，而且論證成立
+
+團隊規範（`rules/global-rules.md`）寫 Prettier `tabWidth=4` + `singleQuote`。Lane 揀咗 **`tabWidth=2` + `singleQuote: false`**。
+
+**Main agent 核實咗佢個關鍵論據**：`rules/global-rules.md` **唔喺 repo 入面** ——
+佢住喺 `/root/.claude/plugins/marketplaces/claude-teams/ai-dev-team/rules/global-rules.md`，係 plugin 層預設值。
+Repo 從來冇 commit 過 4-space / single-quote，而唯一一份手寫 config（`frontend/eslint.config.js`）本身就係 2-space + double-quote。
+
+量度結果：縮排 **100% 空格且成雙**、**零 tab**；引號 **321 個 double-quote import vs 0 個 single-quote**。
+硬套規範會改寫 86 個檔案幾乎每一行去改變一啲讀者睇唔出嘅嘢，**摧毀 git blame** ——
+正正係 AU-012 想避免嘅傷害而唔係修復。`printWidth` / `trailingComma` 呢兩條真正無主嘅軸就跟返團隊規範。
+
+### `Design Origin` 規則點滿足
+
+呢張票掂到 `.tsx` 同 `.css`，所以要證明零視覺改動：
+
+| artifact | 結果 |
+|---|---|
+| `dist/assets/*.css` | **逐 byte 相同**（hash `3a6a1b86…` 前後一樣）—— 直接覆蓋咗 design-source 規則嘅 CSS 半邊 |
+| `dist/assets/*.js` | hash 變咗，**+6 bytes** |
+
+JS 個 6 bytes 係兩處 3-byte `","` 插入：prettier 為咗**保住**一個佢 reflow 時會丟失嘅 JSX 空格而寫 `{" "}`，
+令一個 React text child 變成兩個相鄰 text child，串接結果相同。
+
+---
+
+## 我自己驗證過程中犯咗兩個錯，記低
+
+1. **第一次驗 CUI-0024 個 guard 用錯 `sed`** —— 我打 `EXPORT_TRACK_POINTS: int = 600`，實際係
+   `EXPORT_TRACK_POINTS = 600`，所以 mutation 根本冇發生，而我差啲將「測試全綠」當成結果。
+   重做之後兩層 guard 都確認咬到。**一個冇 assert 過「mutation 真係落咗」嘅 mutation test 係無效嘅。**
+2. **`pkill -f "difflib"` 殺埋自己個 shell** —— 因為 command line 本身含住 `difflib`。
+
+---
+
+## 又一次跨 worktree 污染（同一個原因）
+
+Round 2 嘅 Python tooling lane 亦要跑 `pip install -e ".[dev]"`（改咗 `pyproject.toml` 就要驗佢裝得起），
+path hook 再次指去佢個 worktree，已再次喺主 checkout 復原。
+
+**呢個係第二次。** `.pkgroot` 慣例保護到 lane，但保護唔到 main agent 自己 —— 我每次 merge 之後嘅驗證
+都要先確認 path hook 指住主 checkout。已成為固定步驟。
+
+另外發現本環境有**兩個 ruff**：PATH 嗰個 **0.15.8**，而 `pip install -e ".[dev]"` 俾 CI 嗰個係 **0.16.7**。
+我頭幾次 gate 驗證跑咗 0.15.8，已用 `python3 -m ruff`（0.16.7）重驗，兩者結論一致。
+
+---
+
+## 新開
+
+| ID | 級別 | 標題 | 來源 |
+|---|---|---|---|
+| **CUI-0036** | 🟢 Low | 冇任何 Python 版本 pin：`requires-python >= 3.11`、本機 3.11、CI 3.12、**冇 `.python-version`**，一個只喺其中一版出現嘅 bug 只有一邊會見到 | Lane P |
+| **CUI-0037** | 🟢 Low | Vercel 嘅 Python 版本完全冇 pin（`vercel.json` 冇 runtime，`scripts/vercel-build.sh` 直接裝 `.`） | Lane P |
+| **CUI-0038** | 🟢 Low | 3 個 `ET.parse` 用 `# noqa: S314` 長期壓住；`defusedxml` 值得獨立評估而唔係永久 noqa | Lane P |
+| **CUI-0039** | 🟢 Low | `fail_under` 係地板唔係棘輪 —— coverage 可以由 94 慢慢跌到 90 而唔會有人知；要 diff-coverage 先捉到 | Lane P |
+| **CUI-0040** | 🟢 Low | `"api/*" = ["D"]` 可能已經過闊：`api/graphql.py` 實際有齊 module 同 function docstring | Lane P |
+| **CUI-0041** | 🟢 Low | `WeightView.tsx` 有個無大括號嘅單句 `if` 被 prettier 拆成兩行，讀落更差，亦違反團隊「所有條件都要 `{}`」規則 | Lane F |
+| **CUI-0042** | 🟢 Low | `dist/assets/index-*.js` **657 kB**（gzip 204 kB），每次 build 都有 Vite chunk-size 警告，冇配置 code-splitting | Lane F |
+| **CUI-0043** | 🟢 Low | pre-commit 冇 JS/TS hook；prettier local hook 可以直接加入（現有 `end-of-file-fixer` / `trailing-whitespace` 已經覆蓋 `frontend/` 而且同 prettier 唔衝突） | Lane F |
