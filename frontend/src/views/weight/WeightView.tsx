@@ -3,7 +3,7 @@ import { useWeight, useYear } from "@/data/hooks";
 import { MONTHS, fmtShortDate } from "@/lib/format";
 import { WEEKDAYS } from "@/lib/dates";
 import { toWeightUnit, usePrefs } from "@/lib/prefs";
-import { BASE, COLORS, GRID, NO_GRID, NO_LEGEND, dayAxis } from "@/components/charts/theme";
+import { BASE, COLORS, GRID, NO_GRID, NO_LEGEND, alpha, dayAxis } from "@/components/charts/theme";
 import { Card } from "@/components/Card";
 import { KpiCard } from "@/components/KpiCard";
 import { DataTable } from "@/components/DataTable";
@@ -20,7 +20,7 @@ import {
 
 const signed = (v: number) => `${v > 0 ? "+" : ""}${v}`;
 const upDown = (v: number | null) =>
-  (v ?? 0) <= 0 ? "rgba(52,211,153,.7)" : "rgba(248,113,113,.7)";
+  (v ?? 0) <= 0 ? alpha(COLORS.accent2, 0.7) : alpha(COLORS.danger, 0.7);
 
 export function WeightView() {
   const year = useYear();
@@ -112,7 +112,7 @@ export function WeightView() {
                 {
                   label: `Daily (${u})`,
                   data: series.map(conv),
-                  borderColor: "rgba(245,158,11,.45)",
+                  borderColor: alpha(COLORS.warn, 0.45),
                   borderWidth: 1,
                   pointRadius: 0,
                   spanGaps: true,
@@ -121,7 +121,7 @@ export function WeightView() {
                   label: "7-day average",
                   data: ma7.map(conv),
                   borderColor: COLORS.warn,
-                  backgroundColor: "rgba(245,158,11,.08)",
+                  backgroundColor: alpha(COLORS.warn, 0.08),
                   fill: true,
                   borderWidth: 2.5,
                   pointRadius: 0,
@@ -207,7 +207,7 @@ export function WeightView() {
                 datasets: [
                   {
                     data: wkPts,
-                    backgroundColor: "rgba(79,142,247,.5)",
+                    backgroundColor: alpha(COLORS.accent, 0.5),
                     pointRadius: 4,
                     pointHoverRadius: 6,
                   },

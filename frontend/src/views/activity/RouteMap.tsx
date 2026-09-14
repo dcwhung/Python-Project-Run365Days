@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useRef } from "react";
-
-const HOVER_RADIUS_PX = 18;
 import type { TrackSeries } from "./series";
 import { project, type Projection } from "./projection";
-import { paceColor } from "@/lib/paceColor";
+import { PACE_RAMP, paceColor } from "@/lib/paceColor";
 import { usePrefs } from "@/lib/prefs";
+import { FONT_SANS, TOKENS, alpha } from "@/styles/tokens";
+
+const HOVER_RADIUS_PX = 18;
+/** Pure white, so the current-position dot reads against any pace colour under
+ *  it. Not a theme colour: it has to stay maximum contrast if the theme moves. */
+const MARKER_RING = "#fff";
 
 export function RouteMap({
   series,
@@ -33,7 +37,7 @@ export function RouteMap({
     }
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.clearRect(0, 0, p.w, p.h);
-    g.strokeStyle = "#22263a";
+    g.strokeStyle = TOKENS.surface2;
     g.lineWidth = 1;
     g.beginPath();
     for (let x = 0; x < p.w; x += 40) {
@@ -48,7 +52,7 @@ export function RouteMap({
     g.lineWidth = 3;
     g.lineJoin = "round";
     g.lineCap = "round";
-    g.strokeStyle = "#2e3250";
+    g.strokeStyle = TOKENS.border;
     g.beginPath();
     p.xy.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y)));
     g.stroke();
@@ -60,33 +64,33 @@ export function RouteMap({
       g.lineTo(p.xy[i][0], p.xy[i][1]);
       g.stroke();
     }
-    g.font = '600 10px "Segoe UI",system-ui,sans-serif';
+    g.font = `600 10px ${FONT_SANS}`;
     g.textBaseline = "middle";
     const [sx, sy] = p.xy[0];
     g.beginPath();
     g.arc(sx, sy, 6, 0, Math.PI * 2);
-    g.fillStyle = "#1a1d27";
+    g.fillStyle = TOKENS.surface;
     g.fill();
-    g.strokeStyle = "#34d399";
+    g.strokeStyle = TOKENS.accent2;
     g.lineWidth = 2;
     g.stroke();
-    g.fillStyle = "#e2e8f0";
+    g.fillStyle = TOKENS.text;
     g.fillText("START", sx + 11, sy);
     const [ex, ey] = p.xy[series.n - 1];
-    g.fillStyle = "#f87171";
+    g.fillStyle = TOKENS.danger;
     g.fillRect(ex - 5, ey - 5, 10, 10);
-    g.fillStyle = "#e2e8f0";
+    g.fillStyle = TOKENS.text;
     g.fillText("FINISH", ex + 11, ey);
     const [cx, cy] = p.xy[idx];
-    g.fillStyle = "rgba(79,142,247,.22)";
+    g.fillStyle = alpha(TOKENS.accent, 0.22);
     g.beginPath();
     g.arc(cx, cy, 15, 0, Math.PI * 2);
     g.fill();
-    g.fillStyle = "#4f8ef7";
+    g.fillStyle = TOKENS.accent;
     g.beginPath();
     g.arc(cx, cy, 7, 0, Math.PI * 2);
     g.fill();
-    g.strokeStyle = "#fff";
+    g.strokeStyle = MARKER_RING;
     g.lineWidth = 2;
     g.stroke();
   }, [idx, series, paceFast, paceSlow]);
@@ -163,7 +167,7 @@ export function RouteMap({
         <span>Slower</span>
         <i
           className="block h-1.5 w-20 rounded"
-          style={{ background: "linear-gradient(90deg,#f87171,#f59e0b,#34d399)" }}
+          style={{ background: `linear-gradient(90deg,${PACE_RAMP.join(",")})` }}
         />
         <span>Faster</span>
       </div>

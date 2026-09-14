@@ -8,6 +8,7 @@ import { longDate } from "@/lib/dates";
 import { mean } from "@/lib/stats-helpers";
 import { wxEmoji } from "@/lib/weather";
 import { usePrefs } from "@/lib/prefs";
+import { TOKENS } from "@/styles/tokens";
 import { buildSeries, type SeriesSpec } from "./series";
 import { usePlayback } from "./usePlayback";
 import { RouteMap } from "./RouteMap";
@@ -18,7 +19,7 @@ const SPECS: SeriesSpec[] = [
   {
     key: "ele",
     title: "Elevation (m)",
-    color: "#34d399",
+    color: TOKENS.accent2,
     area: true,
     invert: false,
     pad: 4,
@@ -28,7 +29,7 @@ const SPECS: SeriesSpec[] = [
   {
     key: "pace",
     title: "Pace (min/km)",
-    color: "#4f8ef7",
+    color: TOKENS.accent,
     area: true,
     invert: true,
     pad: 0.3,
@@ -38,7 +39,7 @@ const SPECS: SeriesSpec[] = [
   {
     key: "cad",
     title: "Run Cadence (spm)",
-    color: "#a78bfa",
+    color: TOKENS.violet,
     area: false,
     invert: false,
     pad: 8,
@@ -48,7 +49,7 @@ const SPECS: SeriesSpec[] = [
   {
     key: "temp",
     title: "Temperature (°C)",
-    color: "#f59e0b",
+    color: TOKENS.warn,
     area: true,
     invert: false,
     pad: 1,

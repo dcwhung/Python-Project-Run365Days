@@ -1,7 +1,7 @@
 import { Bar, Line } from "react-chartjs-2";
 import type { MonthSummary } from "@/data/types";
 import { MONTHS, fmtPace } from "@/lib/format";
-import { BASE, COLORS, GRID, NO_GRID, NO_LEGEND } from "@/components/charts/theme";
+import { BASE, COLORS, GRID, NO_GRID, NO_LEGEND, alpha } from "@/components/charts/theme";
 import { Card } from "@/components/Card";
 
 export function MonthlyDistanceChart({ monthly }: { monthly: MonthSummary[] }) {
@@ -14,7 +14,7 @@ export function MonthlyDistanceChart({ monthly }: { monthly: MonthSummary[] }) {
             datasets: [
               {
                 data: monthly.map((m) => Math.round(m.distanceKm * 10) / 10),
-                backgroundColor: "rgba(79,142,247,0.7)",
+                backgroundColor: alpha(COLORS.accent, 0.7),
                 borderRadius: 5,
               },
             ],
@@ -44,7 +44,7 @@ export function MonthlyPaceChart({ monthly }: { monthly: MonthSummary[] }) {
               {
                 data: monthly.map((m) => (m.avgPaceSecPerKm ? m.avgPaceSecPerKm / 60 : null)),
                 borderColor: COLORS.accent2,
-                backgroundColor: "rgba(52,211,153,0.1)",
+                backgroundColor: alpha(COLORS.accent2, 0.1),
                 tension: 0.4,
                 fill: true,
                 pointRadius: 4,

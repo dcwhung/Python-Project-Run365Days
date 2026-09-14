@@ -1,7 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import { Scatter } from "react-chartjs-2";
 import type { Activity } from "@/data/types";
-import { BASE, GRID, NO_LEGEND } from "@/components/charts/theme";
+import { BASE, COLORS, GRID, NO_LEGEND, alpha } from "@/components/charts/theme";
 import { Card } from "@/components/Card";
 import { fmtPace, fmtShortDate } from "@/lib/format";
 import { actTemp } from "@/lib/weather";
@@ -24,7 +24,7 @@ export function TempPaceChart({ activities }: { activities: Activity[] }) {
             datasets: [
               {
                 data: pts,
-                backgroundColor: "rgba(79,142,247,0.5)",
+                backgroundColor: alpha(COLORS.accent, 0.5),
                 pointRadius: 4,
                 pointHoverRadius: 6,
               },

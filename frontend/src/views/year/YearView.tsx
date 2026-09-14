@@ -2,7 +2,7 @@ import { Line } from "react-chartjs-2";
 import { useActivities, useWeight, useYear } from "@/data/hooks";
 import { MONTHS, fmtShortDate } from "@/lib/format";
 import { toWeightUnit, usePrefs } from "@/lib/prefs";
-import { BASE, COLORS, GRID, NO_LEGEND, dayAxis } from "@/components/charts/theme";
+import { BASE, COLORS, GRID, NO_LEGEND, alpha, dayAxis } from "@/components/charts/theme";
 import { Card } from "@/components/Card";
 import { DiamondGrid } from "./DiamondGrid";
 import { monthlyHours, weightReview } from "./model";
@@ -137,7 +137,7 @@ export function YearView() {
                   {
                     data: labels.map((d) => toWeightUnit(byDate.get(d), weightUnit)),
                     borderColor: COLORS.warn,
-                    backgroundColor: "rgba(245,158,11,.08)",
+                    backgroundColor: alpha(COLORS.warn, 0.08),
                     borderWidth: 2,
                     tension: 0.3,
                     fill: true,

@@ -1,6 +1,6 @@
 import { Line } from "react-chartjs-2";
 import type { DayDistance, WeightEntry } from "@/data/types";
-import { BASE, COLORS, GRID, NO_GRID, dayAxis } from "@/components/charts/theme";
+import { BASE, COLORS, GRID, NO_GRID, alpha, dayAxis } from "@/components/charts/theme";
 import { Card } from "@/components/Card";
 import { fmtShortDate } from "@/lib/format";
 import { toWeightUnit, usePrefs } from "@/lib/prefs";
@@ -21,7 +21,7 @@ export function WeightChart({ weight, daily }: { weight: WeightEntry[]; daily: D
                 label: `Weight (${weightUnit})`,
                 data: labels.map((d) => toWeightUnit(byDate.get(d), weightUnit)),
                 borderColor: COLORS.warn,
-                backgroundColor: "rgba(245,158,11,0.08)",
+                backgroundColor: alpha(COLORS.warn, 0.08),
                 tension: 0.3,
                 fill: true,
                 pointRadius: 0,

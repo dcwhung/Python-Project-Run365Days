@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import type { DayDistance } from "@/data/types";
 import { MONTHS } from "@/lib/format";
 import { monthLengths } from "@/lib/dates";
+import { FONT_SANS, TOKENS } from "@/styles/tokens";
 
 const LABEL_W = 34;
 const GAP = 4;
@@ -28,15 +29,15 @@ export function DiamondGrid({ daily, year }: { daily: DayDistance[]; year: numbe
     let doy = 1;
     monthLengths(year).forEach((days, mi) => {
       const cy = mi * rowH + rowH / 2;
-      g.font = '600 9px "Segoe UI",system-ui,sans-serif';
-      g.fillStyle = "#7c85a8";
+      g.font = `600 9px ${FONT_SANS}`;
+      g.fillStyle = TOKENS.muted;
       g.textBaseline = "middle";
       g.fillText(MONTHS[mi].toUpperCase(), 0, cy);
       for (let d = 0; d < days; d++, doy++) {
         g.save();
         g.translate(LABEL_W + d * (cell + GAP) + cell / 2, cy);
         g.rotate(Math.PI / 4);
-        g.fillStyle = daily[doy - 1]?.activityId ? "#a78bfa" : "#22263a";
+        g.fillStyle = daily[doy - 1]?.activityId ? TOKENS.violet : TOKENS.surface2;
         g.fillRect(-half, -half, half * 2, half * 2);
         g.restore();
       }
