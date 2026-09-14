@@ -563,6 +563,9 @@ with ``points`` -- which is exactly why the points budget cannot bound it.
 SQL_PER_LIST_FIELD = 2
 """Statements one ``activities`` field issues: the list, then its warnings."""
 
+CHEAP_TRACK = "track(points: 1) { sec }"
+"""The cheapest ``track`` field there is: one point, so it spends fields not points."""
+
 ALIAS_FLOOD_ALIASES = 27
 """Aliases in the flood, as C-001 was reported.
 
@@ -571,19 +574,57 @@ would charge 10,220 and be refused for the wrong reason. Not a token-limit
 figure -- this document lexes to 515 of MAX_QUERY_TOKENS.
 """
 
-MAX_SQL_PER_REQUEST = (
+ALIAS_FLOOD_MAX_SQL = (
     MAX_TRACK_FIELDS_PER_REQUEST * SQL_PER_TRACK_FIELD + ALIAS_FLOOD_ALIASES * SQL_PER_LIST_FIELD
 )
 """Statements a flood of this width may issue, whether it is served or refused.
 
 Every ``track`` field the cap allows, plus one list query and one warnings
-query for each alias.
+query for each of the ALIAS_FLOOD_ALIASES parents.
+
+Deliberately *not* named as a per-request ceiling, because it is not one: the
+cap bounds ``track`` statements only, and each parent field carrying a track
+pays for itself on top. A document that spends its tokens on more parents than
+this flood does goes higher -- 52 aliased parents each taking one track are
+legal, served, and issue 208 statements. See the docstring of
+``MAX_TRACK_FIELDS_PER_REQUEST`` for what the cap does and does not bound.
 """
+
+
+def _document(*fields: str) -> str:
+    """Wrap root *fields* in one anonymous query."""
+    return "{ " + " ".join(fields) + " }"
+
+
+def _page_field(activities: int, selection: str) -> str:
+    """One list field of *activities* rows, each taking *selection*.
+
+    One list field rather than a fan-out of aliases because a fan-out cannot
+    reach the field cap at all: 64 aliased ``track`` fields lex to 1218 tokens,
+    over MAX_QUERY_TOKENS, so the parser refuses the document before the cap is
+    consulted. Only a page window can put that many tracks in one operation,
+    which couples every caller here to MAX_PAGE_SIZE -- hence the assertion.
+    """
+    # AU-050 raising the field cap is already written down as expected, and a
+    # cap at or above MAX_PAGE_SIZE would turn these tests red on a `limit`
+    # error that has nothing to say about the track budget. Fail on the
+    # coupling instead, where the message points at the real cause.
+    assert activities <= MAX_PAGE_SIZE, (
+        f"this fan-out needs {activities} rows from one page, over "
+        f"MAX_PAGE_SIZE={MAX_PAGE_SIZE}; it has to be rebuilt before the field "
+        f"cap can go that high"
+    )
+    return f"activities(limit: {activities}) {{ {selection} }}"
+
+
+def _one_page(activities: int, selection: str) -> str:
+    """A whole document whose only root field is one page of *activities*."""
+    return _document(_page_field(activities, selection))
 
 
 def _cheap_tracks(activities: int) -> str:
     """One list field taking the cheapest track it can, to spend fields not points."""
-    return f"{{ activities(limit: {activities}) {{ track(points: 1) {{ sec }} }} }}"
+    return _one_page(activities, CHEAP_TRACK)
 
 
 def _alias_flood(aliases: int = ALIAS_FLOOD_ALIASES, points: int = 1) -> str:
@@ -633,16 +674,21 @@ def test_the_track_field_cap_is_the_boundary(year_client):
     assert str(MAX_TRACK_FIELDS_PER_REQUEST) in over
 
 
-def test_no_request_issues_more_statements_than_the_field_cap_allows(year_client, sql_count):
-    # The bound has to hold for refused requests too. An error does not unwind
-    # the queries already sent, and before the cap existed a request that ended
-    # in an error had still issued some 20,000 statements getting there.
+def test_the_alias_flood_issues_no_more_statements_than_the_field_cap_allows(
+    year_client, sql_count
+):
+    # Both documents here are at most ALIAS_FLOOD_ALIASES parents wide, so the
+    # bound is theirs, not every request's -- a wider document issues more.
+    # What it pins is that the cap holds for a *refused* request too: an error
+    # does not unwind the queries already sent, and before the cap existed a
+    # request that ended in an error had still issued some 20,000 statements
+    # getting there.
     gql(year_client, _cheap_tracks(MAX_TRACK_FIELDS_PER_REQUEST))
-    assert 0 < sql_count[0] <= MAX_SQL_PER_REQUEST
+    assert 0 < sql_count[0] <= ALIAS_FLOOD_MAX_SQL
 
     sql_count[0] = 0
     gql_errors(year_client, _alias_flood())
-    assert sql_count[0] <= MAX_SQL_PER_REQUEST
+    assert sql_count[0] <= ALIAS_FLOOD_MAX_SQL
 
 
 def test_the_field_cap_is_per_request_and_does_not_leak_across_requests(year_client):
@@ -660,6 +706,20 @@ def _track_rows(result) -> list:
     return activity.get("track") or []
 
 
+NOT_SEEDED = "not seeded"
+"""Words from the unseeded-budget refusal, asserted rather than left to truthiness.
+
+A bare ``assert result.errors`` cannot tell a budget refusal from an error that
+has nothing to do with the budget. Measured against a mutant that reads the
+budget as ``.get(KEY, MAX_...)`` instead: the frozen context below still comes
+back with an error, but it is ``'mappingproxy' object does not support item
+assignment``, raised where the charge writes the counter back. The refusal is
+incidental to that context and does not generalise -- the same mutant, given a
+plain ``dict``, serves the track unbounded. Naming the message is what tells
+those two apart.
+"""
+
+
 def test_track_fails_closed_when_the_schema_has_no_budget_extension(year_session):
     # A schema built without _TrackBudget seeds nothing. Serving the track
     # anyway would mean an unbounded request, so it must refuse instead.
@@ -668,17 +728,20 @@ def test_track_fails_closed_when_the_schema_has_no_budget_extension(year_session
     result = unbounded.execute_sync(TRACK_QUERY, context_value={"session": year_session})
 
     assert result.errors
+    assert NOT_SEEDED in result.errors[0].message
     assert _track_rows(result) == []
 
 
 def test_track_fails_closed_when_the_context_cannot_be_seeded(year_session):
     # A read-only Mapping is not a MutableMapping, so _TrackBudget skips it --
     # but info.context["session"] still reads, so track is reachable. The
-    # missing key is the only thing standing between here and an unbounded
-    # request, and it has to be a refusal rather than a default.
+    # invariant is that the *missing budget* is what refuses the field. This
+    # context happens to reject the write back as well, so it would error
+    # either way; NOT_SEEDED is what pins the reason rather than the symptom.
     frozen = MappingProxyType({"session": year_session})
 
     result = schema.execute_sync(TRACK_QUERY, context_value=frozen)
 
     assert result.errors
+    assert NOT_SEEDED in result.errors[0].message
     assert _track_rows(result) == []
