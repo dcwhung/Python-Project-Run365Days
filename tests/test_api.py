@@ -13,6 +13,7 @@ from run365days.api.app import GRAPHQL_PATH, HEALTH_PATH, create_app
 from run365days.api.schema import (
     MAX_PAGE_SIZE,
     MAX_QUERY_DEPTH,
+    MAX_QUERY_TOKENS,
     MAX_TRACK_POINTS,
     build_schema,
 )
@@ -435,6 +436,20 @@ def test_introspection_is_exempt_from_the_depth_limit(monkeypatch):
     monkeypatch.setenv(GRAPHIQL_ENV, "1")
     result = build_schema(max_depth=1, max_tokens=100_000).execute_sync(get_introspection_query())
     assert not result.errors
+
+
+# ── S-012: every enforced limit is visible in the SDL ──────────────────────
+@pytest.mark.parametrize(
+    "published",
+    [
+        f"1 to {MAX_PAGE_SIZE}",
+        f"1 to {MAX_TRACK_POINTS}",
+        f"{MAX_QUERY_DEPTH} levels",
+        f"{MAX_QUERY_TOKENS} tokens",
+    ],
+)
+def test_sdl_publishes_the_limits_the_api_enforces(published):
+    assert published in build_schema().as_str()
 
 
 # ── AU-001: GraphiQL is off unless the environment asks for it ─────────────
