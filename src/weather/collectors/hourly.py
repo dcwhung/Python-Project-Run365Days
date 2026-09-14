@@ -1,6 +1,7 @@
 """Fetch hourly weather history from freemeteo.hk."""
 
 import logging
+import re
 
 import pandas as pd
 import requests
@@ -23,6 +24,13 @@ _DESCRIPTION_MAP = {
     "26": "Snow",
     "28": "Snowstorm",
 }
+_UNKNOWN_DESCRIPTION = "Unknown"
+
+# freemeteo names the icon inside writeWeatherIcon(<code>, 'CurrentWeather', ...).
+# Matching the whole call is the only way to know the code was really read: the
+# old find()/slice pair answered -1 for "call absent", -1 is a legal slice index,
+# and the slice that followed handed back a code nobody wrote (CUI-0017).
+_DESCRIPTION_CODE_RE = re.compile(r"n\(\s*(?P<code>[^,()]+?)\s*,\s*'CurrentWeather'")
 
 # A socket with no timeout can hang forever, and fetch_range() pays that cost
 # once per day -- 365 times for a full year. Five seconds is generous for a TCP
@@ -49,6 +57,30 @@ _PARAMS_BASE = {
 }
 
 
+def _description(script: str, date_str: str, observed_at: str) -> str:
+    """Return the weather description the row's icon script names.
+
+    Args:
+        script: The weather cell's ``<script>`` body.
+        date_str: The day being queried.
+        observed_at: The row's observation time.
+
+    Returns:
+        The mapped description, or ``"Unknown"`` -- reported both when the
+        script carries no icon call and when it names a code the map does not
+        know, because in neither case did the page state the weather.
+    """
+    match = _DESCRIPTION_CODE_RE.search(script)
+    if match is None:
+        logger.warning(
+            "%s %s: weather script carries no icon call, so no description was read",
+            date_str,
+            observed_at,
+        )
+        return _UNKNOWN_DESCRIPTION
+    return _DESCRIPTION_MAP.get(match.group("code"), _UNKNOWN_DESCRIPTION)
+
+
 def _observation_from_row(tds: list[Tag], date_str: str) -> HourlyWeather | None:
     """Build one record from a freemeteo daily-history row.
 
@@ -72,7 +104,6 @@ def _observation_from_row(tds: list[Tag], date_str: str) -> HourlyWeather | None
         )
         return None
 
-    desc_key = script[script.find("n(") + 2 : script.find(", 'CurrentWeather")]
     wind_text = tds[_COL_WIND].text
     return HourlyWeather(
         date=date_str,
@@ -80,7 +111,7 @@ def _observation_from_row(tds: list[Tag], date_str: str) -> HourlyWeather | None
         temperature_c=to_float(tds[_COL_TEMPERATURE].text.strip()[:-2]),
         wind_kmh=to_float(wind_text[wind_text.find("°") + 1 :].replace("Variable at ", "")[:-5]),
         humidity_pct=to_float(tds[_COL_HUMIDITY].text.strip()[:-1]),
-        description=_DESCRIPTION_MAP.get(desc_key, "Unknown"),
+        description=_description(script, date_str, observed_at),
     )
 
 
@@ -88,7 +119,9 @@ def fetch_day(date_str: str) -> list[HourlyWeather]:
     """Fetch the hourly observations for one day.
 
     A row whose weather cell carries no readable ``<script>`` is logged and
-    dropped on its own; the rest of the day still parses (CUI-0012).
+    dropped on its own; the rest of the day still parses (CUI-0012). A script
+    that carries no icon call keeps its row but reports ``"Unknown"``, rather
+    than a code sliced out of an offset nobody read (CUI-0017).
 
     Args:
         date_str: The day to query, ``YYYY-MM-DD``.

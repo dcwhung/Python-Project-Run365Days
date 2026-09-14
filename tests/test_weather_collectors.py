@@ -317,6 +317,45 @@ class TestHourlyFetchDay:
         assert "2021-01-01" in message
         assert "00:00" in message
 
+    def test_reports_unknown_when_the_script_carries_no_icon_call(self, monkeypatch):
+        # The fixture's first script has lost its writeWeatherIcon( name, so
+        # ``find("n(")`` answered -1. -1 + 2 = 1 is a legal index, so the slice
+        # ran from character 1 and handed back "7" -- a code that maps to "Rain".
+        # A description nobody read out of the page must not be reported as one.
+        install_fake_get(
+            monkeypatch, hourly, {hourly._URL: read_fixture("freemeteo_unreadable_script.html")}
+        )
+
+        records = hourly.fetch_day("2021-01-01")
+
+        assert records[0].description == "Unknown"
+        assert records[1].description == "Cloudy skies"
+
+    def test_logs_a_warning_when_the_script_carries_no_icon_call(self, monkeypatch, caplog):
+        install_fake_get(
+            monkeypatch, hourly, {hourly._URL: read_fixture("freemeteo_unreadable_script.html")}
+        )
+
+        with caplog.at_level(logging.WARNING, logger=HOURLY_LOGGER):
+            hourly.fetch_day("2021-01-01")
+
+        unreadable = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(unreadable) == 1
+        message = unreadable[0].getMessage()
+        assert "2021-01-01" in message
+        assert "00:00" in message
+
+    def test_keeps_the_rest_of_a_row_whose_script_carries_no_icon_call(self, monkeypatch):
+        install_fake_get(
+            monkeypatch, hourly, {hourly._URL: read_fixture("freemeteo_unreadable_script.html")}
+        )
+
+        records = hourly.fetch_day("2021-01-01")
+
+        assert [r.time for r in records] == ["00:00", "00:30"]
+        assert records[0].temperature_c == 11.0
+        assert records[0].wind_kmh == 24.0
+
 
 class TestHourlyFetchRange:
     def test_fetches_one_page_per_day_in_the_inclusive_range(self, monkeypatch):
