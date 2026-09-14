@@ -69,6 +69,67 @@ def required_text(parent: ET.Element, path: str, namespaces: dict[str, str]) -> 
     return text
 
 
+def ensure_finite(value: float, label: str) -> float:
+    """Return *value* unchanged, rejecting ``nan`` and ``±inf``.
+
+    Args:
+        value: A number read from, or summed over, an export file.
+        label: What the number is, used in the error message.
+
+    Returns:
+        The value.
+
+    Raises:
+        ActivityParseError: If *value* is not finite.
+    """
+    if not math.isfinite(value):
+        raise ActivityParseError(f"{label} is not finite: {value}")
+    return value
+
+
+def parse_finite_float(text: str, label: str) -> float:
+    """Return *text* as a finite float.
+
+    Args:
+        text: The raw reading.
+        label: What the number is, used in the error message.
+
+    Returns:
+        The parsed value.
+
+    Raises:
+        ActivityParseError: If *text* is not a number, or is not finite.
+    """
+    try:
+        value = float(text)
+    except ValueError as exc:
+        raise ActivityParseError(f"{label} is not a number: {text!r}") from exc
+    return ensure_finite(value, label)
+
+
+def required_float(parent: ET.Element, path: str, namespaces: dict[str, str]) -> float:
+    """Return the stripped text of a mandatory *path* under *parent* as a finite float.
+
+    ``optional_float`` answers a non-finite reading with ``None`` (W-005). A
+    mandatory reading has no such answer, so the same rule can only be expressed
+    by rejecting the file: nan silently sums away to zero and inf reaches one
+    writer as ``Infinity`` while the other refuses it outright (CUI-0001).
+
+    Args:
+        parent: Element to search from.
+        path: ElementTree path expression.
+        namespaces: Namespace prefix map.
+
+    Returns:
+        The element's value.
+
+    Raises:
+        ActivityParseError: If the element is missing, empty, or does not hold a
+            finite number.
+    """
+    return parse_finite_float(required_text(parent, path, namespaces), path)
+
+
 def optional_float(parent: ET.Element, path: str, namespaces: dict[str, str]) -> float | None:
     """Return *path*'s text as a float, or ``None`` when absent or unparsable."""
     text = element_text(parent, path, namespaces)

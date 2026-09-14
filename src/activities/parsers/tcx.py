@@ -16,8 +16,10 @@ from run365days.activities.parsers.base import (
     ActivitySkipped,
     BaseActivityParser,
     element_text,
+    ensure_finite,
     optional_float,
     optional_int,
+    required_float,
     required_text,
 )
 from run365days.common.geo import total_track_distance
@@ -79,8 +81,14 @@ class TCXParser(BaseActivityParser):
             raise ActivityParseError(f"no laps found in {file_path.name}")
 
         lap_df = pd.DataFrame(lap_rows)
-        total_sec = lap_df["Time"].sum()
-        dist_km = round(lap_df["Distance"].sum() / _METRES_PER_KM, _DISTANCE_DECIMALS)
+        # Finite laps can still sum to inf, and int(inf) inside seconds_to_hhmmss
+        # raises OverflowError, which no per-file except branch catches: one file
+        # would take the whole export down with it (CUI-0001).
+        total_sec = ensure_finite(lap_df["Time"].sum(), "total time")
+        dist_km = round(
+            ensure_finite(lap_df["Distance"].sum(), "total distance") / _METRES_PER_KM,
+            _DISTANCE_DECIMALS,
+        )
         calories = int(lap_df["Calories"].sum())
 
         coords = [(tp.lat, tp.lon) for tp in track_points]
@@ -103,8 +111,8 @@ class TCXParser(BaseActivityParser):
     def _lap_row(lap: ET.Element) -> dict:
         """Return one lap's totals; only time and distance are mandatory."""
         return {
-            "Time": float(required_text(lap, "ns:TotalTimeSeconds", _NS)),
-            "Distance": float(required_text(lap, "ns:DistanceMeters", _NS)),
+            "Time": required_float(lap, "ns:TotalTimeSeconds", _NS),
+            "Distance": required_float(lap, "ns:DistanceMeters", _NS),
             "MaxSpeed": optional_float(lap, "ns:MaximumSpeed", _NS) or 0.0,
             "Calories": optional_int(lap, "ns:Calories", _NS) or 0,
         }

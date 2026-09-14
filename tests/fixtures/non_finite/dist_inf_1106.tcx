@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- DistanceMeters is inf: the static writer crashed while sqlite stored Infinity. -->
+<TrainingCenterDatabase
+  xmlns="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2">
+  <Activities>
+    <Activity Sport="Running">
+      <Id>2021-01-08T04:04:52.000Z</Id>
+      <Lap StartTime="2021-01-08T04:04:52.000Z">
+        <TotalTimeSeconds>600.0</TotalTimeSeconds>
+        <DistanceMeters>inf</DistanceMeters>
+        <Calories>150</Calories>
+      </Lap>
+    </Activity>
+  </Activities>
+</TrainingCenterDatabase>

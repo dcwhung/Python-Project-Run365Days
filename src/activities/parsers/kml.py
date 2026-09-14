@@ -16,6 +16,8 @@ from run365days.activities.parsers.base import (
     ActivitySkipped,
     BaseActivityParser,
     element_text,
+    ensure_finite,
+    parse_finite_float,
 )
 from run365days.common.geo import total_track_distance
 from run365days.common.time import hhmmss_to_seconds, pace_str, parse_datetime, seconds_to_hhmmss
@@ -136,7 +138,12 @@ def _lap_table_cells(description: str) -> dict[str, str]:
 
 
 def _parse_track_points(subfolder: ET.Element) -> list[TrackPoint]:
-    """Return the folder's track points, skipping placemarks without time or coordinates."""
+    """Return the folder's track points, skipping placemarks without time or coordinates.
+
+    Raises:
+        ActivityParseError: If a placemark carries a coordinate that is present
+            but not a finite number.
+    """
     points = []
     for placemark in subfolder.findall("ns:Placemark", _NS):
         begin = element_text(placemark, "ns:TimeSpan/ns:begin", _NS)
@@ -150,8 +157,8 @@ def _parse_track_points(subfolder: ET.Element) -> list[TrackPoint]:
 
         points.append(
             TrackPoint(
-                lat=float(lon_lat[1]),
-                lon=float(lon_lat[0]),
+                lat=parse_finite_float(lon_lat[1], "track point latitude"),
+                lon=parse_finite_float(lon_lat[0], "track point longitude"),
                 time=parse_datetime(begin).strftime(_TIMESTAMP_FORMAT),
             )
         )
@@ -175,7 +182,7 @@ def _aggregate_laps(lap_rows: list[dict]) -> tuple[float, float]:
 
     Raises:
         ActivityParseError: If any lap omits Time or Distance, or either is
-            unreadable.
+            unreadable or not finite.
     """
     total_sec = 0.0
     total_km = 0.0
@@ -184,10 +191,14 @@ def _aggregate_laps(lap_rows: list[dict]) -> tuple[float, float]:
             if not row.get(key):
                 raise ActivityParseError(f"lap {row.get(_LAP_KEY)} is missing {key}")
         try:
-            total_sec += hhmmss_to_seconds(row[_LAP_TIME_KEY])
-            total_km += float(row[_LAP_DISTANCE_KEY].split()[0])
+            lap_sec = hhmmss_to_seconds(row[_LAP_TIME_KEY])
+            lap_km = float(row[_LAP_DISTANCE_KEY].split()[0])
         except (IndexError, ValueError) as exc:
             raise ActivityParseError(
                 f"lap {row.get(_LAP_KEY)} has an unreadable total: {exc}"
             ) from exc
-    return total_sec, total_km
+        total_sec += lap_sec
+        total_km += ensure_finite(lap_km, f"lap {row.get(_LAP_KEY)} {_LAP_DISTANCE_KEY}")
+    # hhmmss_to_seconds is bounded by strptime, but the kilometres are not, and a
+    # non-finite total reaches the two writers as two different answers (CUI-0001).
+    return total_sec, ensure_finite(total_km, "total distance")
