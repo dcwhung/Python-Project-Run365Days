@@ -62,6 +62,13 @@ jobs:
       - name: GraphQL schema is in sync with frontend/schema.graphql
         run: run365-schema --check frontend/schema.graphql
 
+      # The branch rules above are restated in prose in three documents. This
+      # regenerates them from this file and fails if any copy has drifted, so
+      # editing the triggers or the deploy gate without touching the docs is a
+      # red build rather than a silently wrong README.
+      - name: CI documentation is in sync with this workflow
+        run: run365-ci-docs --check README.md docs/architecture.md docs/deployment.md
+
   frontend:
     name: Frontend lint, test and build
     runs-on: ubuntu-latest

@@ -237,20 +237,35 @@ ruff format --check src tests
 
 ## Continuous integration and deployment
 
-`.github/workflows/pages.yml` runs on every push and pull request to
-`develop` and to `master`, so both branches are gated. Only `develop`
-deploys:
+`.github/workflows/pages.yml` is the only place the branch rules are
+written down. The list below is generated from it by `run365-ci-docs`,
+which the workflow runs in `--check` mode, so a change to the workflow
+that is not reflected here fails CI:
+
+<!-- ci-facts:start -->
+<!-- Generated from .github/workflows/pages.yml by `run365-ci-docs --write`.
+     Change the workflow, re-run the command, and commit both. -->
+- Lint, tests and the frontend checks run on every push and pull request to
+  `develop` and `master`.
+- The site is built and deployed from `develop` only; every other branch
+  stops after the checks.
+- A manual `workflow_dispatch` run follows the same rule: it re-deploys when
+  run on `develop`, and is checks-only elsewhere.
+<!-- ci-facts:end -->
+
+The workflow has four jobs. The first two run wherever the workflow is
+triggered; the last two only on the deploy branch.
 
 1. **Lint and test**: install the package, `ruff check`, `ruff format
-   --check`, `pytest`, and check `frontend/schema.graphql` matches the
-   Strawberry schema.
+   --check`, `pytest`, `run365-schema --check frontend/schema.graphql`, and
+   `run365-ci-docs --check` on the documents that describe this workflow.
 2. **Frontend**: `npm ci`, ESLint, codegen + `tsc`, Vitest, and a Vite
    build in both data modes.
-3. **Build dashboard** (`develop` pushes only): `run365-export --skip-db` writes the
+3. **Build dashboard**: `run365-export --skip-db` writes the
    static JSON into `frontend/public/data`, then `npm run build:static` with
    `VITE_BASE_PATH=/<repo>/` and `dist/index.html` copied to `404.html` so
    deep links work on Pages.
-4. **Deploy to GitHub Pages** (`develop` pushes only).
+4. **Deploy to GitHub Pages**.
 
 ### Vercel (API mode)
 
@@ -279,10 +294,11 @@ are git-ignored and rebuilt on every deploy.
 | `develop` | `v3.0.0` | Feature-organised package, SQLite + JSON export, Flask + Strawberry GraphQL API, React dashboard in two data modes, Vercel + GitHub Pages deployments |
 
 Release branches are frozen snapshots. New work lands on `develop` through
-pull requests, which the CI workflow gates, and `develop` is what deploys.
-`master` is the repository's default branch and runs the same lint and test
-jobs on its pull requests, but it does not deploy; moving the deploy source
-to it is a later decision, and
+pull requests, and `master` is the repository's default branch. Which of
+them the workflow gates and which one deploys is stated in [Continuous
+integration and deployment](#continuous-integration-and-deployment) above,
+generated from the workflow rather than restated here. Moving the deploy
+source is a later decision, and
 [docs/deployment.md](docs/deployment.md) lists every step that switch needs.
 The history is in [docs/CHANGELOG.md](docs/CHANGELOG.md). Tags and GitHub
 Releases are created by the manual "Tag release" workflow, which takes its
