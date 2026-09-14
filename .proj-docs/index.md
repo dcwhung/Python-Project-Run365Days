@@ -1,6 +1,6 @@
 # 項目文件索引 — Run365Days
 
-**最後更新**：2026-09-14（AU-047 review pass 91/100 + QA pass 0 Critical；CLAUDE.md）
+**最後更新**：2026-09-14（AU-047 review pass + QA pass；cleanup 輪 review warn，收尾中）
 
 > 本目錄為 ai-dev-team 產出文件嘅 Single Source of Truth。
 > 每次有新文件輸出，必須喺此更新條目同頂部日期。
@@ -40,7 +40,9 @@
 | P1 | `Activity.track` 單次請求成本冇 bound（rows 同 round trips 兩個維度） | AU-047 | ✅ **完成** —— review pass 91/100、QA pass 0 Critical、static JSON byte-identical |
 | P1 | `ActivityView` 將 track 載入失敗誤報成「Activity not found.」 | CUI-0016 | pending（AU-050 之前要修） |
 | P2 | Client 輸入錯誤一律以 `ValueError` + 完整 traceback 記入 ERROR log | S-018 | pending（AU-047 review 分拆） |
-| P2 | 測試常數 / docstring 嘅 claim 收窄（`MAX_SQL_PER_REQUEST` 命名、fail-closed pin 加牙等） | W-015, S-019 ~ S-022 | pending（AU-047 review 第二輪，全部非 blocking） |
+| P2 | 測試常數 / docstring 嘅 claim 收窄 | W-015, S-019 ~ S-022 | ✅ 已修（`9cd1125` `5ff91d3` `3ce2bd5`），S-022 嘅理由本身要重寫 → W-016 |
+| P1 | **claim discipline 嘅結構修復**：headline 量度數字由散文變成 assert | W-017 | 🔧 修正中（AU-047 五次重複嘅共同成因） |
+| P2 | `_page_field` docstring 斷言 alias fan-out 去唔到 field cap（實測去到）+ 該路徑零測試覆蓋 | W-016, S-024 ~ S-026 | 🔧 修正中 |
 | P2 | 非 track 嘅 `year` fan-out 係 post-fix 最貴合法請求（330 SQL / 1.58 s） | S-023 | pending（AU-047 之前已存在，範圍外） |
 | P1 | epoch-ms path 語義錯 8 小時（含捏造測試常數） | AU-048 | pending |
 | P1 | ruff 加 `ANN`+`S`、CI 加 `api/`、前端加 prettier、加 coverage gate | AU-010 ~ AU-012, AU-033 | pending |
@@ -58,7 +60,7 @@
 | 類型 | 位置 | 狀態 |
 |---|---|---|
 | Ticket registry（AU / C-W-S / CUI 全部） | [`tickets.md`](tickets.md) | ✅ 現行 SSoT |
-| Code review 報告 | [`reviews/2026-09-13_review_p0-batch.md`](reviews/2026-09-13_review_p0-batch.md)（84/100 pass）<br>[`reviews/2026-09-14_review_au-047.md`](reviews/2026-09-14_review_au-047.md)（66/100 **fail**，1 🔴）<br>[`reviews/2026-09-14_review_au-047_round2.md`](reviews/2026-09-14_review_au-047_round2.md)（91/100 **pass**，0 🔴） | ✅ 已建立 |
+| Code review 報告 | [`reviews/2026-09-13_review_p0-batch.md`](reviews/2026-09-13_review_p0-batch.md)（84/100 pass）<br>[`reviews/2026-09-14_review_au-047.md`](reviews/2026-09-14_review_au-047.md)（66/100 **fail**，1 🔴）<br>[`reviews/2026-09-14_review_au-047_round2.md`](reviews/2026-09-14_review_au-047_round2.md)（91/100 **pass**，0 🔴）<br>[`reviews/2026-09-14_review_au-047_round3.md`](reviews/2026-09-14_review_au-047_round3.md)（87/100 **warn**，cleanup 輪驗證） | ✅ 已建立 |
 | QA 報告 | [`qa/2026-09-14_qa_p0-batch.md`](qa/2026-09-14_qa_p0-batch.md)（0 Critical）<br>[`qa/2026-09-14_qa_au-047.md`](qa/2026-09-14_qa_au-047.md)（0 Critical / 1 Major / 2 Minor，369/370 byte-identical） | ✅ 已建立 |
 | CUI ticket 檔案 | `.tickets/pending/0001-0200/` | ✅ CUI-0001 ~ 0018 |
 | 項目 `CLAUDE.md` | repo root | ✅ 2026-09-14 建立（項目速覽 / layout / 指令 / branch 同部署 / conventions / 已知陷阱 / 文件 SSoT） |

@@ -669,3 +669,34 @@ npm run build:static  → 292 modules, 657.69 kB
 真實前端 8 條 document 打真 Flask + 真 `run365.db`：全部 200 / `errors=[]`；`TrackQuery` 攞足 390 點；**`YearQuery` 收費 0 個 track field**（直接 patch `_charge_track_field` 數出嚟，核實 reviewer 講法）；全 365 條 track 嘅 `track(points:600)` 都攞足。static vs api：point-count mismatch 0、point-value mismatch 0，S-011 冇惡化。
 
 效能：240 個 request 零錯誤，P95 ≤ 76 ms；300/300 連續 full-cap request 無 budget 洩漏；最壞 request 174 ms —— 對 Vercel 15 s 有 **86 倍 headroom**。
+
+---
+
+## AU-047 Review 第三輪（2026-09-14，收窄範圍驗證）—— ⚠️ warn 87/100
+
+來源：[`reviews/2026-09-14_review_au-047_round3.md`](reviews/2026-09-14_review_au-047_round3.md)
+審閱 `9cd1125` + `5ff91d3` + `3ce2bd5`（cleanup 輪）｜0 Critical｜next_action `invoke_developer`
+
+Cleanup 輪嘅六條全部關閉（CUI-0017 / W-015 / S-019 / S-020 / S-021 ✅），**除咗 S-022 ❌ still open** —— 佢嘅理由本身就係新一個 over-claim。
+
+| ID | 級別 | 標題 | 狀態 |
+|---|---|---|---|
+| **W-016** | 🟡 Warning | `tests/test_api.py:613-620` `_page_field` docstring 三句斷言都錯：「a fan-out cannot reach the field cap at all」「64 aliased `track` fields lex to 1218 tokens」「Only a page window can put that many tracks in one operation」。實測單一 parent 加 64 個 aliased `track` = **714 tokens，完全服務**；65 個 = 725 tokens，被 **field cap**（唔係 parser）拒；90 個先啱啱好貼 `MAX_QUERY_TOKENS`。`1218` 只屬「64 個 aliased **parent** 各帶一個 track」嗰個讀法。**連帶令 `activity(id:)` + aliased track 呢條真實可達路徑零測試覆蓋 —— 而嗰條就係 C-001 原本嘅攻擊面** | 🔧 修正中 |
+| **W-017** | 🟡 Warning | 八個新量度數字（`130 / 208 / 990 / 1009 / 1218 / 332 / 166 / 0.11–0.20 s`）**只以 docstring 散文存在，零 assert 釘住**。改動 `MAX_QUERY_TOKENS`、`SQL_PER_TRACK_FIELD` 或 warnings query 之後會靜靜咁腐爛。**呢個就係 AU-047 重複五次同一個錯嘅結構成因** | 🔧 修正中 |
+| **S-024** | 🟢 Suggestion | `src/api/schema.py:97`「Saturating this cap takes one list field.」讀落似必要條件 | 🔧 修正中 |
+| **S-025** | 🟢 Suggestion | `src/api/schema.py:225-227`「charges it below 0 too」：拒收唔會寫回，儲存值永遠停 0，只有 local 值計到 −1 | 🔧 修正中 |
+| **S-026** | 🟢 Suggestion | `src/api/schema.py:93`「Measured against a 365-activity, 600-point export」同 `year_db` fixture 唔符（fixture 只有 `r0` 有 track，共 600 rows 唔係 219,000）。**冇一個數字係錯**，只係描述誤導 | 🔧 修正中 |
+
+### ⚠️ 同一類缺陷第五次 —— 而且係喺專門修佢嘅 commit 入面
+
+| # | 位置 | Claim | 實測 | 狀態 |
+|---|---|---|---|---|
+| 1 | budget docstring | 「batching would not have bought the headroom back」 | round trip 佔 99.9% | ✅ 已修 |
+| 2 | 同上（W-012） | 「twice the most expensive document the dashboard can send」 | 消耗 0 點 | ✅ 已修 |
+| 3 | `MAX_SQL_PER_REQUEST`（W-015） | 名為 per-request 上限 | 208 | ✅ 已修 |
+| 4 | field cap docstring（CUI-0017） | 「64 × 2 = 128 statements」 | 208 | ✅ 已修 |
+| 5 | `_page_field` docstring（W-016） | 「alias fan-out cannot reach the field cap」 | 714 tokens，服務 | 🔧 修正中 |
+
+**W-017 係呢五次嘅共同成因**：每次都係「散文寫咗一個冇 gate 嘅數」。修 W-017（將 headline 數字變成 assert）比逐個修 claim 更根本 —— 呢個係本 ticket 最有價值嘅一項。
+
+> ⚠️ 留意 W-016 嘅方向：field cap 嘅實際保護面**比 docstring 講嘅闊**（佢真係擋到 alias fan-out，fails safe）。出事嘅係描述，唔係 bound。零 runtime 影響。
