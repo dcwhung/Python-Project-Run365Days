@@ -1,6 +1,6 @@
 # Run365Days
 
-[![CI and GitHub Pages](https://github.com/dcwhung/Python-Project-Run365Days/actions/workflows/pages.yml/badge.svg?branch=master)](https://github.com/dcwhung/Python-Project-Run365Days/actions/workflows/pages.yml)
+[![CI and GitHub Pages](https://github.com/dcwhung/Python-Project-Run365Days/actions/workflows/pages.yml/badge.svg?branch=develop)](https://github.com/dcwhung/Python-Project-Run365Days/actions/workflows/pages.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
 
@@ -236,18 +236,19 @@ ruff format --check src tests
 ## Continuous integration and deployment
 
 `.github/workflows/pages.yml` runs on every push and pull request to
-`master`, the default branch:
+`develop` and to `master`, so both branches are gated. Only `develop`
+deploys:
 
 1. **Lint and test**: install the package, `ruff check`, `ruff format
    --check`, `pytest`, and check `frontend/schema.graphql` matches the
    Strawberry schema.
 2. **Frontend**: `npm ci`, ESLint, codegen + `tsc`, Vitest, and a Vite
    build in both data modes.
-3. **Build dashboard** (push only): `run365-export --skip-db` writes the
+3. **Build dashboard** (`develop` pushes only): `run365-export --skip-db` writes the
    static JSON into `frontend/public/data`, then `npm run build:static` with
    `VITE_BASE_PATH=/<repo>/` and `dist/index.html` copied to `404.html` so
    deep links work on Pages.
-4. **Deploy to GitHub Pages** (push only).
+4. **Deploy to GitHub Pages** (`develop` pushes only).
 
 ### Vercel (API mode)
 
@@ -257,7 +258,7 @@ installs the package with uv, runs `run365-export --skip-static` to produce
 `api/graphql.py` is a Python serverless function that imports the Flask app;
 the database is bundled into it with `includeFiles`. Rewrites send
 `/api/*` to the function and everything else to the SPA. The production
-branch should be `master`, but Vercel keeps that setting in the project
+branch should be `develop`, but Vercel keeps that setting in the project
 dashboard rather than in the repository, so it cannot be read or changed
 from this checkout -- confirm it there after any change to the branch
 layout. [docs/deployment.md](docs/deployment.md) has the full
@@ -273,13 +274,17 @@ are git-ignored and rebuilt on every deploy.
 | (tag only) | `v1.0.0` | Original 2022 scripts and raw data |
 | `release/v1.5` | `v1.5.0` | First modular package with tests |
 | `release/v2` | `v2.0.0` | Static dashboard mockup on top of v1.5 |
-| `master` | `v3.0.0` | Feature-organised package, SQLite + JSON export, Flask + Strawberry GraphQL API, React dashboard in two data modes, Vercel + GitHub Pages deployments |
+| `develop` | `v3.0.0` | Feature-organised package, SQLite + JSON export, Flask + Strawberry GraphQL API, React dashboard in two data modes, Vercel + GitHub Pages deployments |
 
-Release branches are frozen snapshots. New work lands on `master` through
-pull requests, which the CI workflow gates; the history is in
-[docs/CHANGELOG.md](docs/CHANGELOG.md). Tags and GitHub Releases are created
-by the manual "Tag release" workflow, which takes its notes from the
-changelog.
+Release branches are frozen snapshots. New work lands on `develop` through
+pull requests, which the CI workflow gates, and `develop` is what deploys.
+`master` is the repository's default branch and runs the same lint and test
+jobs on its pull requests, but it does not deploy; moving the deploy source
+to it is a later decision, and
+[docs/deployment.md](docs/deployment.md) lists every step that switch needs.
+The history is in [docs/CHANGELOG.md](docs/CHANGELOG.md). Tags and GitHub
+Releases are created by the manual "Tag release" workflow, which takes its
+notes from the changelog.
 
 ## Privacy
 

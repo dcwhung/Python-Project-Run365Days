@@ -1,6 +1,6 @@
 # Deployment
 
-The same React app is deployed twice from `master`: in **API mode** on
+The same React app is deployed twice from `develop`: in **API mode** on
 Vercel and in **static mode** on GitHub Pages. Both builds run
 `run365-export` first, so no generated data is ever committed.
 
@@ -10,11 +10,11 @@ Vercel and in **static mode** on GitHub Pages. Both builds run
 | Data mode | `api`: React queries `/api/graphql` | `static`: React fetches `/data/*.json` |
 | Backend | `api/graphql.py`, a Python serverless function running the Flask + Strawberry app over the bundled SQLite file | none |
 | Build | `scripts/vercel-build.sh` via `vercel.json` | `.github/workflows/pages.yml` |
-| Trigger | every push to `master` (production branch) | every push to `master`, after lint and tests |
+| Trigger | every push to `develop` (production branch) | every push to `develop`, after lint and tests |
 
 ## Vercel
 
-The production branch should be `master`. Vercel keeps that setting in
+The production branch should be `develop`. Vercel keeps that setting in
 the project dashboard (Settings, Git, Production Branch) rather than in
 the repository, so it cannot be read or changed from this checkout —
 confirm it there after any change to the branch layout.
@@ -59,8 +59,15 @@ failure is readable in the browser.
 ## GitHub Pages
 
 The workflow has four jobs. The first two run on every push and pull
-request to `master`; the last two only on pushes, so every merge to
-`master` deploys the site.
+request to **both** `develop` and `master`, so a pull request into either
+branch is gated by lint and tests. The last two are restricted to
+`develop` — `github.ref == 'refs/heads/develop'` — so every push to
+`develop` deploys the site, while `master` runs the checks and stops
+there. A manual `workflow_dispatch` follows the same rule: it re-deploys
+when run on `develop`, and is CI-only on any other branch.
+
+Only one branch can be the deploy source; two would race for the same
+Pages deployment. `develop` holds that role for now.
 
 1. **Lint and test**: `ruff check`, `ruff format --check`, `pytest`, and
    `run365-schema --check frontend/schema.graphql`.
@@ -74,11 +81,48 @@ request to `master`; the last two only on pushes, so every merge to
 4. **Deploy to GitHub Pages**.
 
 The repository's `github-pages` environment must allow deployments from
-`master` (Settings, Environments, Deployment branches). That rule lives
+`develop` (Settings, Environments, Deployment branches). That rule lives
 in the repository settings, not in the workflow file, so it has to be
-updated in the same pass whenever the trigger branches in `pages.yml`
-change — otherwise the deploy job is rejected at the environment gate
+updated in the same pass whenever the deploying branch in `pages.yml`
+changes — otherwise the deploy job is rejected at the environment gate
 even though the workflow itself ran.
+
+## Switching the deploy source from `develop` to `master`
+
+`develop` is the deploy source today. Moving it to `master` means changing
+six things in four places — two of them outside the repository, where a
+checkout can neither see nor verify them. Missing one leaves the setup
+half-switched, and the failure is usually silent. Do all six together.
+
+In the repository:
+
+1. `.github/workflows/pages.yml` — the `push` and `pull_request` branch
+   lists. Keep both branches if both should stay gated; drop `develop` only
+   once nothing is being worked on there.
+2. `.github/workflows/pages.yml` — the `if:` on the `build` and `deploy`
+   jobs, plus the `concurrency` `group` and `cancel-in-progress`
+   expressions. All four test `refs/heads/develop`; each has to name the
+   new branch, or deploys stop happening and non-deploying runs start
+   sharing the deploy group.
+3. `.github/workflows/tag-release.yml` — the `ref` input default.
+4. `README.md` — the CI badge's `?branch=` query, the "Continuous
+   integration and deployment" section, the Vercel production-branch
+   sentence, and the "Versioning and branches" table with the paragraph
+   under it.
+
+Outside the repository, so neither readable nor changeable from a
+checkout:
+
+5. **GitHub `github-pages` environment** (Settings, Environments,
+   `github-pages`, Deployment branches) — allow the new branch. Until this
+   is done CI goes green and the deploy job is still rejected at the
+   environment gate.
+6. **Vercel Production Branch** (project Settings, Git) — API-mode
+   deployments follow this setting, not the repository. Until this is done
+   Pages and Vercel serve different commits.
+
+Then update this file: the intro, the trigger table, the Vercel section,
+the GitHub Pages section and this checklist.
 
 ## Tagging a release
 
