@@ -3,8 +3,14 @@
 exclude: ^(legacy/|data/|frontend/(src/gql|node_modules|dist)/|frontend/package-lock\.json)
 
 repos:
+  # Keep this in step with the `ruff` pin in pyproject.toml's dev extras. The hook
+  # brings its own ruff binary, so a rev that lags the pin means the linter a
+  # developer runs on commit is not the linter CI runs on push -- and the formatter
+  # in particular changes between minors, which is the "clean locally, red in CI"
+  # trap. The two versions agree on this tree today, which is exactly when the gap
+  # is safe to close.
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.12.0
+    rev: v0.16.7
     hooks:
       - id: ruff
         args: [--fix]
