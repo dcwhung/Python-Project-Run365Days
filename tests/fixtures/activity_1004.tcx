@@ -44,6 +44,13 @@
               </ns3:TPX>
             </Extensions>
           </Trackpoint>
+          <Trackpoint>
+            <!-- No Time at all: the point cannot be placed and is stepped over. -->
+            <Position>
+              <LatitudeDegrees>22.3400</LatitudeDegrees>
+              <LongitudeDegrees>114.2019</LongitudeDegrees>
+            </Position>
+          </Trackpoint>
         </Track>
       </Lap>
     </Activity>

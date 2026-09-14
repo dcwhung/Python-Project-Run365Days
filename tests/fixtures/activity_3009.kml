@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Lap 1's Distance is present but not a number. -->
+<kml xmlns="http://earth.google.com/kml/2.1">
+  <Folder>
+    <name>Running</name>
+    <Folder>
+      <name>Laps</name>
+      <Placemark>
+        <name>Lap 1</name>
+        <description>&lt;table width = "320"&gt;&lt;tr&gt;&lt;td&gt;Time:&lt;/td&gt;&lt;td&gt;00:05:00&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Distance:&lt;/td&gt;&lt;td&gt;abc Kilometers &lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;</description>
+        <Point>
+          <coordinates>null,null</coordinates>
+        </Point>
+      </Placemark>
+    </Folder>
+    <Folder>
+      <name>Track Points</name>
+      <Placemark>
+        <TimeSpan>
+          <begin>2021-01-08T12:04:52+08:00</begin>
+          <end>2021-01-08T12:04:52+08:00</end>
+        </TimeSpan>
+        <Point>
+          <coordinates>114.2019,22.3278, 329.79998779296875</coordinates>
+        </Point>
+      </Placemark>
+    </Folder>
+  </Folder>
+</kml>

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Well-formed XML with no Activity element at all. -->
+<TrainingCenterDatabase
+  xmlns="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2">
+  <Activities>
+  </Activities>
+</TrainingCenterDatabase>

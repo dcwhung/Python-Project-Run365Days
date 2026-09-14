@@ -8,6 +8,7 @@ from run365days.activities.parsers.base import (
     ActivitySkipped,
     optional_float,
     optional_int,
+    required_text,
 )
 from run365days.activities.parsers.gpx import GPXParser
 from run365days.activities.parsers.kml import KMLParser
@@ -277,3 +278,66 @@ class TestKMLLapTotalsAreMandatory:
             TCXParser(CHALLENGE_YEAR).parse(fixtures_dir / "activity_1005.tcx")
         with pytest.raises(ActivityParseError):
             KMLParser(CHALLENGE_YEAR).parse(fixtures_dir / "activity_3006.kml")
+
+
+class TestParserFailurePaths:
+    """W-007: every ActivityParseError raise site, and the helper that feeds them."""
+
+    def test_should_raise_parse_error_when_tcx_has_no_activity(self, fixtures_dir):
+        with pytest.raises(ActivityParseError, match="ns:Activities/ns:Activity"):
+            TCXParser(CHALLENGE_YEAR).parse(fixtures_dir / "activity_1006.tcx")
+
+    def test_should_raise_parse_error_when_tcx_has_no_laps(self, fixtures_dir):
+        with pytest.raises(ActivityParseError, match="no laps found"):
+            TCXParser(CHALLENGE_YEAR).parse(fixtures_dir / "activity_1008.tcx")
+
+    def test_should_raise_activity_skipped_when_tcx_sport_is_not_running(self, fixtures_dir):
+        with pytest.raises(ActivitySkipped, match="Not a running activity"):
+            TCXParser(CHALLENGE_YEAR).parse(fixtures_dir / "activity_1007.tcx")
+
+    def test_should_raise_parse_error_when_gpx_has_no_metadata(self, fixtures_dir):
+        with pytest.raises(ActivityParseError, match="ns:metadata"):
+            GPXParser(CHALLENGE_YEAR).parse(fixtures_dir / "activity_2005.gpx")
+
+    def test_should_raise_activity_skipped_when_gpx_predates_challenge_year(self, fixtures_dir):
+        with pytest.raises(ActivitySkipped, match="old activity"):
+            GPXParser(CHALLENGE_YEAR + 1).parse(fixtures_dir / "activity_2001.gpx")
+
+    def test_should_raise_activity_skipped_when_kml_predates_challenge_year(self, fixtures_dir):
+        with pytest.raises(ActivitySkipped, match="old activity"):
+            KMLParser(CHALLENGE_YEAR + 1).parse(fixtures_dir / "activity_3001.kml")
+
+    def test_should_raise_parse_error_when_kml_has_no_laps(self, fixtures_dir):
+        with pytest.raises(ActivityParseError, match="no laps found"):
+            KMLParser(CHALLENGE_YEAR).parse(fixtures_dir / "activity_3008.kml")
+
+    def test_should_raise_parse_error_when_a_lap_total_is_not_a_number(self, fixtures_dir):
+        with pytest.raises(ActivityParseError, match="unreadable total"):
+            KMLParser(CHALLENGE_YEAR).parse(fixtures_dir / "activity_3009.kml")
+
+    def test_should_raise_parse_error_when_required_element_is_empty(self):
+        parent = ET.Element("parent")
+        ET.SubElement(parent, "value")  # present, but carrying no text
+        with pytest.raises(ActivityParseError, match="missing required element value"):
+            required_text(parent, "value", {})
+
+    def test_should_return_zero_seconds_when_gpx_track_is_empty(self):
+        assert GPXParser._elapsed_seconds([]) == 0.0
+
+    def test_should_log_warning_for_every_unreadable_file(self, fixtures_dir, caplog):
+        with caplog.at_level(logging.WARNING, logger="run365days.activities.parsers.base"):
+            TCXParser(CHALLENGE_YEAR).parse_all(fixtures_dir)
+        warned = {
+            record.getMessage().split()[1].rstrip(":")
+            for record in caplog.records
+            if record.levelno >= logging.WARNING
+        }
+        assert {"activity_1003.tcx", "activity_1005.tcx", "activity_1006.tcx"} <= warned
+
+    def test_should_skip_tcx_track_points_without_a_timestamp(self, fixtures_dir):
+        act = TCXParser(CHALLENGE_YEAR).parse(fixtures_dir / "activity_1004.tcx")
+        assert len(act.track_points) == 2  # the third placemark carries no Time
+
+    def test_should_skip_directories_that_match_the_format_glob(self, tmp_path):
+        (tmp_path / "not_a_file.tcx").mkdir()
+        assert TCXParser(CHALLENGE_YEAR).parse_all(tmp_path) == []
