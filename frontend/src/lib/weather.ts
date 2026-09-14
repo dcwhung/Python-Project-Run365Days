@@ -39,6 +39,9 @@ const WARN_ICONS: [RegExp, string, string][] = [
   [/TSUNAMI/, "ws-tsunami", "Tsunami Warning"],
 ];
 
+/** Every sprite id this table can hand out; WarningSprite has to define them all. */
+export const WARN_ICON_IDS = [...new Set(WARN_ICONS.map(([, id]) => id))];
+
 export function warnInfo(signal: string): { id: string; name: string } | null {
   const m = WARN_ICONS.find(([re]) => re.test(signal));
   return m ? { id: m[1], name: m[2] } : null;
