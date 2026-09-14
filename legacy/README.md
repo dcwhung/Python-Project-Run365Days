@@ -16,7 +16,7 @@ so they do not run as-is. Their behaviour has been re-implemented in
 | `04_GetHKODailyWeatherExtract.py`    | `run365days.weather.collectors.hko_daily`     |
 | `05_GetDailyWeightSummary.py`        | `run365days.weight`                           |
 | `Run365Days.py`                      | `run365days.activities` + `run365days.cli`    |
-| `met.py`                             | `run365days.activities.metrics`               |
+| `met.py`                             | not ported (TCX supplies device calories)     |
 | `test.py`                            | `tests/`                           |
 
 This folder will be removed once the `develop` branch reaches feature parity.
