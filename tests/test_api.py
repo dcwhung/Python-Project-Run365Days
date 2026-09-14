@@ -676,6 +676,14 @@ def _parent_flood(parents: int, activity_id: str = TRACKED_ACTIVITY_ID) -> str:
     return _document(fields)
 
 
+def _list_flood(fields: int) -> str:
+    """*fields* aliased ``activities`` fields taking no ``track`` at all.
+
+    Spends neither budget, so nothing but MAX_QUERY_TOKENS bounds it.
+    """
+    return _document(" ".join(f"a{n}: activities {{ id }}" for n in range(fields)))
+
+
 def _parses_within(document: str, max_tokens: int) -> bool:
     """Whether graphql-core will parse *document* under a *max_tokens* ceiling."""
     try:
@@ -750,6 +758,47 @@ def test_the_track_field_cap_is_the_boundary(year_client):
 
     over = gql_errors(year_client, _cheap_tracks(MAX_TRACK_FIELDS_PER_REQUEST + 1))
     assert str(MAX_TRACK_FIELDS_PER_REQUEST) in over
+
+
+DOCUMENTED_WORST_CASES = (
+    # Every shape MAX_TRACK_FIELDS_PER_REQUEST's docstring quotes a number for,
+    # with the tokens it lexes to and the statements it issues. Read the label
+    # as the sentence in that docstring this row is holding to its word.
+    (
+        "saturating the cap takes one list field",
+        _cheap_tracks(MAX_TRACK_FIELDS_PER_REQUEST),
+        19,
+        130,
+    ),
+    ("spending the document on parents reaches further", _parent_flood(52), 990, 208),
+    ("a document that takes no track is not bounded here", _list_flood(166), 998, 332),
+)
+"""(label, document, tokens, statements) for each worst case the docstrings cite.
+
+These numbers existed only as prose until AU-047 W-017. Prose does not go red:
+four rounds of this ticket published a measured figure with no gate under it,
+and the fifth found one of them wrong. A number worth writing down is worth
+asserting, so anything quoted up there is quoted here too.
+"""
+
+
+@pytest.mark.parametrize(
+    ("label", "document", "tokens", "statements"),
+    DOCUMENTED_WORST_CASES,
+    # Named cases: the default id would print a 166-alias document per row.
+    ids=[case[0] for case in DOCUMENTED_WORST_CASES],
+)
+def test_the_documented_worst_cases_still_measure_as_documented(
+    label, document, tokens, statements, year_client, sql_count
+):
+    # Each row is served, so what is pinned is the real cost of a request the
+    # API accepts -- not the cost of one it turns away. Lower MAX_QUERY_TOKENS
+    # or the field cap, or give a list field a third query, and this is what
+    # tells you the docstrings have gone stale.
+    assert _token_count(document) == tokens, f"token cost drifted: {label}"
+
+    assert gql(year_client, document), f"documented as served: {label}"
+    assert sql_count[0] == statements, f"statement cost drifted: {label}"
 
 
 def test_aliased_track_fields_under_one_parent_reach_the_field_cap(year_client, sql_count):

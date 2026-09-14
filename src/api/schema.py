@@ -105,9 +105,16 @@ Measured against a 365-activity, 600-point export through the Flask client:
   Vercel function at the slowest reading.
 
 A document that takes no ``track`` at all spends neither budget and is not
-bounded here at all: 166 aliased ``activities`` fields fit the token limit and
-are served, issuing 332 statements in ~2 s. That cost belongs to the list
-fan-out, and wants its own answer; it is not what this cap is for.
+bounded here at all: 166 aliased ``activities`` fields fit the token limit at
+998 tokens and are served, issuing 332 statements in ~2 s. That cost belongs
+to the list fan-out, and wants its own answer; it is not what this cap is for.
+
+Every token and statement count above is asserted by
+``test_the_documented_worst_cases_still_measure_as_documented`` in
+``tests/test_api.py``, so a change to either limit turns it red here rather
+than leaving this prose quietly wrong. The wall-clock figures are the
+exception: they are one machine's reading, not a bound, because asserting a
+wall time in CI buys a flaky test rather than a guarantee.
 
 Batching the per-activity queries (AU-050) would let this number be raised on
 its own, without reopening the points budget.
