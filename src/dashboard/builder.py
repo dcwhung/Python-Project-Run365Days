@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 
 from run365days.activities.models import Activity, TrackPoint
-from run365days.common.numeric import finite, round_or_none, to_float
+from run365days.common.numeric import finite, finite_float, round_or_none
 
 TRACK_POINT_LIMIT = 150
 """Default number of track points kept per run when downsampling."""
@@ -118,7 +118,10 @@ def hourly_at(rows: list[dict], date: str, time_hhmm: str) -> dict | None:
 
     Returns:
         ``{desc, temp, hum, wind}`` for the nearest observation, or ``None``
-        if the day has no rows.
+        if the day has no rows. The three readings go through
+        :func:`finite_float` because they are nested straight into an activity
+        record and reach the writers unrounded, which disagree on a non-finite
+        value; all three columns are nullable, so None is safe for both.
     """
     target = int(time_hhmm[:2]) * 60 + int(time_hhmm[3:5])
     best, best_gap = None, 10**9
@@ -133,9 +136,9 @@ def hourly_at(rows: list[dict], date: str, time_hhmm: str) -> dict | None:
         return None
     return {
         "desc": best.get("Description"),
-        "temp": to_float(best.get("Temperature (°C)")),
-        "hum": to_float(best.get("Humidity (%)")),
-        "wind": to_float(best.get("Wind (Km/h)")),
+        "temp": finite_float(best.get("Temperature (°C)")),
+        "hum": finite_float(best.get("Humidity (%)")),
+        "wind": finite_float(best.get("Wind (Km/h)")),
     }
 
 

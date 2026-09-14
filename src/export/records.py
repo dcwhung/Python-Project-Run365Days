@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 from run365days.activities.models import Activity
-from run365days.common.numeric import finite, round_or_none, to_float
+from run365days.common.numeric import finite, finite_float, round_or_none
 from run365days.dashboard.builder import (
     TRACK_POINT_LIMIT,
     downsample,
@@ -138,15 +138,21 @@ def weight_record(record: WeightRecord) -> dict:
 
 
 def daily_weather_record(row: dict) -> dict:
-    """Shape one HKO daily-extract row (raw scraper column names) for storage."""
+    """Shape one HKO daily-extract row (raw scraper column names) for storage.
+
+    Every reading goes through :func:`finite_float` rather than a bare float
+    cast: these values reach the writers unrounded, and the two disagree on a
+    non-finite one. All six columns are nullable in the schema, so None is a
+    value both accept.
+    """
     return {
         "date": row["Date"],
-        "max_temp_c": to_float(row.get("Max. Temp")),
-        "avg_temp_c": to_float(row.get("Avg. Temp")),
-        "min_temp_c": to_float(row.get("Min. Temp")),
-        "humidity_pct": to_float(row.get("Humidity (%)")),
-        "rainfall_mm": to_float(row.get("Total Rainfall (mm)")),
-        "wind_kmh": to_float(row.get("Avg. Wind Speed (km/h)")),
+        "max_temp_c": finite_float(row.get("Max. Temp")),
+        "avg_temp_c": finite_float(row.get("Avg. Temp")),
+        "min_temp_c": finite_float(row.get("Min. Temp")),
+        "humidity_pct": finite_float(row.get("Humidity (%)")),
+        "rainfall_mm": finite_float(row.get("Total Rainfall (mm)")),
+        "wind_kmh": finite_float(row.get("Avg. Wind Speed (km/h)")),
         "sunrise": row.get("Sunrise"),
         "sunset": row.get("Sunset"),
     }

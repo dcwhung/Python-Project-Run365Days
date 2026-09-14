@@ -126,6 +126,21 @@ class TestWeather:
     def test_hourly_missing_date(self):
         assert hourly_at(self.ROWS, "2021-02-01", "12:00") is None
 
+    # ── CUI-0009: "inf" / "nan" are legal float literals, so to_float lets them through ──
+    def test_hourly_non_finite_readings_become_none(self):
+        rows = [
+            {
+                "Date": "2021-01-08",
+                "Time": "12:00",
+                "Temperature (°C)": "inf",
+                "Humidity (%)": "-inf",
+                "Wind (Km/h)": "nan",
+                "Description": "Few clouds",
+            }
+        ]
+        wx = hourly_at(rows, "2021-01-08", "12:04")
+        assert (wx["temp"], wx["hum"], wx["wind"]) == (None, None, None)
+
     def test_warnings_dedup_by_date(self):
         rows = [
             {"Date": "2021-07-01", "Warning_Signal": "THUNDERSTORM WARNING"},
