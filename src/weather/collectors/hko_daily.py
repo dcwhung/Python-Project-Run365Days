@@ -59,7 +59,7 @@ def fetch_year(year: str) -> list[DailyWeather]:
                 DailyWeather(
                     date=date_str,
                     max_temp_c=to_float(data[2]),
-                    avg_temp_c=to_float(data[3]),
+                    mean_temp_c=to_float(data[3]),
                     min_temp_c=to_float(data[4]),
                     mean_humidity_pct=to_float(data[6]),
                     total_rainfall_mm=to_float(data[8]),
