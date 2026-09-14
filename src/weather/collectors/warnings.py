@@ -1,12 +1,17 @@
 """Fetch weather warnings and tropical cyclone signals from HKO."""
 
+import logging
 from datetime import datetime
 
 import pandas as pd
 import requests
 from bs4 import BeautifulSoup
+from bs4.element import Tag
 
+from run365days.weather.collectors.html_reads import child_attr
 from run365days.weather.models import WeatherWarning
+
+logger = logging.getLogger(__name__)
 
 _SIGNALS_URL = "https://www.hko.gov.hk/en/wxinfo/climat/warndb/warndba.shtml"
 _HISTORY_URL = "https://www.hko.gov.hk//cgi-bin/climat/warndb_ea.pl"
@@ -18,6 +23,23 @@ _HISTORY_URL = "https://www.hko.gov.hk//cgi-bin/climat/warndb_ea.pl"
 _CONNECT_TIMEOUT_SEC = 5
 _READ_TIMEOUT_SEC = 30
 _REQUEST_TIMEOUT = (_CONNECT_TIMEOUT_SEC, _READ_TIMEOUT_SEC)
+
+# The warndb page repeats its layout above and below this heading; everything
+# before it belongs to a previous query and must not be scraped.
+_TROPICAL_CYCLONE_MARKER = "Tropical Cyclone Warning_Signals"
+_MARKER_NOT_FOUND = -1
+
+# Signal, name, start time, start date, end time, end date. Any other cell count
+# is a header, a spacer or the totals line.
+_WARNING_ROW_CELLS = 6
+_CELL_ICON = 0
+_CELL_SIGNAL = 1
+_CELL_START_TIME = 2
+_CELL_START_DATE = 3
+_CELL_END_TIME = 4
+_CELL_END_DATE = 5
+
+_HKO_TIMESTAMP_FORMAT = "%d/%b/%Y %H:%M"
 
 
 def _load_signal_metadata() -> dict[str, dict]:
@@ -36,8 +58,77 @@ def _load_signal_metadata() -> dict[str, dict]:
     return result
 
 
+def _rows_after_marker(html: str, date_str: str) -> str | None:
+    """Return the part of the warndb page that holds *date_str*'s warning rows.
+
+    Args:
+        html: The whole warndb response body.
+        date_str: The day being queried, used in the log message.
+
+    Returns:
+        Everything after the tropical cyclone heading, or ``None`` when the page
+        does not carry that heading at all.
+    """
+    marker_at = html.find(_TROPICAL_CYCLONE_MARKER)
+    if marker_at == _MARKER_NOT_FOUND:
+        # ``str.find`` answers -1, and the old code added len(marker) to it and
+        # sliced from character 31 -- an offset that still parses, so a renamed
+        # HKO heading returned rows scraped from an unrelated table instead of
+        # failing. An arrived-but-unreadable page is a data gap, handled the way
+        # hko_daily handles an unusable month: say so, and yield nothing.
+        logger.warning(
+            "Skipping %s: HKO warning page carries no %r heading, so no row can be located",
+            date_str,
+            _TROPICAL_CYCLONE_MARKER,
+        )
+        return None
+    return html[marker_at + len(_TROPICAL_CYCLONE_MARKER) :]
+
+
+def _hko_timestamp(date_cell: Tag, time_cell: Tag) -> str:
+    """Return ``"YYYY-MM-DD HH:MM:SS"`` from HKO's split date and time cells."""
+    raw = f"{date_cell.text.strip()} {time_cell.text.strip()}"
+    return str(datetime.strptime(raw, _HKO_TIMESTAMP_FORMAT))
+
+
+def _warning_from_row(
+    tds: list[Tag], date_str: str, signal_meta: dict[str, dict]
+) -> WeatherWarning:
+    """Build one record from a six-cell warndb row.
+
+    Args:
+        tds: The row's six cells.
+        date_str: The day being queried.
+        signal_meta: Signal legend from :func:`_load_signal_metadata`.
+
+    Returns:
+        The parsed warning.
+    """
+    name = tds[_CELL_SIGNAL].text.strip()
+    icon = child_attr(tds[_CELL_ICON], "img", "src")
+    if icon is None:
+        # The signal and its times are all present, so the row is still a real
+        # warning; only the decorative icon is gone. Dropping a hoisted typhoon
+        # signal over missing markup would be the worse trade.
+        logger.warning("%s %s: no signal icon in the first cell", date_str, name.upper())
+        icon = ""
+
+    return WeatherWarning(
+        date=date_str,
+        warning_type=signal_meta.get(name.lower().title(), {}).get("Type", "Unknown"),
+        warning_signal=name.upper(),
+        start_time=_hko_timestamp(tds[_CELL_START_DATE], tds[_CELL_START_TIME]),
+        end_time=_hko_timestamp(tds[_CELL_END_DATE], tds[_CELL_END_TIME]),
+        icon_url=icon,
+    )
+
+
 def fetch_day(date_str: str, signal_meta: dict[str, dict]) -> list[WeatherWarning]:
     """Fetch all warning records issued on one day.
+
+    A page that arrives without the tropical cyclone heading is logged and
+    yields no records, rather than being parsed from an arbitrary offset
+    (CUI-0012).
 
     Args:
         date_str: The day to query, ``YYYY-MM-DD``.
@@ -52,36 +143,18 @@ def fetch_day(date_str: str, signal_meta: dict[str, dict]) -> list[WeatherWarnin
         timeout=_REQUEST_TIMEOUT,
     ).text
 
-    marker = "Tropical Cyclone Warning_Signals"
-    bs = BeautifulSoup(html[html.find(marker) + len(marker) :], "html.parser")
+    rows_html = _rows_after_marker(html, date_str)
+    if rows_html is None:
+        return []
 
+    bs = BeautifulSoup(rows_html, "html.parser")
     records = []
     for table in bs.find_all("table"):
         for tr in table.find_all("tr"):
             tds = tr.find_all("td")
-            if len(tds) != 6:
+            if len(tds) != _WARNING_ROW_CELLS:
                 continue
-            signal = tds[1].text.strip().upper()
-            start = str(
-                datetime.strptime(tds[3].text.strip() + " " + tds[2].text.strip(), "%d/%b/%Y %H:%M")
-            )
-            end = str(
-                datetime.strptime(tds[5].text.strip() + " " + tds[4].text.strip(), "%d/%b/%Y %H:%M")
-            )
-            name_key = tds[1].text.strip().lower().title()
-            warning_type = signal_meta.get(name_key, {}).get("Type", "Unknown")
-            icon = tds[0].find("img").get("src", "")
-
-            records.append(
-                WeatherWarning(
-                    date=date_str,
-                    warning_type=warning_type,
-                    warning_signal=signal,
-                    start_time=start,
-                    end_time=end,
-                    icon_url=icon,
-                )
-            )
+            records.append(_warning_from_row(tds, date_str, signal_meta))
     return records
 
 

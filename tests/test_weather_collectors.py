@@ -34,6 +34,8 @@ HKO_FEB_URL = "https://www.weather.gov.hk/cis/dailyExtract/dailyExtract_202102.x
 HKO_MAR_URL = "https://www.weather.gov.hk/cis/dailyExtract/dailyExtract_202103.xml"
 
 HKO_DAILY_LOGGER = "run365days.weather.collectors.hko_daily"
+HOURLY_LOGGER = "run365days.weather.collectors.hourly"
+WARNINGS_LOGGER = "run365days.weather.collectors.warnings"
 
 
 def read_fixture(name: str) -> str:
@@ -288,15 +290,32 @@ class TestHourlyFetchDay:
 
         assert_bounded_timeout(recorder.calls[0]["timeout"])
 
-    def test_a_row_without_a_weather_script_still_crashes(self, monkeypatch):
-        # Documents the unguarded ``tds[9].find("script").string`` read; out of
-        # scope for CUI-0010 / AU-013 / AU-014 and reported as a follow-up.
+    def test_skips_a_row_without_a_weather_script_and_keeps_the_others(self, monkeypatch):
+        # Replaces the CUI-0010 pinning test that nailed the AttributeError from
+        # the unguarded ``tds[9].find("script").string``. One malformed cell used
+        # to take the whole day's data down with it (CUI-0012).
         install_fake_get(
             monkeypatch, hourly, {hourly._URL: read_fixture("freemeteo_no_script.html")}
         )
 
-        with pytest.raises(AttributeError):
+        records = hourly.fetch_day("2021-01-01")
+
+        assert [r.time for r in records] == ["00:30"]
+        assert records[0].description == "Cloudy skies"
+
+    def test_logs_the_row_it_dropped_for_a_missing_weather_script(self, monkeypatch, caplog):
+        install_fake_get(
+            monkeypatch, hourly, {hourly._URL: read_fixture("freemeteo_no_script.html")}
+        )
+
+        with caplog.at_level(logging.WARNING, logger=HOURLY_LOGGER):
             hourly.fetch_day("2021-01-01")
+
+        dropped = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(dropped) == 1
+        message = dropped[0].getMessage()
+        assert "2021-01-01" in message
+        assert "00:00" in message
 
 
 class TestHourlyFetchRange:
@@ -398,6 +417,43 @@ class TestWarningsFetchDay:
         meta = warnings._load_signal_metadata()
 
         assert warnings.fetch_day("2021-01-01", meta) == []
+
+    def test_returns_no_records_when_the_tropical_cyclone_marker_is_absent(self, monkeypatch):
+        # ``str.find`` answers -1, and -1 + len(marker) used to land the slice on
+        # character 31 of the whole page -- close enough to parse, so a renamed
+        # HKO heading quietly yielded rows scraped from the wrong table (CUI-0012).
+        install_fake_get(monkeypatch, warnings, warning_routes("hko_warning_no_marker.html"))
+
+        assert warnings.fetch_day("2021-01-01", {}) == []
+
+    def test_logs_a_warning_when_the_tropical_cyclone_marker_is_absent(self, monkeypatch, caplog):
+        install_fake_get(monkeypatch, warnings, warning_routes("hko_warning_no_marker.html"))
+
+        with caplog.at_level(logging.WARNING, logger=WARNINGS_LOGGER):
+            warnings.fetch_day("2021-01-01", {})
+
+        skipped = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(skipped) == 1
+        assert "2021-01-01" in skipped[0].getMessage()
+
+    def test_keeps_a_warning_row_whose_signal_icon_is_missing(self, monkeypatch):
+        install_fake_get(monkeypatch, warnings, warning_routes("hko_warning_no_icon.html"))
+
+        records = warnings.fetch_day("2021-01-01", {})
+
+        assert [r.warning_signal for r in records] == ["COLD WEATHER WARNING"]
+        assert records[0].start_time == "2020-12-29 16:20:00"
+        assert records[0].icon_url == ""
+
+    def test_logs_a_warning_for_a_row_whose_signal_icon_is_missing(self, monkeypatch, caplog):
+        install_fake_get(monkeypatch, warnings, warning_routes("hko_warning_no_icon.html"))
+
+        with caplog.at_level(logging.WARNING, logger=WARNINGS_LOGGER):
+            warnings.fetch_day("2021-01-01", {})
+
+        iconless = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(iconless) == 1
+        assert "COLD WEATHER WARNING" in iconless[0].getMessage()
 
     def test_queries_the_requested_day(self, monkeypatch):
         recorder = install_fake_get(monkeypatch, warnings, warning_routes())
