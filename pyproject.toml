@@ -6,7 +6,12 @@ build-backend = "setuptools.build_meta"
 name = "run365days"
 version = "3.0.0"
 description = "Personal running analytics: Garmin activity parsing, weather correlation, weight tracking and a dashboard"
-requires-python = ">=3.10"
+# 3.11, not 3.10. The dependency floors below decide this, not preference:
+# `pip install --python-version 3.10` cannot resolve `numpy>=2.4` at all (3.10's
+# newest numpy is 2.2.6) and pandas 3.0 likewise ships no 3.10 wheel. A 3.10 claim
+# was never reachable -- developers run 3.11 and CI runs 3.12, so nothing in the
+# project ever exercised the version it advertised.
+requires-python = ">=3.11"
 # Every runtime dependency carries a lower bound at the tested release line and
 # an upper bound at the next major. The lower bounds matter as much as the caps:
 # the numeric results this project asserts differ between pandas 2 and 3, so an
@@ -76,7 +81,11 @@ testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py310"
+# No target-version here. It used to say "py310" beside a requires-python of
+# ">=3.10", two copies of one fact, and a fix to either alone leaves the pair
+# disagreeing about which syntax is legal. ruff falls back to
+# project.requires-python when target-version is absent, so deleting it leaves a
+# single owner that cannot drift.
 src = ["src", "tests", "api"]
 # legacy/ holds reference-only v1 scripts that are deliberately outside the
 # quality system: no tests, never imported by src/, not built or deployed by CI.

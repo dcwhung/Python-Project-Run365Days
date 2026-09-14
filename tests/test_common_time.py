@@ -1,7 +1,6 @@
 import sys
 import zoneinfo
-from datetime import datetime, timedelta
-from datetime import timezone as dt_timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -94,7 +93,7 @@ class TestParseDateTimeIsoWithOffset:
     def test_should_keep_the_same_instant_whatever_the_requested_zone(self, timezone):
         # Converting must only restate the instant in another zone, never move it.
         dt = parse_datetime("2021-10-17T06:10:56+08:00", timezone)
-        assert dt == datetime(2021, 10, 16, 22, 10, 56, tzinfo=dt_timezone.utc)
+        assert dt == datetime(2021, 10, 16, 22, 10, 56, tzinfo=UTC)
 
 
 class TestParseDateTimeEpochMilliseconds:
@@ -194,12 +193,12 @@ class TestParseDateTimeWithoutTimeZoneDatabase:
 # the UTC instant they encode; the naive shape is zone-relative by design (AU-003), so it
 # names a wall clock that each zone re-anchors instead.
 _ABSOLUTE_SHAPES = [
-    ("2021-10-16T22:10:56.000Z", datetime(2021, 10, 16, 22, 10, 56, tzinfo=dt_timezone.utc)),
-    ("2021-10-17T06:10:56Z", datetime(2021, 10, 17, 6, 10, 56, tzinfo=dt_timezone.utc)),
-    ("2021-10-17T06:10:56+08:00", datetime(2021, 10, 16, 22, 10, 56, tzinfo=dt_timezone.utc)),
-    ("2021-10-17T06:10:56-05:00", datetime(2021, 10, 17, 11, 10, 56, tzinfo=dt_timezone.utc)),
-    ("2021-10-17T06:10:56+0800", datetime(2021, 10, 16, 22, 10, 56, tzinfo=dt_timezone.utc)),
-    ("1634422256000", datetime(2021, 10, 16, 22, 10, 56, tzinfo=dt_timezone.utc)),
+    ("2021-10-16T22:10:56.000Z", datetime(2021, 10, 16, 22, 10, 56, tzinfo=UTC)),
+    ("2021-10-17T06:10:56Z", datetime(2021, 10, 17, 6, 10, 56, tzinfo=UTC)),
+    ("2021-10-17T06:10:56+08:00", datetime(2021, 10, 16, 22, 10, 56, tzinfo=UTC)),
+    ("2021-10-17T06:10:56-05:00", datetime(2021, 10, 17, 11, 10, 56, tzinfo=UTC)),
+    ("2021-10-17T06:10:56+0800", datetime(2021, 10, 16, 22, 10, 56, tzinfo=UTC)),
+    ("1634422256000", datetime(2021, 10, 16, 22, 10, 56, tzinfo=UTC)),
 ]
 
 _ZONES = ["Asia/Hong_Kong", "America/New_York", "UTC"]

@@ -1,7 +1,6 @@
 """Timestamp parsing and formatting helpers (Hong Kong local time)."""
 
-from datetime import datetime, timedelta
-from datetime import timezone as dt_timezone
+from datetime import UTC, datetime, timedelta
 from typing import Final
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -88,7 +87,7 @@ def parse_datetime(rec_time: str, timezone: str = "Asia/Hong_Kong") -> datetime:
         epoch_seconds = round(int(rec_time) / _MS_PER_SECOND, 1)
         # An epoch is an absolute instant, so it is read as UTC and converted; relabelling
         # it with *timezone* instead would shift the result by that zone's offset (AU-048).
-        return datetime.fromtimestamp(epoch_seconds, tz=dt_timezone.utc).astimezone(tz)
+        return datetime.fromtimestamp(epoch_seconds, tz=UTC).astimezone(tz)
 
     try:
         parsed = isoparse(rec_time)
