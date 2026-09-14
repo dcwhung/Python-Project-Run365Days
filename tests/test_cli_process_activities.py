@@ -184,3 +184,40 @@ def test_should_exit_zero_when_a_format_directory_does_not_exist(
     _run_cli(monkeypatch, "--format", "all")
     assert not outputs["kml"].exists()
     assert len(outputs["tcx"].read_text().splitlines()) == len(_GOOD_TCX)
+
+
+def _cli_help(capsys, monkeypatch) -> str:
+    """Return the real ``run365-activities --help`` text."""
+    monkeypatch.setattr(sys, "argv", ["run365-activities", "--help"])
+    with pytest.raises(SystemExit):
+        process_activities.main()
+    return capsys.readouterr().out
+
+
+class TestYearIsALowerBound:
+    """CUI-0020: --year skips what precedes it and keeps everything after it.
+
+    The filter every parser applies is ``act_time.year < current_year``, so the
+    option is a lower bound, not an equality test. The behaviour is deliberate --
+    a 2021 challenge should not discard a file recorded after the fact -- so the
+    help text is what has to change.
+    """
+
+    def test_should_keep_activities_recorded_after_the_target_year(self, fixtures_dir, tmp_path):
+        kml_dir = tmp_path / "kml"
+        kml_dir.mkdir()
+        for name in _GOOD_KML:
+            shutil.copy(fixtures_dir / name, kml_dir / name)
+        kept_1999 = [a.activity_id for a in KMLParser(current_year=1999).parse_all(kml_dir)]
+        kept_2021 = [a.activity_id for a in KMLParser(current_year=2021).parse_all(kml_dir)]
+        # A year long past keeps everything readable; a later one skips it all.
+        assert kept_1999 == kept_2021 == ["3001", "3002"]
+        assert KMLParser(current_year=2022).parse_all(kml_dir) == []
+
+    def test_year_help_should_not_promise_an_exact_year_match(self, capsys, monkeypatch):
+        help_text = _cli_help(capsys, monkeypatch)
+        assert "activities from other years are skipped" not in help_text
+        assert "earlier" in help_text
+
+    def test_run_docstring_should_not_promise_an_exact_year_match(self):
+        assert "activities from other years are skipped" not in process_activities.run.__doc__

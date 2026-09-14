@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from run365days.activities.parsers import kml
 from run365days.activities.parsers.base import (
     ActivityParseError,
     ActivitySkipped,
@@ -474,3 +475,86 @@ class TestNonFiniteRequiredValues:
         )
         with pytest.raises(ActivityParseError, match="finite"):
             TCXParser(CHALLENGE_YEAR).parse(tmp_path / "activity_1108.tcx")
+
+
+@pytest.fixture
+def named_bounds_dir(fixtures_dir) -> Path:
+    """A KML whose lap table and track list exercise each numeric bound separately."""
+    return fixtures_dir / "named_bounds"
+
+
+class TestKMLBoundsAreNamedIndependently:
+    """S-007: three unrelated bounds that all happen to equal 2.
+
+    ``activity_3010.kml`` is built so each bound is the only thing standing
+    between the parser and a wrong answer:
+
+    * a ``colspan="2"`` title row that also carries a second cell, so the
+      arity bound cannot drop it -- only the column-count bound can. Its
+      label repeats ``Distance:`` so letting it through overwrites the real
+      lap distance with 99 km instead of failing loudly.
+    * a one-cell row with no ``colspan``, which only the arity bound drops.
+    * a track point whose ``coordinates`` carry a longitude and nothing else,
+      which only the longitude/latitude bound drops.
+
+    Each test moves one bound to 3 and asserts that the other two keep
+    working. Sharing a single constant makes all three move together, which
+    is exactly the silent coupling this ticket removes: across the 365-file
+    corpus every track point carries exactly two coordinate parts, so a lap
+    table that grew a third column would drop all 97,004 of them.
+    """
+
+    def test_should_read_the_real_lap_totals_past_every_decoy_row(self, named_bounds_dir):
+        act = KMLParser(CHALLENGE_YEAR).parse(named_bounds_dir / "activity_3010.kml")
+        assert act.distance_km == 1.0
+        assert act.total_sec == 300.0
+        assert len(act.track_points) == 2
+
+    def test_should_drop_a_title_row_using_only_the_column_count_bound(
+        self, named_bounds_dir, monkeypatch
+    ):
+        monkeypatch.setattr(kml, "_LAP_TABLE_COLUMNS", 3)
+        act = KMLParser(CHALLENGE_YEAR).parse(named_bounds_dir / "activity_3010.kml")
+        # The title row is no longer recognised, so its 99 km overwrites the lap.
+        assert act.distance_km == 99.0
+        # The other two bounds are untouched: the track is still read in full.
+        assert len(act.track_points) == 2
+
+    def test_should_drop_a_short_row_using_only_the_label_value_bound(
+        self, named_bounds_dir, monkeypatch
+    ):
+        monkeypatch.setattr(kml, "_LABEL_VALUE_CELLS", 3)
+        # Every statistic row carries exactly two cells, so raising this bound
+        # drops Time and Distance -- and nothing else.
+        with pytest.raises(ActivityParseError, match="missing"):
+            KMLParser(CHALLENGE_YEAR).parse(named_bounds_dir / "activity_3010.kml")
+
+    def test_should_drop_a_short_coordinate_using_only_the_lon_lat_bound(
+        self, named_bounds_dir, monkeypatch
+    ):
+        monkeypatch.setattr(kml, "_LON_LAT_PARTS", 3)
+        # Raising this bound alone must not reach the lap table.
+        with pytest.raises(ActivityParseError, match="no track points"):
+            KMLParser(CHALLENGE_YEAR).parse(named_bounds_dir / "activity_3010.kml")
+
+
+class TestKMLParsesEachTimestampOnce:
+    """S-009: the activity start time is the first track point's, already parsed."""
+
+    def test_should_not_reparse_a_timestamp_it_has_already_parsed(
+        self, named_bounds_dir, monkeypatch
+    ):
+        calls = []
+        real = kml.parse_datetime
+
+        def counting_parse_datetime(value, *args, **kwargs):
+            calls.append(value)
+            return real(value, *args, **kwargs)
+
+        monkeypatch.setattr(kml, "parse_datetime", counting_parse_datetime)
+        act = KMLParser(CHALLENGE_YEAR).parse(named_bounds_dir / "activity_3010.kml")
+        # Two of the three placemarks survive their coordinate check and are
+        # parsed once each. The activity start time is the first of them, so
+        # re-reading its own formatted output would show up as a third call.
+        assert calls == ["2021-01-08T12:04:52+08:00", "2021-01-08T12:06:52+08:00"]
+        assert act.date == "2021-01-08 12:04:52"

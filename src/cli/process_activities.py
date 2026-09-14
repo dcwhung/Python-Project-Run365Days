@@ -58,7 +58,7 @@ def run(fmt: str, year: int) -> dict[str, Path]:
 
     Args:
         fmt: One format name, or ``"all"``.
-        year: Target year; activities from other years are skipped.
+        year: Earliest year to keep; activities recorded earlier are skipped.
 
     Returns:
         The formats whose directory existed but yielded no activities, mapped
@@ -103,7 +103,7 @@ def main() -> None:
         "--year",
         type=int,
         default=config.DEFAULT_YEAR,
-        help="Target year; activities from other years are skipped",
+        help="Earliest year to keep; activities recorded earlier are skipped",
     )
     args = parser.parse_args()
     empty = run(args.format, args.year)
