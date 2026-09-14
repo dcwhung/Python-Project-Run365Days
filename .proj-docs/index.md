@@ -17,7 +17,7 @@
 | Stack | Python 3.10+ package + Flask/Strawberry GraphQL API + React 19 / Vite 7 / TS 5.9 |
 | 部署 | Vercel（API mode）＋ GitHub Pages（static mode） |
 | Default branch | `master`；**整合同部署 branch 係 `develop`**（master 現時落後 54 個 commit，只行 lint/test，唔 build 唔 deploy） |
-| 部署 branch 核實（2026-09-14） | `github-pages` environment ✅ 仍然只收 `develop`（Actions run #34 嘅 Deploy job success）；Vercel production branch ⚠️ 讀唔到（設定只存喺 Vercel dashboard，agent proxy 亦封咗 vercel.app），要人手核對 |
+| 部署 branch 核實（2026-09-14） | `github-pages` environment ✅ 仍然只收 `develop`（Actions run #34 嘅 Deploy job conclusion=success）；Vercel production branch ✅ 仍然係 `develop`（repo 讀唔到，由 owner 喺 Vercel dashboard 核實） |
 | 可見性 | Public |
 
 ---
