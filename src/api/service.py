@@ -239,22 +239,49 @@ def _even_sample_filter(session: Session, activity_id: str, points: int) -> Colu
     return models.TrackPoint.seq.in_(wanted)
 
 
+_TRACK_SELECTION = tuple(getattr(models.TrackPoint, column) for column in TRACK_COLUMNS)
+"""The published track columns as SQL expressions, in :data:`TRACK_COLUMNS` order.
+
+Built from that tuple rather than listed again, so a column added to the export
+reaches the API by being added once.
+"""
+
+
 def track(session: Session, activity_id: str, points: int | None = None) -> list[dict]:
     """Return the stored track for an activity, optionally downsampled to *points*.
 
     The thinning happens in SQL and once only: an earlier version narrowed the
     rows with a floor stride and then downsampled the survivors again, and the
     two passes compounded into gaps that differed by a factor of two.
+
+    The rows come back as plain column tuples, not mapped ``TrackPoint``
+    entities. Nothing above needs an entity -- the return value has always been
+    dicts of exactly :data:`TRACK_COLUMNS` -- and the difference is most of the
+    request. Measured over the real database, all 365 activities at the default
+    sample count: 1161 ms as entities against 808 ms as columns, for the same
+    55,116 rows in the same 367 queries. Asking instead for the whole stored
+    track, 1643 ms against 856 ms. Identity map bookkeeping, attribute
+    instrumentation and a persistent object per row are the whole of that gap,
+    and a read-only endpoint that turns every row straight into a dict pays it
+    for nothing.
+
+    What is deliberately *not* changed is the ``seq IN (row_number subquery)``
+    filter, which reads like two passes over the track and was expected to be
+    the expensive half. It is not. SQLite answers the inner pass from the
+    ``(activity_id, seq)`` covering index -- seq alone, no row payload -- and
+    the outer one as a seek per wanted seq. Selecting the columns straight out
+    of the numbered subquery does collapse it to a single pass, and measured
+    slower every time (844 ms at the default, 1209 ms for a whole track),
+    because the window function then has to carry every column through a
+    materialised subquery.
     """
-    stmt = select(models.TrackPoint).where(models.TrackPoint.activity_id == activity_id)
+    stmt = select(*_TRACK_SELECTION).where(models.TrackPoint.activity_id == activity_id)
     if points:
         sample = _even_sample_filter(session, activity_id, points)
         if sample is not None:
             stmt = stmt.where(sample)
-    return [
-        {col: getattr(p, col) for col in TRACK_COLUMNS}
-        for p in session.scalars(stmt.order_by(models.TrackPoint.seq))
-    ]
+    rows = session.execute(stmt.order_by(models.TrackPoint.seq)).mappings()
+    return [dict(row) for row in rows]
 
 
 def weight(

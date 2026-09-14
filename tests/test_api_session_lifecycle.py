@@ -11,6 +11,15 @@ These tests pin the session to the *request*, and check that the test client
 and a real WSGI server agree. The server below binds 127.0.0.1 and is reached
 over a loopback ``HTTPConnection``, which deliberately bypasses any proxy: the
 real response-iterable path is exercised without opening outbound network.
+
+CUI-0021 finishes the sentence that docstring starts. Fixing the leak stopped
+the pool from draining by accident, but said nothing about what the API answers
+when it drains for some other reason -- a slow disk, a burst of traffic, a
+serverless instance holding connections open. That answer was still ``200``,
+so a harness that reads status codes, and every alert built on 5xx rates, saw a
+healthy service. The last group of tests below draws the line: the API answers
+``200`` when it has *answered* the client, whether that answer is data or a
+rejection, and 5xx when it never managed to answer at all.
 """
 
 import json
@@ -41,7 +50,14 @@ META_QUERY = "{ meta { year } }"
 EXPECTED_YEAR = 2021
 HTTP_OK = 200
 HTTP_BAD_REQUEST = 400
+HTTP_SERVER_ERROR = 500
 JSON_HEADERS = {"Content-Type": "application/json"}
+
+# Two documents the API answers by rejecting them. Neither reaches a database,
+# and neither is the backend's fault, so both must stay 200 once CUI-0021 starts
+# marking failures: a rejection is an answer.
+OUT_OF_RANGE_QUERY = "{ activities(limit: 0) { id } }"
+UNKNOWN_FIELD_QUERY = "{ noSuchField }"
 
 
 @dataclass
@@ -194,3 +210,67 @@ def test_session_is_closed_when_the_request_never_reaches_a_resolver(harness):
     assert response.status_code == HTTP_BAD_REQUEST
     assert len(harness.opened) == 1
     assert settled(harness) == 0
+
+
+# ── CUI-0021: a broken backend must not answer 200 ─────────────────────────
+def hold_whole_pool(engine: Engine) -> list:
+    """Check out every connection the pool holds, so the next request gets none."""
+    return [engine.connect() for _ in range(POOL_SIZE)]
+
+
+def post_with_pool_exhausted(harness: Harness, query: str) -> tuple[int, bytes]:
+    """Send *query* while no connection is free, then give the pool back."""
+    held = hold_whole_pool(harness.engine)
+    try:
+        response = harness.app.test_client().post(GRAPHQL_PATH, json={"query": query})
+        return response.status_code, response.data
+    finally:
+        for connection in held:
+            connection.close()
+
+
+def test_exhausted_pool_answers_with_a_server_error(harness):
+    """The pool giving out is the backend failing, and a status code must say so."""
+    status, _ = post_with_pool_exhausted(harness, META_QUERY)
+    assert status == HTTP_SERVER_ERROR
+
+
+def test_exhausted_pool_still_returns_the_graphql_error_body(harness):
+    """The status changes; the payload does not.
+
+    ``graphql-request`` parses the body before it looks at the status and reads
+    its thrown error's message out of ``errors[0]``, so dropping the payload on
+    a 5xx would trade a named cause for "GraphQL Error (Code: 500)".
+    """
+    _, raw = post_with_pool_exhausted(harness, META_QUERY)
+    payload = json.loads(raw)
+    assert payload["data"] is None
+    assert "QueuePool" in payload["errors"][0]["message"]
+
+
+def test_exhausted_pool_answers_the_same_way_through_a_real_server(harness, wsgi_port):
+    """The status is set on the response Strawberry returns, not by the test client."""
+    held = hold_whole_pool(harness.engine)
+    try:
+        status, raw = post_via_wsgi_server(wsgi_port, json.dumps({"query": META_QUERY}).encode())
+    finally:
+        for connection in held:
+            connection.close()
+    assert status == HTTP_SERVER_ERROR
+    assert "QueuePool" in json.loads(raw)["errors"][0]["message"]
+
+
+@pytest.mark.parametrize("query", [OUT_OF_RANGE_QUERY, UNKNOWN_FIELD_QUERY])
+def test_a_rejected_request_is_an_answer_and_stays_200(harness, query):
+    """An argument the API refuses, and a field it does not have, are both answers."""
+    response = harness.app.test_client().post(GRAPHQL_PATH, json={"query": query})
+    assert response.status_code == HTTP_OK
+    assert json.loads(response.data)["errors"]
+
+
+def test_pool_recovers_and_the_status_goes_back_to_200(harness):
+    """The failure marking is per request: it must not stick to the app."""
+    post_with_pool_exhausted(harness, META_QUERY)
+    response = harness.app.test_client().post(GRAPHQL_PATH, json={"query": META_QUERY})
+    assert response.status_code == HTTP_OK
+    assert_meta_payload(response.data)

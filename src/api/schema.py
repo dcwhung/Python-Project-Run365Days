@@ -152,6 +152,20 @@ is that signal.
 """
 
 
+class ClientArgumentError(ValueError):
+    """An argument outside the bounds this schema publishes.
+
+    A named class rather than a bare ``ValueError`` because
+    :mod:`run365days.api.app` reads it as "the API answered, and the answer was
+    no", and leaves such a response at ``200``. ``ValueError`` alone is far too
+    wide a net to carry that meaning: ``int()`` raises one on a corrupt row and
+    so does a great deal of library code, so classifying on it would relabel
+    real backend failures as client mistakes -- which is the CUI-0021 defect
+    itself, arriving through a different door. Subclassing ``ValueError`` keeps
+    every existing caller that catches one working.
+    """
+
+
 def _iso(d: date_type | None) -> str | None:
     return d.isoformat() if d else None
 
@@ -167,12 +181,12 @@ def _page(limit: int, offset: int) -> tuple[int, int]:
         The validated ``(limit, offset)`` pair.
 
     Raises:
-        ValueError: If the window is empty, negative, or over MAX_PAGE_SIZE.
+        ClientArgumentError: If the window is empty, negative, or over MAX_PAGE_SIZE.
     """
     if not 1 <= limit <= MAX_PAGE_SIZE:
-        raise ValueError(f"limit must be between 1 and {MAX_PAGE_SIZE}, got {limit}")
+        raise ClientArgumentError(f"limit must be between 1 and {MAX_PAGE_SIZE}, got {limit}")
     if offset < 0:
-        raise ValueError(f"offset must not be negative, got {offset}")
+        raise ClientArgumentError(f"offset must not be negative, got {offset}")
     return limit, offset
 
 
@@ -186,10 +200,10 @@ def _track_points(points: int) -> int:
         The validated sample count.
 
     Raises:
-        ValueError: If the count is below 1 or over MAX_TRACK_POINTS.
+        ClientArgumentError: If the count is below 1 or over MAX_TRACK_POINTS.
     """
     if not 1 <= points <= MAX_TRACK_POINTS:
-        raise ValueError(f"points must be between 1 and {MAX_TRACK_POINTS}, got {points}")
+        raise ClientArgumentError(f"points must be between 1 and {MAX_TRACK_POINTS}, got {points}")
     return points
 
 
