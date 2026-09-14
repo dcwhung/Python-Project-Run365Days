@@ -8,9 +8,16 @@ session from ``info.context["session"]`` and delegate to
 
 from __future__ import annotations
 
+import os
 from datetime import date as date_type
 
 import strawberry
+from strawberry.extensions import (
+    DisableIntrospection,
+    MaxTokensLimiter,
+    QueryDepthLimiter,
+    SchemaExtension,
+)
 from strawberry.types import Info
 
 from run365days.api import service
@@ -20,9 +27,115 @@ from run365days.export.records import TRACK_COLUMNS
 DEFAULT_TRACK_POINTS = 150
 """Track points returned per activity unless the query asks for more."""
 
+MAX_TRACK_POINTS = 1000
+"""Ceiling for ``track(points:)``, above the 600 samples the export stores per run."""
+
+DEFAULT_PAGE_SIZE = 500
+"""Rows a list field returns when the client asks for no window.
+
+Deliberately above the 365 rows a full year holds, so clients that read a
+whole year in one request (the dashboard does) need no paging.
+"""
+
+MAX_PAGE_SIZE = 1000
+"""Ceiling for ``limit``: the largest single-request page the API will serve."""
+
+MAX_QUERY_DEPTH = 5
+"""Deepest operation the API accepts.
+
+The deepest document the dashboard sends is ``YearQuery`` at depth 4
+(year -> personalBests -> longest -> weather -> leaf), which is also the
+deepest the acyclic type graph allows today; 5 leaves one level of headroom
+for a new nested field without reopening the limit question.
+"""
+
+MAX_QUERY_TOKENS = 1000
+"""Largest document the parser accepts.
+
+The biggest document the dashboard sends lexes to 113 tokens and
+introspection to 163, so this only ever stops alias-flooded documents.
+"""
+
+GRAPHIQL_ENV = "RUN365_GRAPHIQL"
+"""Environment variable that opens the endpoint up for local development.
+
+One variable, not two: a browser IDE is useless without introspection, so the
+flag that serves GraphiQL is the same flag that lets ``__schema`` through.
+"""
+
+GRAPHIQL_ON = frozenset({"1", "true", "yes", "on"})
+"""Values that count as on. An allowlist, so ``RUN365_GRAPHIQL=0`` stays off."""
+
+
+def graphiql_enabled() -> bool:
+    """Report whether the environment asks for the IDE and its introspection."""
+    return os.environ.get(GRAPHIQL_ENV, "").strip().lower() in GRAPHIQL_ON
+
+
+def _introspection_gate() -> SchemaExtension:
+    """Reject ``__schema`` / ``__type`` documents unless the dev flag is on.
+
+    Returns:
+        A per-request extension that either blocks introspection or does
+        nothing, according to :func:`graphiql_enabled`.
+    """
+    # The flag is read here, per request, rather than once at import: the
+    # module-level ``schema`` below is a singleton, so a start-up read would
+    # freeze whatever the environment happened to hold for the first importer.
+    return SchemaExtension() if graphiql_enabled() else DisableIntrospection()
+
+
+COUNT_DESCRIPTION = (
+    "Rows matching the same filters, ignoring `limit` and `offset`. "
+    "A list shorter than this count was cut off by the page window."
+)
+"""Description shared by the four count fields.
+
+A bare list gives a client no way to tell "these are all the rows" from
+"these are the first `limit` rows"; comparing its length against the count
+is that signal.
+"""
+
 
 def _iso(d: date_type | None) -> str | None:
     return d.isoformat() if d else None
+
+
+def _page(limit: int, offset: int) -> tuple[int, int]:
+    """Return the requested page window after bounds-checking it.
+
+    Args:
+        limit: Rows the client asked for.
+        offset: Rows to skip.
+
+    Returns:
+        The validated ``(limit, offset)`` pair.
+
+    Raises:
+        ValueError: If the window is empty, negative, or over MAX_PAGE_SIZE.
+    """
+    if not 1 <= limit <= MAX_PAGE_SIZE:
+        raise ValueError(f"limit must be between 1 and {MAX_PAGE_SIZE}, got {limit}")
+    if offset < 0:
+        raise ValueError(f"offset must not be negative, got {offset}")
+    return limit, offset
+
+
+def _track_points(points: int) -> int:
+    """Return the requested track sample count after bounds-checking it.
+
+    Args:
+        points: Samples the client asked for.
+
+    Returns:
+        The validated sample count.
+
+    Raises:
+        ValueError: If the count is below 1 or over MAX_TRACK_POINTS.
+    """
+    if not 1 <= points <= MAX_TRACK_POINTS:
+        raise ValueError(f"points must be between 1 and {MAX_TRACK_POINTS}, got {points}")
+    return points
 
 
 # ── leaf types ─────────────────────────────────────────────────────────────
@@ -68,7 +181,7 @@ class Activity:
 
     @strawberry.field(description="GPS track, evenly downsampled to at most `points` samples.")
     def track(self, info: Info, points: int = DEFAULT_TRACK_POINTS) -> list[TrackPoint]:
-        rows = service.track(info.context["session"], str(self.id), points)
+        rows = service.track(info.context["session"], str(self.id), _track_points(points))
         return [TrackPoint(**row) for row in rows]
 
 
@@ -215,11 +328,27 @@ class Query:
         to_date: date_type | None = None,
         min_km: float | None = None,
         has_gps: bool | None = None,
+        limit: int = DEFAULT_PAGE_SIZE,
+        offset: int = 0,
     ) -> list[Activity]:
+        limit, offset = _page(limit, offset)
         rows = service.activities(
-            info.context["session"], _iso(from_date), _iso(to_date), min_km, has_gps
+            info.context["session"], _iso(from_date), _iso(to_date), min_km, has_gps, limit, offset
         )
         return [_activity(r) for r in rows]
+
+    @strawberry.field(description=COUNT_DESCRIPTION)
+    def activities_count(
+        self,
+        info: Info,
+        from_date: date_type | None = None,
+        to_date: date_type | None = None,
+        min_km: float | None = None,
+        has_gps: bool | None = None,
+    ) -> int:
+        return service.activities_count(
+            info.context["session"], _iso(from_date), _iso(to_date), min_km, has_gps
+        )
 
     @strawberry.field(description="One run by Garmin activity id.")
     def activity(self, info: Info, id: strawberry.ID) -> Activity | None:
@@ -227,29 +356,73 @@ class Query:
 
     @strawberry.field(description="Daily weigh-ins (dates inclusive).")
     def weight(
-        self, info: Info, from_date: date_type | None = None, to_date: date_type | None = None
+        self,
+        info: Info,
+        from_date: date_type | None = None,
+        to_date: date_type | None = None,
+        limit: int = DEFAULT_PAGE_SIZE,
+        offset: int = 0,
     ) -> list[WeightEntry]:
-        rows = service.weight(info.context["session"], _iso(from_date), _iso(to_date))
+        limit, offset = _page(limit, offset)
+        rows = service.weight(
+            info.context["session"], _iso(from_date), _iso(to_date), limit, offset
+        )
         return [WeightEntry(**r) for r in rows]
+
+    @strawberry.field(description=COUNT_DESCRIPTION)
+    def weight_count(
+        self, info: Info, from_date: date_type | None = None, to_date: date_type | None = None
+    ) -> int:
+        return service.weight_count(info.context["session"], _iso(from_date), _iso(to_date))
 
     @strawberry.field(description="HKO daily weather (dates inclusive).")
     def weather(
-        self, info: Info, from_date: date_type | None = None, to_date: date_type | None = None
+        self,
+        info: Info,
+        from_date: date_type | None = None,
+        to_date: date_type | None = None,
+        limit: int = DEFAULT_PAGE_SIZE,
+        offset: int = 0,
     ) -> list[DailyWeather]:
-        rows = service.daily_weather(info.context["session"], _iso(from_date), _iso(to_date))
+        limit, offset = _page(limit, offset)
+        rows = service.daily_weather(
+            info.context["session"], _iso(from_date), _iso(to_date), limit, offset
+        )
         return [DailyWeather(**r) for r in rows]
+
+    @strawberry.field(description=COUNT_DESCRIPTION)
+    def weather_count(
+        self, info: Info, from_date: date_type | None = None, to_date: date_type | None = None
+    ) -> int:
+        return service.daily_weather_count(info.context["session"], _iso(from_date), _iso(to_date))
 
     @strawberry.field(description="HKO warnings and signals (dates inclusive).")
     def warnings(
-        self, info: Info, from_date: date_type | None = None, to_date: date_type | None = None
+        self,
+        info: Info,
+        from_date: date_type | None = None,
+        to_date: date_type | None = None,
+        limit: int = DEFAULT_PAGE_SIZE,
+        offset: int = 0,
     ) -> list[WeatherWarning]:
-        rows = service.warnings(info.context["session"], _iso(from_date), _iso(to_date))
+        limit, offset = _page(limit, offset)
+        rows = service.warnings(
+            info.context["session"], _iso(from_date), _iso(to_date), limit, offset
+        )
         return [WeatherWarning(**r) for r in rows]
+
+    @strawberry.field(description=COUNT_DESCRIPTION)
+    def warnings_count(
+        self, info: Info, from_date: date_type | None = None, to_date: date_type | None = None
+    ) -> int:
+        return service.warnings_count(info.context["session"], _iso(from_date), _iso(to_date))
 
     @strawberry.field(description="Aggregates for the exported year (or a given year).")
     def year(self, info: Info, year: int | None = None) -> YearSummary:
         session = info.context["session"]
         y = year or service.meta(session)["year"]
+        # No page window: these rows are folded into aggregates server-side, so
+        # the response size is fixed by the calendar, not by what the client asks for.
         acts = service.activities(session, f"{y}-01-01", f"{y}-12-31")
         daily = stats.daily_distance(acts, y)
         pbs = stats.personal_bests(acts)
@@ -264,4 +437,28 @@ class Query:
         )
 
 
-schema = strawberry.Schema(query=Query)
+def build_schema(
+    max_depth: int = MAX_QUERY_DEPTH, max_tokens: int = MAX_QUERY_TOKENS
+) -> strawberry.Schema:
+    """Return the schema with its query-cost limits applied.
+
+    Args:
+        max_depth: Deepest nesting a single operation may reach.
+        max_tokens: Most tokens the parser accepts in one document.
+
+    Returns:
+        A schema that rejects over-deep or over-large documents during
+        parsing and validation, before any resolver opens a query.
+    """
+    return strawberry.Schema(
+        query=Query,
+        extensions=[
+            # Factories, not instances: Strawberry builds a fresh extension per request.
+            lambda: QueryDepthLimiter(max_depth=max_depth),
+            lambda: MaxTokensLimiter(max_token_count=max_tokens),
+            _introspection_gate,
+        ],
+    )
+
+
+schema = build_schema()

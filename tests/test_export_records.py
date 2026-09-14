@@ -1,4 +1,19 @@
-from run365days.export.records import TRACK_COLUMNS, activity_record, build_records
+import json
+
+import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
+
+from run365days.activities.models import TrackPoint
+from run365days.export import models
+from run365days.export.records import (
+    TRACK_COLUMNS,
+    activity_record,
+    build_records,
+    daily_weather_record,
+)
+from run365days.export.sqlite import sqlite_url, write_sqlite
+from run365days.export.static_json import TRACKS_DIR, WEATHER_FILE, write_static_json
 
 
 def test_activities_sorted_by_start(sample_records):
@@ -95,3 +110,228 @@ def test_activity_record_without_points():
     assert rec["elevation_min_m"] is None
     assert rec["ascent_m"] == 0
     assert rec["has_gps"] is False
+
+
+# ── CUI-0001 / CUI-0007: the record layer is the last line before the writers diverge ──
+_PARITY_FIELDS = (
+    "distance_km",
+    "duration_sec",
+    "pace_sec_per_km",
+    "avg_cadence",
+    "avg_temp_c",
+    "elevation_min_m",
+    "elevation_max_m",
+    "ascent_m",
+)
+
+_POISONED_POINT_COUNT = 3
+
+
+def _poisoned_point(index: int) -> TrackPoint:
+    """A sample whose every nullable number is non-finite, as if a guard leaked.
+
+    ``time`` and the derived ``sec`` stay well formed: ``sec`` is NOT NULL in the
+    SQLite schema, so it has nothing to degrade to.
+    """
+    return TrackPoint(
+        lat=float("inf"),
+        lon=float("-inf"),
+        time=f"2021-01-08 12:00:{index:02d}",
+        elevation=float("inf"),
+        temperature=float("nan"),
+        cadence=float("inf"),
+        speed=float("-inf"),
+        distance_m=float("nan"),
+    )
+
+
+def _poisoned_records():
+    """Records whose summary numbers *and* track points are non-finite."""
+    from tests.conftest import make_activity
+
+    points = [_poisoned_point(i) for i in range(_POISONED_POINT_COUNT)]
+    activity = make_activity(
+        "p",
+        distance_km=float("inf"),
+        distance_by_coord_km=float("nan"),
+        total_sec=float("inf"),
+        num_track_points=len(points),
+        track_points=points,
+    )
+    # The GPX twin shares the timestamps, so merge_temperature feeds the nan
+    # temperatures into the track rows rather than leaving temp_c empty.
+    gpx = make_activity(
+        "p",
+        avg_temp=float("inf"),
+        num_track_points=len(points),
+        track_points=[_poisoned_point(i) for i in range(_POISONED_POINT_COUNT)],
+    )
+    return build_records(
+        2021, [activity], [gpx], [], [], [], [], generated_at="2026-01-01T00:00:00"
+    )
+
+
+@pytest.mark.parametrize("field", ["distance_km", "duration_sec"])
+def test_not_null_columns_stay_numeric_when_the_source_value_is_not_finite(field):
+    # These two are NOT NULL in the SQLite schema, so mapping them to None would
+    # trade the crash in one writer for a crash in the other.
+    assert isinstance(_poisoned_records().activities[0][field], (int, float))
+
+
+def test_non_numeric_summary_values_are_dropped_rather_than_raising():
+    from tests.conftest import make_activity
+
+    gpx = make_activity("p", avg_temp="not a number")
+    assert activity_record(make_activity("p"), gpx, None, [])["avg_temp_c"] is None
+
+
+def test_nullable_columns_become_none_when_the_source_value_is_not_finite():
+    record = _poisoned_records().activities[0]
+    assert record["pace_sec_per_km"] is None
+    assert record["avg_temp_c"] is None
+
+
+def test_both_writers_agree_on_an_activity_carrying_non_finite_numbers(tmp_path):
+    records = _poisoned_records()
+    write_static_json(records, tmp_path / "static")
+    write_sqlite(records, tmp_path / "run365.db")
+
+    static_row = json.loads((tmp_path / "static" / "activities.json").read_text())[0]
+    with Session(create_engine(sqlite_url(tmp_path / "run365.db", read_only=True))) as session:
+        stored = session.get(models.Activity, "p")
+        db_row = {field: getattr(stored, field) for field in _PARITY_FIELDS}
+
+    assert {field: static_row[field] for field in _PARITY_FIELDS} == db_row
+
+
+def test_not_null_track_column_stays_numeric_when_the_point_is_not_finite():
+    # sec is NOT NULL in the SQLite schema; it is derived from the timestamp, so
+    # a poisoned reading elsewhere in the point must not reach it.
+    row = dict(zip(TRACK_COLUMNS, _poisoned_records().tracks["p"][0], strict=True))
+    assert isinstance(row["sec"], int)
+
+
+def test_nullable_track_columns_become_none_when_the_point_is_not_finite():
+    row = dict(zip(TRACK_COLUMNS, _poisoned_records().tracks["p"][0], strict=True))
+    nullable = [column for column in TRACK_COLUMNS if column != "sec"]
+    assert [row[column] for column in nullable] == [None] * len(nullable)
+
+
+def test_both_writers_agree_on_track_points_carrying_non_finite_numbers(tmp_path):
+    records = _poisoned_records()
+    write_static_json(records, tmp_path / "static")
+    write_sqlite(records, tmp_path / "run365.db")
+
+    static_rows = json.loads((tmp_path / "static" / TRACKS_DIR / "p.json").read_text())["rows"]
+    with Session(create_engine(sqlite_url(tmp_path / "run365.db", read_only=True))) as session:
+        stored = session.get(models.Activity, "p")
+        db_rows = [[getattr(p, column) for column in TRACK_COLUMNS] for p in stored.track_points]
+
+    assert static_rows == db_rows
+
+
+# ── CUI-0009: "inf" / "nan" are legal float literals, so to_float alone lets them through ──
+_DAILY_WEATHER_FIELDS = (
+    "max_temp_c",
+    "avg_temp_c",
+    "min_temp_c",
+    "humidity_pct",
+    "rainfall_mm",
+    "wind_kmh",
+)
+
+_HOURLY_WEATHER_FIELDS = ("temp_c", "humidity_pct", "wind_kmh")
+
+_POISONED_DAY = "2021-01-08"
+
+
+def _poisoned_hko_row() -> dict:
+    """An HKO daily-extract row whose every reading is a non-finite literal.
+
+    Only ``date`` is NOT NULL in the daily_weather schema, and it never goes
+    through the float coercion, so every reading below can degrade to None.
+    """
+    return {
+        "Date": _POISONED_DAY,
+        "Max. Temp": "inf",
+        "Avg. Temp": "-inf",
+        "Min. Temp": "nan",
+        "Humidity (%)": "inf",
+        "Total Rainfall (mm)": "-inf",
+        "Avg. Wind Speed (km/h)": "nan",
+        "Sunrise": "07:01",
+        "Sunset": "17:56",
+    }
+
+
+def _poisoned_hourly_row() -> dict:
+    """An hourly observation at the sample run's start time, with non-finite readings."""
+    return {
+        "Date": _POISONED_DAY,
+        "Time": "12:00",
+        "Temperature (°C)": "inf",
+        "Humidity (%)": "-inf",
+        "Wind (Km/h)": "nan",
+        "Description": "Few clouds",
+    }
+
+
+def _weather_poisoned_records():
+    """A clean run joined to weather rows whose readings are non-finite literals."""
+    from tests.conftest import make_activity
+
+    return build_records(
+        2021,
+        [make_activity("w")],
+        [],
+        [],
+        [_poisoned_hko_row()],
+        [_poisoned_hourly_row()],
+        [],
+        generated_at="2026-01-01T00:00:00",
+    )
+
+
+@pytest.mark.parametrize("field", _DAILY_WEATHER_FIELDS)
+def test_daily_weather_readings_become_none_when_not_finite(field):
+    assert daily_weather_record(_poisoned_hko_row())[field] is None
+
+
+def test_daily_weather_keeps_its_text_columns_when_readings_are_not_finite():
+    record = daily_weather_record(_poisoned_hko_row())
+    assert (record["date"], record["sunrise"], record["sunset"]) == (
+        _POISONED_DAY,
+        "07:01",
+        "17:56",
+    )
+
+
+@pytest.mark.parametrize("field", _HOURLY_WEATHER_FIELDS)
+def test_nested_hourly_weather_becomes_none_when_not_finite(field):
+    assert _weather_poisoned_records().activities[0]["weather"][field] is None
+
+
+def test_both_writers_agree_on_daily_weather_carrying_non_finite_readings(tmp_path):
+    records = _weather_poisoned_records()
+    write_static_json(records, tmp_path / "static")
+    write_sqlite(records, tmp_path / "run365.db")
+
+    static_row = json.loads((tmp_path / "static" / WEATHER_FILE).read_text())[0]
+    with Session(create_engine(sqlite_url(tmp_path / "run365.db", read_only=True))) as session:
+        stored = session.get(models.DailyWeather, _POISONED_DAY)
+        db_row = {field: getattr(stored, field) for field in _DAILY_WEATHER_FIELDS}
+
+    assert {field: static_row[field] for field in _DAILY_WEATHER_FIELDS} == db_row
+
+
+def test_both_writers_agree_on_hourly_weather_carrying_non_finite_readings(tmp_path):
+    records = _weather_poisoned_records()
+    write_static_json(records, tmp_path / "static")
+    write_sqlite(records, tmp_path / "run365.db")
+
+    nested = json.loads((tmp_path / "static" / "activities.json").read_text())[0]["weather"]
+    with Session(create_engine(sqlite_url(tmp_path / "run365.db", read_only=True))) as session:
+        stored = session.get(models.Activity, "w")
+        db_row = {field: getattr(stored, f"weather_{field}") for field in _HOURLY_WEATHER_FIELDS}
+
+    assert {field: nested[field] for field in _HOURLY_WEATHER_FIELDS} == db_row

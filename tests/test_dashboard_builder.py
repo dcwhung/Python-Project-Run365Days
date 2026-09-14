@@ -1,3 +1,5 @@
+import pytest
+
 from run365days.activities.models import Activity, TrackPoint
 from run365days.dashboard.builder import (
     downsample,
@@ -76,6 +78,18 @@ class TestTrackRows:
         rows = track_rows(_activity(2, gps=False), {})
         assert rows[0][1] is None and rows[0][2] is None
 
+    # CUI-0007: ±inf used to slip past the nan-only guard and reach the writers,
+    # where json.dumps refuses it and SQLite happily stores Infinity.
+    @pytest.mark.parametrize("bad", [float("inf"), float("-inf"), float("nan")])
+    def test_non_finite_point_values_become_null(self, bad):
+        point = _pt(0, lat=bad, lon=bad, ele=bad, cad=bad, speed=bad)
+        point.distance_m = bad
+        activity = _activity(1)
+        activity.track_points = [point]
+        row = track_rows(activity, {"2021-01-08 12:00:00": bad})
+        assert row[0][1:] == [None] * 7
+        assert row[0][0] == 0  # sec is NOT NULL and stays a number
+
 
 class TestWeather:
     ROWS = [
@@ -111,6 +125,21 @@ class TestWeather:
 
     def test_hourly_missing_date(self):
         assert hourly_at(self.ROWS, "2021-02-01", "12:00") is None
+
+    # ── CUI-0009: "inf" / "nan" are legal float literals, so to_float lets them through ──
+    def test_hourly_non_finite_readings_become_none(self):
+        rows = [
+            {
+                "Date": "2021-01-08",
+                "Time": "12:00",
+                "Temperature (°C)": "inf",
+                "Humidity (%)": "-inf",
+                "Wind (Km/h)": "nan",
+                "Description": "Few clouds",
+            }
+        ]
+        wx = hourly_at(rows, "2021-01-08", "12:04")
+        assert (wx["temp"], wx["hum"], wx["wind"]) == (None, None, None)
 
     def test_warnings_dedup_by_date(self):
         rows = [

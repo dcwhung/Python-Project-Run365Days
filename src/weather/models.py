@@ -1,6 +1,57 @@
-"""Dataclasses for the weather sources used to annotate runs."""
+"""Dataclasses for the weather sources used to annotate runs.
+
+Each scraped source also has a *raw row* form: the column names the scrapers
+produced and that ``data/raw/weather/*.json`` still carries. Those names live
+here, next to the dataclass they describe, as a ``to_raw_row()`` /
+``from_raw_row()`` pair.
+
+Keeping the writer and the reader in one place is the whole point. They used to
+sit at opposite ends of the pipeline -- ``cli.collect_weather`` wrote
+``record.__dict__`` while ``export.records`` read ``row["Date"]`` -- and drifted
+apart unnoticed for as long as nobody re-collected the data (CUI-0011).
+
+The pair maps column names and nothing else. Bounding a reading to a finite
+value stays in the record layer, in front of the writers, where CUI-0009 put it:
+folding it in here would take it off the export path for rows read straight from
+the committed files, and would deny the collectors the ``inf`` / ``nan`` that
+``to_float`` deliberately preserves.
+"""
 
 from dataclasses import dataclass
+from typing import Final
+
+from run365days.common.numeric import to_float
+
+RAW_DATE_COLUMN: Final = "Date"
+"""``Date``, the one column every scraped weather file agrees on."""
+
+RAW_HOURLY_TIME_COLUMN: Final = "Time"
+RAW_WARNING_SIGNAL_COLUMN: Final = "Warning_Signal"
+
+SUN_MOON_SUNRISE_COLUMN: Final = "Sunrise"
+SUN_MOON_SUNSET_COLUMN: Final = "Sunset"
+"""Two of the six sun/moon columns the legacy pipeline joined into the HKO daily
+extract. They belong to :class:`SunMoon`, not to :class:`DailyWeather` -- see
+:meth:`DailyWeather.to_raw_row`."""
+
+_HOURLY_TEMPERATURE_COLUMN: Final = "Temperature (°C)"
+_HOURLY_WIND_COLUMN: Final = "Wind (Km/h)"
+_HOURLY_HUMIDITY_COLUMN: Final = "Humidity (%)"
+_HOURLY_DESCRIPTION_COLUMN: Final = "Description"
+
+_WARNING_TYPE_COLUMN: Final = "Type"
+_WARNING_START_COLUMN: Final = "Start_Time"
+_WARNING_END_COLUMN: Final = "End_Time"
+_WARNING_ICON_COLUMN: Final = "Ico"
+
+_DAILY_MAX_TEMP_COLUMN: Final = "Max. Temp"
+_DAILY_MEAN_TEMP_COLUMN: Final = "Avg. Temp"
+_DAILY_MIN_TEMP_COLUMN: Final = "Min. Temp"
+_DAILY_HUMIDITY_COLUMN: Final = "Humidity (%)"
+_DAILY_RAINFALL_COLUMN: Final = "Total Rainfall (mm)"
+_DAILY_WIND_COLUMN: Final = "Avg. Wind Speed (km/h)"
+
+_MISSING_TEXT: Final = ""
 
 
 @dataclass
@@ -23,6 +74,34 @@ class HourlyWeather:
     humidity_pct: float | None
     description: str
 
+    def to_raw_row(self) -> dict:
+        """Return this observation as a ``weather_history.json`` row."""
+        return {
+            RAW_DATE_COLUMN: self.date,
+            RAW_HOURLY_TIME_COLUMN: self.time,
+            _HOURLY_TEMPERATURE_COLUMN: self.temperature_c,
+            _HOURLY_WIND_COLUMN: self.wind_kmh,
+            _HOURLY_HUMIDITY_COLUMN: self.humidity_pct,
+            _HOURLY_DESCRIPTION_COLUMN: self.description,
+        }
+
+    @classmethod
+    def from_raw_row(cls, row: dict) -> "HourlyWeather":
+        """Build an observation from a ``weather_history.json`` row.
+
+        Readings go through :func:`to_float` because the committed file spells
+        the same column both ways -- ``Temperature (°C)`` is a JSON number in
+        17,938 rows and a string in 46 -- and a fresh collection writes floats.
+        """
+        return cls(
+            date=row[RAW_DATE_COLUMN],
+            time=row.get(RAW_HOURLY_TIME_COLUMN, _MISSING_TEXT),
+            temperature_c=to_float(row.get(_HOURLY_TEMPERATURE_COLUMN)),
+            wind_kmh=to_float(row.get(_HOURLY_WIND_COLUMN)),
+            humidity_pct=to_float(row.get(_HOURLY_HUMIDITY_COLUMN)),
+            description=row.get(_HOURLY_DESCRIPTION_COLUMN, _MISSING_TEXT),
+        )
+
 
 @dataclass
 class WeatherWarning:
@@ -43,6 +122,29 @@ class WeatherWarning:
     start_time: str
     end_time: str
     icon_url: str
+
+    def to_raw_row(self) -> dict:
+        """Return this warning as a ``weather_warning_history.json`` row."""
+        return {
+            RAW_DATE_COLUMN: self.date,
+            _WARNING_TYPE_COLUMN: self.warning_type,
+            RAW_WARNING_SIGNAL_COLUMN: self.warning_signal,
+            _WARNING_START_COLUMN: self.start_time,
+            _WARNING_END_COLUMN: self.end_time,
+            _WARNING_ICON_COLUMN: self.icon_url,
+        }
+
+    @classmethod
+    def from_raw_row(cls, row: dict) -> "WeatherWarning":
+        """Build a warning from a ``weather_warning_history.json`` row."""
+        return cls(
+            date=row[RAW_DATE_COLUMN],
+            warning_type=row.get(_WARNING_TYPE_COLUMN, _MISSING_TEXT),
+            warning_signal=row.get(RAW_WARNING_SIGNAL_COLUMN, _MISSING_TEXT),
+            start_time=row.get(_WARNING_START_COLUMN, _MISSING_TEXT),
+            end_time=row.get(_WARNING_END_COLUMN, _MISSING_TEXT),
+            icon_url=row.get(_WARNING_ICON_COLUMN, _MISSING_TEXT),
+        )
 
 
 @dataclass
@@ -66,6 +168,51 @@ class DailyWeather:
     mean_humidity_pct: float | None = None
     total_rainfall_mm: float | None = None
     mean_wind_kmh: float | None = None
+
+    def to_raw_row(self) -> dict:
+        """Return this day as an ``hko_daily_weather_extract.json`` row.
+
+        The committed file carries six further columns -- ``Sunrise``,
+        ``Solar Noon``, ``Sunset``, ``Moonrise``, ``Moon Transit``, ``Moonset``
+        -- which this pair deliberately neither writes nor reads. They are not
+        HKO daily-extract readings: the legacy pipeline joined them in from a
+        second scrape, and the two copies still disagree: on 2021-01-01 the
+        daily extract says ``Sunrise`` ``07:03`` while
+        ``sun_moon_rise_set_history.json`` says ``07:02``. :class:`SunMoon`
+        already declares them, so restating them on :class:`DailyWeather` would
+        recreate the two-owners-one-field problem CUI-0011 exists to end -- and
+        :mod:`run365days.weather.collectors.hko_daily` could not fill them
+        anyway, the ``SunMoon`` collector having never been ported (AU-037).
+        A re-collection therefore drops those six columns rather than
+        overwriting good history with nulls.
+        """
+        return {
+            RAW_DATE_COLUMN: self.date,
+            _DAILY_MAX_TEMP_COLUMN: self.max_temp_c,
+            _DAILY_MEAN_TEMP_COLUMN: self.mean_temp_c,
+            _DAILY_MIN_TEMP_COLUMN: self.min_temp_c,
+            _DAILY_HUMIDITY_COLUMN: self.mean_humidity_pct,
+            _DAILY_RAINFALL_COLUMN: self.total_rainfall_mm,
+            _DAILY_WIND_COLUMN: self.mean_wind_kmh,
+        }
+
+    @classmethod
+    def from_raw_row(cls, row: dict) -> "DailyWeather":
+        """Build a day from an ``hko_daily_weather_extract.json`` row.
+
+        Readings go through :func:`to_float`, so HKO's non-numeric placeholders
+        (``"Trace"`` for immeasurable rainfall) read as ``None``. The joined
+        sun/moon columns are ignored -- see :meth:`to_raw_row`.
+        """
+        return cls(
+            date=row[RAW_DATE_COLUMN],
+            mean_temp_c=to_float(row.get(_DAILY_MEAN_TEMP_COLUMN)),
+            max_temp_c=to_float(row.get(_DAILY_MAX_TEMP_COLUMN)),
+            min_temp_c=to_float(row.get(_DAILY_MIN_TEMP_COLUMN)),
+            mean_humidity_pct=to_float(row.get(_DAILY_HUMIDITY_COLUMN)),
+            total_rainfall_mm=to_float(row.get(_DAILY_RAINFALL_COLUMN)),
+            mean_wind_kmh=to_float(row.get(_DAILY_WIND_COLUMN)),
+        )
 
 
 @dataclass

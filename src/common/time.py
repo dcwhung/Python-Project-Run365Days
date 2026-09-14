@@ -1,11 +1,49 @@
 """Timestamp parsing and formatting helpers (Hong Kong local time)."""
 
 from datetime import datetime, timedelta
+from datetime import timezone as dt_timezone
+from typing import Final
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import dateutil.parser
-import pytz
 
-_HK_TZ = pytz.timezone("Asia/Hong_Kong")
+_UNIX_MS_DIGITS = 13
+_MS_PER_SECOND = 1000
+_MISSING_TZ_DATA_MESSAGE: Final[str] = (
+    "No IANA time zone database entry for {timezone!r}. zoneinfo carries no data of "
+    "its own: it reads the host database (usually /usr/share/zoneinfo) and falls back "
+    "to the 'tzdata' PyPI package, and neither is available here. Install the "
+    "declared dependency with `pip install tzdata`, or provide a host tz database."
+)
+
+
+class MissingTimeZoneDataError(RuntimeError):
+    """No IANA time zone database is reachable on this host.
+
+    Deliberately not a :class:`LookupError` or :class:`ValueError` subclass, unlike
+    the :class:`~zoneinfo.ZoneInfoNotFoundError` it replaces. A missing tz database
+    is an environment fault that applies to every input, so it must escape the
+    per-file ``except`` lists that exist to drop individual unreadable records
+    (W-004) and stop the run outright.
+    """
+
+
+def _zone_info(timezone: str) -> ZoneInfo:
+    """Return the :class:`ZoneInfo` for *timezone* with an actionable failure.
+
+    Args:
+        timezone: IANA zone name.
+
+    Returns:
+        The requested zone.
+
+    Raises:
+        MissingTimeZoneDataError: If no tz database is reachable on this host.
+    """
+    try:
+        return ZoneInfo(timezone)
+    except ZoneInfoNotFoundError as exc:
+        raise MissingTimeZoneDataError(_MISSING_TZ_DATA_MESSAGE.format(timezone=timezone)) from exc
 
 
 def parse_datetime(rec_time: str, timezone: str = "Asia/Hong_Kong") -> datetime:
@@ -24,17 +62,28 @@ def parse_datetime(rec_time: str, timezone: str = "Asia/Hong_Kong") -> datetime:
 
     Returns:
         A timezone-aware ``datetime`` in ``timezone``.
+
+    Raises:
+        MissingTimeZoneDataError: If no tz database is reachable on this host.
     """
-    tz = pytz.timezone(timezone)
+    tz = _zone_info(timezone)
     rec_time = rec_time.strip()
 
     if "T" in rec_time:
         if "." in rec_time and rec_time.endswith("Z"):
-            return dateutil.parser.parse(rec_time).replace(tzinfo=pytz.UTC).astimezone(tz)
+            return dateutil.parser.parse(rec_time).replace(tzinfo=dt_timezone.utc).astimezone(tz)
         elif "+" in rec_time:
             return dateutil.parser.parse(rec_time)
-    elif rec_time.isdigit() and len(rec_time) == 13:
-        return datetime.utcfromtimestamp(round(int(rec_time) / 1000, 1)).replace(tzinfo=tz)
+    elif rec_time.isdigit() and len(rec_time) == _UNIX_MS_DIGITS:
+        epoch_seconds = round(int(rec_time) / _MS_PER_SECOND, 1)
+        # KNOWN INCORRECT, kept deliberately. The epoch is read as UTC and then
+        # relabelled -- not converted -- to *timezone*, so the result is 8 hours off for
+        # Asia/Hong_Kong. AU-003 was scoped to the offset only and preserved this wall
+        # clock; correcting the shift is AU-048. TestParseDateTimeWallClockUnchanged in
+        # tests/test_common_time.py pins the current behaviour on purpose and must be
+        # updated in the same change as this line.
+        naive_utc = datetime.fromtimestamp(epoch_seconds, tz=dt_timezone.utc).replace(tzinfo=None)
+        return naive_utc.replace(tzinfo=tz)
 
     return datetime.strptime(rec_time, "%Y-%m-%d %H:%M:%S").replace(tzinfo=tz)
 

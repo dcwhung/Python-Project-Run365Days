@@ -60,8 +60,9 @@ jobs:
       - name: Extract release notes from docs/CHANGELOG.md
         if: inputs.release
         env:
-          # The changelog lives on the branch this workflow ran from (usually develop),
-          # not necessarily on the tagged ref (older release branches predate docs/).
+          # The changelog lives on the branch this workflow was dispatched from
+          # (usually develop), not necessarily on the tagged ref (older release
+          # branches predate docs/).
           CHANGELOG_REF: ${{ github.ref }}
         run: |
           git fetch --quiet origin "$CHANGELOG_REF"

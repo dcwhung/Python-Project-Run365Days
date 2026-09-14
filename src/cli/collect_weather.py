@@ -24,10 +24,17 @@ _SOURCES = ("hourly", "warnings", "hko-daily")
 
 
 def _write_jsonl(records, out_path: Path) -> None:
+    """Write weather records as JSON Lines in the raw scraper column names.
+
+    ``record.to_raw_row()`` rather than ``record.__dict__``: the export layer
+    reads these files back by scraper column name, and writing dataclass field
+    names instead is what made a re-collection break the pipeline -- loudly for
+    the daily extract, silently for the hourly and warning files (CUI-0011).
+    """
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, "w") as f:
         for record in records:
-            f.write(json.dumps(record.__dict__) + "\n")
+            f.write(json.dumps(record.to_raw_row()) + "\n")
     print(f"  Wrote {len(records)} records to {out_path}")
 
 

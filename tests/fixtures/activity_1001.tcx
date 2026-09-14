@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TrainingCenterDatabase
+  xmlns:ns3="http://www.garmin.com/xmlschemas/ActivityExtension/v2"
+  xmlns="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2">
+  <Activities>
+    <Activity Sport="Running">
+      <Id>2021-01-08T04:04:52.000Z</Id>
+      <Lap StartTime="2021-01-08T04:04:52.000Z">
+        <TotalTimeSeconds>600.0</TotalTimeSeconds>
+        <DistanceMeters>2000.0</DistanceMeters>
+        <MaximumSpeed>3.5</MaximumSpeed>
+        <Calories>150</Calories>
+        <Track>
+          <Trackpoint>
+            <Time>2021-01-08T04:04:52.000Z</Time>
+            <Position>
+              <LatitudeDegrees>22.3278</LatitudeDegrees>
+              <LongitudeDegrees>114.2019</LongitudeDegrees>
+            </Position>
+            <AltitudeMeters>329.8</AltitudeMeters>
+            <DistanceMeters>0.0</DistanceMeters>
+            <Extensions>
+              <ns3:TPX>
+                <ns3:Speed>2.87</ns3:Speed>
+                <ns3:RunCadence>85</ns3:RunCadence>
+              </ns3:TPX>
+            </Extensions>
+          </Trackpoint>
+          <Trackpoint>
+            <Time>2021-01-08T04:14:52.000Z</Time>
+            <Position>
+              <LatitudeDegrees>22.3368</LatitudeDegrees>
+              <LongitudeDegrees>114.2019</LongitudeDegrees>
+            </Position>
+            <AltitudeMeters>331.0</AltitudeMeters>
+            <DistanceMeters>2000.0</DistanceMeters>
+            <Extensions>
+              <ns3:TPX>
+                <ns3:Speed>3.10</ns3:Speed>
+                <ns3:RunCadence>88</ns3:RunCadence>
+              </ns3:TPX>
+            </Extensions>
+          </Trackpoint>
+        </Track>
+      </Lap>
+    </Activity>
+  </Activities>
+</TrainingCenterDatabase>

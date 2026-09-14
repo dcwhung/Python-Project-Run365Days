@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- A cycling export: well formed and in the challenge year, but the wrong
+     sport, so the parser skips it on purpose. -->
+<gpx creator="Garmin Connect" version="1.1"
+  xmlns:ns3="http://www.garmin.com/xmlschemas/TrackPointExtension/v1"
+  xmlns="http://www.topografix.com/GPX/1/1">
+  <metadata>
+    <time>2021-01-08T04:04:52.000Z</time>
+  </metadata>
+  <trk>
+    <name>Cycling</name>
+    <type>cycling</type>
+    <trkseg>
+      <trkpt lat="22.3278" lon="114.2019">
+        <ele>329.8</ele>
+        <time>2021-01-08T04:04:52.000Z</time>
+      </trkpt>
+    </trkseg>
+  </trk>
+</gpx>

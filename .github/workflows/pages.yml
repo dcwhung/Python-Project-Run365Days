@@ -2,9 +2,9 @@ name: CI and GitHub Pages
 
 on:
   push:
-    branches: [develop]
+    branches: [develop, master]
   pull_request:
-    branches: [develop]
+    branches: [develop, master]
   workflow_dispatch:
 
 permissions:
@@ -12,10 +12,24 @@ permissions:
   pages: write
   id-token: write
 
-# one deploy at a time; a newer push cancels an in-flight one
+# The shared "deploy" group holds exactly the runs that can deploy: those on
+# refs/heads/develop (a push, or a manual dispatch on that branch). They are never
+# cancelled, because a cancelled run reports as "cancelled" rather than "failed", so
+# killing one leaves the site on the old build with no alert. GitHub keeps at most one
+# run pending per group, so back-to-back merges still finish with the newest commit
+# live -- a deploy is superseded by queueing behind the in-flight one instead of
+# aborting it, which also keeps two actions/deploy-pages runs off the Pages deployment
+# queue at once.
+# Every other run is CI-only and gets its own group keyed on github.ref, cancelling its
+# own older runs: one group per PR (pull_request runs carry refs/pull/<n>/merge, which
+# is why the same ref test excludes them from the deploy group), one for master, one
+# per dispatched side branch. Keying on the ref rather than on the event name matters
+# now that master also triggers CI: a master push builds nothing and deploys nothing,
+# so it must not sit in the deploy group, where it would queue ahead of -- or evict the
+# pending slot of -- a real develop deploy.
 concurrency:
-  group: pages
-  cancel-in-progress: true
+  group: pages-${{ github.ref == 'refs/heads/develop' && 'deploy' || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/develop' }}
 
 env:
   PYTHON_VERSION: "3.12"
@@ -84,7 +98,11 @@ jobs:
   build:
     name: Build dashboard (static mode)
     needs: [lint-test, frontend]
-    if: github.event_name != 'pull_request'
+    # develop is the single deploy source, so only refs/heads/develop builds the site:
+    # a push to it, or a manual dispatch on it for a re-deploy of the same commit.
+    # master runs lint-test and frontend and stops here, and pull_request runs carry
+    # refs/pull/<n>/merge so the same test excludes them.
+    if: github.ref == 'refs/heads/develop'
     runs-on: ubuntu-latest
     env:
       # GitHub Pages serves the site under /<repo>/, so Vite and the router need the prefix
@@ -129,7 +147,9 @@ jobs:
   deploy:
     name: Deploy to GitHub Pages
     needs: build
-    if: github.event_name != 'pull_request'
+    # Same gate as build: only refs/heads/develop reaches the github-pages environment,
+    # whose deployment-branch rule also allows develop only.
+    if: github.ref == 'refs/heads/develop'
     runs-on: ubuntu-latest
     environment:
       name: github-pages

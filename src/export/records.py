@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 from run365days.activities.models import Activity
+from run365days.common.numeric import finite, round_or_none
 from run365days.dashboard.builder import (
     TRACK_POINT_LIMIT,
     downsample,
@@ -17,6 +18,13 @@ from run365days.dashboard.builder import (
     total_ascent,
     track_rows,
     warnings_by_date,
+)
+from run365days.weather.models import (
+    RAW_WARNING_SIGNAL_COLUMN,
+    SUN_MOON_SUNRISE_COLUMN,
+    SUN_MOON_SUNSET_COLUMN,
+    DailyWeather,
+    WeatherWarning,
 )
 from run365days.weight.models import WeightRecord
 
@@ -61,24 +69,6 @@ class ExportRecords:
     warnings: list[dict] = field(default_factory=list)
 
 
-def _round(value, ndigits: int = 1):
-    if value is None:
-        return None
-    try:
-        if value != value:  # NaN
-            return None
-    except TypeError:
-        return None
-    return round(float(value), ndigits)
-
-
-def _to_float(value):
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
 def activity_record(
     activity: Activity,
     gpx: Activity | None,
@@ -108,21 +98,24 @@ def activity_record(
         for p in points
         if p.cadence is not None and p.cadence >= _CADENCE_FLOOR
     ]
-    km = activity.distance_km or activity.distance_by_coord_km or 0.0
+    # distance_km and duration_sec are NOT NULL in the SQLite schema, so a
+    # non-finite reading has to degrade to a number here rather than to None.
+    km = finite(activity.distance_km) or finite(activity.distance_by_coord_km) or 0.0
+    total_sec = finite(activity.total_sec) or 0.0
     return {
         "id": activity.activity_id,
         "date": start.strftime("%Y-%m-%d"),
         "start_time": start.strftime("%H:%M"),
         "day_of_year": start.timetuple().tm_yday,
-        "distance_km": _round(km, 2),
-        "duration_sec": int(round(activity.total_sec)),
-        "pace_sec_per_km": int(round(activity.total_sec / km)) if km else None,
+        "distance_km": round_or_none(km, 2),
+        "duration_sec": int(round(total_sec)),
+        "pace_sec_per_km": int(round(total_sec / km)) if km else None,
         "calories": activity.calories,
-        "avg_cadence": _round(sum(cadences) / len(cadences), 0) if cadences else None,
-        "avg_temp_c": _round(gpx.avg_temp, 1) if gpx else None,
-        "elevation_min_m": _round(min(elevations), 0) if elevations else None,
-        "elevation_max_m": _round(max(elevations), 0) if elevations else None,
-        "ascent_m": _round(total_ascent(elevations), 0),
+        "avg_cadence": round_or_none(sum(cadences) / len(cadences), 0) if cadences else None,
+        "avg_temp_c": round_or_none(gpx.avg_temp, 1) if gpx else None,
+        "elevation_min_m": round_or_none(min(elevations), 0) if elevations else None,
+        "elevation_max_m": round_or_none(max(elevations), 0) if elevations else None,
+        "ascent_m": round_or_none(total_ascent(elevations), 0),
         "has_gps": any(p.lat is not None for p in points),
         "num_points": len(points),
         "weather": _weather_record(hourly),
@@ -152,28 +145,44 @@ def weight_record(record: WeightRecord) -> dict:
 
 
 def daily_weather_record(row: dict) -> dict:
-    """Shape one HKO daily-extract row (raw scraper column names) for storage."""
+    """Shape one HKO daily-extract row for storage.
+
+    :meth:`DailyWeather.from_raw_row` owns the column names and the float cast;
+    this layer only bounds the result. Every reading still goes through
+    :func:`finite` because these values reach the writers unrounded and the two
+    disagree on a non-finite one -- ``json.dumps`` refuses it, SQLite stores
+    ``Infinity``. All six columns are nullable in the schema, so None is a value
+    both accept (CUI-0009).
+
+    ``sunrise`` / ``sunset`` are read off the raw row rather than off the
+    dataclass: the daily extract carries them only because the legacy pipeline
+    joined them in, and they belong to :class:`SunMoon` (see
+    :meth:`DailyWeather.to_raw_row`). A row collected today has no such column
+    and both fields degrade to None.
+    """
+    weather = DailyWeather.from_raw_row(row)
     return {
-        "date": row["Date"],
-        "max_temp_c": _to_float(row.get("Max. Temp")),
-        "avg_temp_c": _to_float(row.get("Avg. Temp")),
-        "min_temp_c": _to_float(row.get("Min. Temp")),
-        "humidity_pct": _to_float(row.get("Humidity (%)")),
-        "rainfall_mm": _to_float(row.get("Total Rainfall (mm)")),
-        "wind_kmh": _to_float(row.get("Avg. Wind Speed (km/h)")),
-        "sunrise": row.get("Sunrise"),
-        "sunset": row.get("Sunset"),
+        "date": weather.date,
+        "max_temp_c": finite(weather.max_temp_c),
+        "avg_temp_c": finite(weather.mean_temp_c),
+        "min_temp_c": finite(weather.min_temp_c),
+        "humidity_pct": finite(weather.mean_humidity_pct),
+        "rainfall_mm": finite(weather.total_rainfall_mm),
+        "wind_kmh": finite(weather.mean_wind_kmh),
+        "sunrise": row.get(SUN_MOON_SUNRISE_COLUMN),
+        "sunset": row.get(SUN_MOON_SUNSET_COLUMN),
     }
 
 
 def warning_record(row: dict) -> dict:
-    """Shape one HKO warning row (raw scraper column names) for storage."""
+    """Shape one HKO warning row for storage."""
+    warning = WeatherWarning.from_raw_row(row)
     return {
-        "date": row["Date"],
-        "type": row.get("Type"),
-        "signal": row.get("Warning_Signal"),
-        "start_time": row.get("Start_Time"),
-        "end_time": row.get("End_Time"),
+        "date": warning.date,
+        "type": warning.warning_type,
+        "signal": warning.warning_signal,
+        "start_time": warning.start_time,
+        "end_time": warning.end_time,
     }
 
 
@@ -222,5 +231,5 @@ def build_records(
 
     records.weight = [weight_record(r) for r in weight_records]
     records.daily_weather = [daily_weather_record(r) for r in hko_rows]
-    records.warnings = [warning_record(r) for r in warning_rows if r.get("Warning_Signal")]
+    records.warnings = [warning_record(r) for r in warning_rows if r.get(RAW_WARNING_SIGNAL_COLUMN)]
     return records

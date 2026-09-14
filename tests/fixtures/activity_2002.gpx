@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Second point has no <ele> and no TrackPointExtension: all optional in GPX 1.1.
+     The third has no lat/lon at all and must be stepped over. -->
+<gpx creator="Garmin Connect" version="1.1"
+  xmlns:ns3="http://www.garmin.com/xmlschemas/TrackPointExtension/v1"
+  xmlns="http://www.topografix.com/GPX/1/1">
+  <metadata>
+    <time>2021-04-02T23:00:00.000Z</time>
+  </metadata>
+  <trk>
+    <name>Running</name>
+    <type>running</type>
+    <trkseg>
+      <trkpt lat="22.3278" lon="114.2019">
+        <ele>329.8</ele>
+        <time>2021-04-02T23:00:00.000Z</time>
+        <extensions>
+          <ns3:TrackPointExtension>
+            <ns3:atemp>21.0</ns3:atemp>
+            <ns3:cad>63</ns3:cad>
+          </ns3:TrackPointExtension>
+        </extensions>
+      </trkpt>
+      <trkpt lat="22.3368" lon="114.2019">
+        <time>2021-04-02T23:10:00.000Z</time>
+      </trkpt>
+      <trkpt>
+        <time>2021-04-02T23:20:00.000Z</time>
+      </trkpt>
+    </trkseg>
+  </trk>
+</gpx>

@@ -4,6 +4,7 @@ import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 
+from run365days.common.numeric import to_float
 from run365days.weather.models import HourlyWeather
 
 _DESCRIPTION_MAP = {
@@ -16,6 +17,14 @@ _DESCRIPTION_MAP = {
     "26": "Snow",
     "28": "Snowstorm",
 }
+
+# A socket with no timeout can hang forever, and fetch_range() pays that cost
+# once per day -- 365 times for a full year. Five seconds is generous for a TCP
+# handshake to a reachable host, so an unreachable one fails fast; thirty covers
+# freemeteo's slowest day page without stalling the rest of the range (AU-014).
+_CONNECT_TIMEOUT_SEC = 5
+_READ_TIMEOUT_SEC = 30
+_REQUEST_TIMEOUT = (_CONNECT_TIMEOUT_SEC, _READ_TIMEOUT_SEC)
 
 _URL = "https://freemeteo.hk/weather/hong-kong/history/daily-history/"
 _PARAMS_BASE = {
@@ -36,7 +45,9 @@ def fetch_day(date_str: str) -> list[HourlyWeather]:
         Hourly records in time order, or an empty list if the page has no
         history table.
     """
-    html = requests.get(_URL, params={**_PARAMS_BASE, "date": date_str}).text
+    html = requests.get(
+        _URL, params={**_PARAMS_BASE, "date": date_str}, timeout=_REQUEST_TIMEOUT
+    ).text
     soup = BeautifulSoup(html, "html.parser")
     tables = soup.find_all("table", {"class": "daily-history"})
     if not tables:
@@ -59,11 +70,11 @@ def fetch_day(date_str: str) -> list[HourlyWeather]:
             HourlyWeather(
                 date=date_str,
                 time=tds[0].text.strip(),
-                temperature_c=_safe_float(tds[1].text.strip()[:-2]),
-                wind_kmh=_safe_float(
+                temperature_c=to_float(tds[1].text.strip()[:-2]),
+                wind_kmh=to_float(
                     tds[3].text[tds[3].text.find("°") + 1 :].replace("Variable at ", "")[:-5]
                 ),
-                humidity_pct=_safe_float(tds[5].text.strip()[:-1]),
+                humidity_pct=to_float(tds[5].text.strip()[:-1]),
                 description=_DESCRIPTION_MAP.get(desc_key, "Unknown"),
             )
         )
@@ -84,10 +95,3 @@ def fetch_range(start_date: str, end_date: str) -> list[HourlyWeather]:
     for d in pd.date_range(start_date, end_date):
         all_records.extend(fetch_day(d.strftime("%Y-%m-%d")))
     return all_records
-
-
-def _safe_float(value: str):
-    try:
-        return float(value)
-    except (ValueError, TypeError):
-        return None
