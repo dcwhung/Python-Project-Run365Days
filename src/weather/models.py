@@ -52,6 +52,30 @@ _DAILY_RAINFALL_COLUMN: Final = "Total Rainfall (mm)"
 _DAILY_WIND_COLUMN: Final = "Avg. Wind Speed (km/h)"
 
 _MISSING_TEXT: Final = ""
+"""What ``from_raw_row()`` answers for a *string* column the row does not carry.
+
+Seven fields take it: ``time`` and ``description`` on :class:`HourlyWeather`,
+and ``warning_type``, ``warning_signal``, ``start_time``, ``end_time`` and
+``icon_url`` on :class:`WeatherWarning`. A missing *numeric* column answers
+``None`` instead, through :func:`to_float`; the two differ because a float has
+no empty value to fall back on and a string does.
+
+CUI-0011 chose ``""`` so the annotations could stay an honest ``str`` rather
+than widening seven fields to ``str | None`` -- but chose it in passing, and
+``""`` and ``None`` do part company downstream (``value is None`` catches one,
+and JSON writes ``""`` against ``null``). CUI-0014 kept the choice deliberately,
+on three grounds: it is unreachable from the committed files, where all 17,984
+hourly, 461 warning and 363 daily rows carry one identical key set apiece;
+``""`` is already in-band in this format, since the warnings collector writes
+``icon_url=""`` for a row whose icon is missing; and ``None`` in these fields
+would reach ``export.models.WeatherWarning.signal``, which is ``Mapped[str]``
+and not nullable. ``tests/test_weather_models.py`` pins all three, including a
+check that every committed row still carries every column -- if that ever
+stops holding, this default stops being unreachable and the choice is due again.
+
+``Date`` is deliberately not in the list: it is read with ``[]`` and raises,
+because a record that cannot say which day it describes joins to nothing.
+"""
 
 
 @dataclass

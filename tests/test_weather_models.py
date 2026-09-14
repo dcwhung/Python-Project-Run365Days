@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pytest
 
+from run365days.common import config
 from run365days.weather.models import (
     RAW_DATE_COLUMN,
     RAW_HOURLY_TIME_COLUMN,
@@ -224,3 +225,89 @@ class TestExportedColumnNames:
         assert RAW_HOURLY_TIME_COLUMN in hourly
         assert RAW_WARNING_SIGNAL_COLUMN in warning
         assert SUN_MOON_SUNRISE_COLUMN in daily and SUN_MOON_SUNSET_COLUMN in daily
+
+
+class TestMissingStringColumns:
+    """A string column the row does not carry reads as ``""`` (CUI-0014).
+
+    CUI-0011 introduced that default as a side effect of keeping the dataclass
+    annotations an honest ``str``. It is a real narrowing -- ``""`` and ``None``
+    part company downstream, at ``value is None`` and at JSON ``""`` against
+    ``null`` -- so it is pinned here as a decision rather than left as something
+    nobody chose.
+
+    The decision is to keep ``""``, on three measurements:
+
+    * It cannot be reached from the committed files. All 17,984 hourly rows,
+      461 warning rows and 363 daily rows carry exactly one distinct key set
+      each, every declared column present, so the export is byte-identical
+      either way. :class:`TestCommittedRowsCarryEveryColumn` keeps that true.
+    * ``""`` is already in-band in this format rather than an invention of the
+      reader: the warnings collector writes ``icon_url=""`` for a row whose
+      signal icon is missing, and the export fixture in ``conftest`` carries a
+      literal ``"Warning_Signal": ""``.
+    * Widening the fields back to ``str | None`` would let ``None`` reach
+      ``export.models.WeatherWarning.signal``, which is ``Mapped[str]`` and not
+      nullable -- a real type conflict traded for an unreachable one.
+
+    Seven fields take the default, not the five the ticket named: ``time`` on
+    the hourly record and ``warning_signal`` and ``icon_url`` on the warning are
+    in the same position as the four it listed.
+    """
+
+    def test_hourly_reads_a_missing_time_and_description_as_empty_text(self):
+        record = HourlyWeather.from_raw_row({RAW_DATE_COLUMN: "2021-01-08"})
+
+        assert record.time == ""
+        assert record.description == ""
+
+    def test_warning_reads_every_missing_string_column_as_empty_text(self):
+        record = WeatherWarning.from_raw_row({RAW_DATE_COLUMN: "2021-01-08"})
+
+        assert record.warning_type == ""
+        assert record.warning_signal == ""
+        assert record.start_time == ""
+        assert record.end_time == ""
+        assert record.icon_url == ""
+
+    def test_no_string_field_reads_as_none(self):
+        # The half that would otherwise break silently: an edit widening one
+        # field back to None still passes any "is falsy" test written for "".
+        hourly = HourlyWeather.from_raw_row({RAW_DATE_COLUMN: "2021-01-08"})
+        warning = WeatherWarning.from_raw_row({RAW_DATE_COLUMN: "2021-01-08"})
+
+        assert all(value is not None for value in vars(warning).values())
+        assert hourly.time is not None
+        assert hourly.description is not None
+
+    @pytest.mark.parametrize("model", [HourlyWeather, WeatherWarning, DailyWeather])
+    def test_a_row_without_a_date_is_refused_rather_than_defaulted(self, model):
+        # Date is the one column with no sensible empty value: a record that
+        # cannot say which day it describes joins to nothing. It is read with
+        # [] rather than .get() on purpose, and that asymmetry is the decision.
+        with pytest.raises(KeyError):
+            model.from_raw_row({})
+
+
+class TestCommittedRowsCarryEveryColumn:
+    """The measurement the CUI-0014 decision rests on, kept as a standing check.
+
+    If a future collection ever writes a row short of a column, the default
+    above stops being unreachable and the choice has to be made again with that
+    in hand. These read the real files rather than the copied samples, because
+    it is the whole file the argument is about.
+    """
+
+    @pytest.mark.parametrize(
+        "path",
+        [config.WEATHER_HISTORY_JSON, config.WEATHER_WARNING_JSON, config.HKO_DAILY_JSON],
+        ids=["hourly", "warnings", "hko-daily"],
+    )
+    def test_every_row_of_the_committed_file_has_the_same_columns(self, path):
+        if not path.exists():
+            pytest.skip(f"{path} is not present in this data directory")
+
+        text = path.read_text(encoding="utf-8")
+        key_sets = {tuple(sorted(json.loads(line))) for line in text.splitlines() if line.strip()}
+
+        assert len(key_sets) == 1, f"{path.name} carries {len(key_sets)} different column sets"
