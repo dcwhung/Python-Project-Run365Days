@@ -536,3 +536,25 @@ class TestKMLBoundsAreNamedIndependently:
         # Raising this bound alone must not reach the lap table.
         with pytest.raises(ActivityParseError, match="no track points"):
             KMLParser(CHALLENGE_YEAR).parse(named_bounds_dir / "activity_3010.kml")
+
+
+class TestKMLParsesEachTimestampOnce:
+    """S-009: the activity start time is the first track point's, already parsed."""
+
+    def test_should_not_reparse_a_timestamp_it_has_already_parsed(
+        self, named_bounds_dir, monkeypatch
+    ):
+        calls = []
+        real = kml.parse_datetime
+
+        def counting_parse_datetime(value, *args, **kwargs):
+            calls.append(value)
+            return real(value, *args, **kwargs)
+
+        monkeypatch.setattr(kml, "parse_datetime", counting_parse_datetime)
+        act = KMLParser(CHALLENGE_YEAR).parse(named_bounds_dir / "activity_3010.kml")
+        # Two of the three placemarks survive their coordinate check and are
+        # parsed once each. The activity start time is the first of them, so
+        # re-reading its own formatted output would show up as a third call.
+        assert calls == ["2021-01-08T12:04:52+08:00", "2021-01-08T12:06:52+08:00"]
+        assert act.date == "2021-01-08 12:04:52"

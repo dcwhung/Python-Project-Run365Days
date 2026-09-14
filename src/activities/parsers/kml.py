@@ -6,6 +6,7 @@ coordinates and timestamps only.
 """
 
 import xml.etree.ElementTree as ET
+from datetime import datetime
 from pathlib import Path
 
 from bs4 import BeautifulSoup
@@ -71,21 +72,26 @@ class KMLParser(BaseActivityParser):
 
         lap_rows: list[dict] = []
         track_points: list[TrackPoint] = []
+        act_time: datetime | None = None
 
         for subfolder in folder.findall("ns:Folder", _NS):
             name = element_text(subfolder, "ns:name", _NS)
             if name == _LAPS_FOLDER:
                 lap_rows.extend(_parse_laps(subfolder))
             elif name == _TRACK_POINTS_FOLDER:
-                track_points.extend(_parse_track_points(subfolder))
+                folder_points, folder_start = _parse_track_points(subfolder)
+                track_points.extend(folder_points)
+                if act_time is None:
+                    act_time = folder_start
 
         # A KML carries no timestamp outside its track points, so a file with
         # none of them has no start time at all and cannot become an Activity.
         # That is a data problem to report, not a deliberate year filter (W-004).
-        if not track_points:
+        # act_time is set with the first point, so it is None exactly when the
+        # track is empty -- one condition covers both.
+        if act_time is None:
             raise ActivityParseError(f"no track points in {file_path.name}")
 
-        act_time = parse_datetime(track_points[0].time)
         if act_time.year < self.current_year:
             raise ActivitySkipped(f"Skipping old activity: {activity_id}")
 
@@ -144,14 +150,24 @@ def _lap_table_cells(description: str) -> dict[str, str]:
     return cells
 
 
-def _parse_track_points(subfolder: ET.Element) -> list[TrackPoint]:
-    """Return the folder's track points, skipping placemarks without time or coordinates.
+def _parse_track_points(subfolder: ET.Element) -> tuple[list[TrackPoint], datetime | None]:
+    """Return the folder's track points and the start time of the first one.
+
+    Skips placemarks without a time or coordinates. The first surviving
+    placemark's timestamp is handed back already parsed: it is also the
+    activity's start time, and reading it off the formatted ``TrackPoint.time``
+    afterwards meant parsing the parser's own output a second time (S-009).
+
+    Returns:
+        The track points in document order, and the first one's timestamp, or
+        ``None`` when the folder yields no usable placemark.
 
     Raises:
         ActivityParseError: If a placemark carries a coordinate that is present
             but not a finite number.
     """
     points = []
+    start: datetime | None = None
     for placemark in subfolder.findall("ns:Placemark", _NS):
         begin = element_text(placemark, "ns:TimeSpan/ns:begin", _NS)
         raw = element_text(placemark, "ns:Point/ns:coordinates", _NS)
@@ -162,14 +178,17 @@ def _parse_track_points(subfolder: ET.Element) -> list[TrackPoint]:
         if len(lon_lat) < _LON_LAT_PARTS:
             continue
 
+        begin_time = parse_datetime(begin)
+        if start is None:
+            start = begin_time
         points.append(
             TrackPoint(
                 lat=parse_finite_float(lon_lat[1], "track point latitude"),
                 lon=parse_finite_float(lon_lat[0], "track point longitude"),
-                time=parse_datetime(begin).strftime(_TIMESTAMP_FORMAT),
+                time=begin_time.strftime(_TIMESTAMP_FORMAT),
             )
         )
-    return points
+    return points, start
 
 
 def _aggregate_laps(lap_rows: list[dict]) -> tuple[float, float]:
