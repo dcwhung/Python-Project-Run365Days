@@ -76,14 +76,41 @@ AU-047 C-001, found as 27 aliases of ``activities(limit: 365)`` each taking
 ``track(points: 1)``: 9,855 points, inside every other limit, 19,764
 statements and 13 s.
 
-64 is the ceiling the points budget already implied at the default ``points``
-of :data:`DEFAULT_TRACK_POINTS`: ``10000 // 150`` is 66. Stating it outright
-costs legal traffic close to nothing -- the flood worked only by pushing
-``points`` down to 1 to slip out from under that implicit cap.
+64 is about where the points budget already put the ceiling at the default
+``points`` of :data:`DEFAULT_TRACK_POINTS`: ``10000 // 150`` is 66, and 64 is
+that figure rounded down to the power of two below it. Stating the cap
+outright costs legal traffic close to nothing -- the flood worked only by
+pushing ``points`` down to 1 to slip out from under that implicit ceiling.
 
-Worst case is therefore 64 x 2 = 128 statements. Batching the per-activity
-queries (AU-050) would let this number be raised on its own, without
-reopening the points budget.
+What this bounds is ``track`` statements, and only those: at most 64 x 2 = 128
+of them, however the fields are spread over the document. It is not a bound on
+the statements a request issues, because every parent field carrying a
+``track`` costs about two statements of its own first -- a list plus its
+warnings for ``activities``, a get plus its warnings for ``activity(id:)`` --
+and it pays them whether the ``track`` under it is served or refused. That
+half of the cost is bounded by :data:`MAX_QUERY_TOKENS` alone.
+
+Measured against a 365-activity, 600-point export through the Flask client:
+
+* Saturating this cap takes one list field. ``activities(limit: 64)
+  { track(points: 1) }`` issues 130 statements (2 + 64 x 2) in ~0.1 s, and
+  ``limit: 65`` issues the same 130 before refusing the 65th -- the cap holds
+  on a refused request, which is the point of charging before the SQL.
+* Spending the document on *parents* instead reaches further. Of the two
+  shapes that carry one track each, ``activity(id:)`` and
+  ``activities(limit: 1)``, the token limit admits 52 -- 990 of
+  :data:`MAX_QUERY_TOKENS`, where 53 no longer parses. Both are legal, fully
+  served, and issue 208 statements (52 x 2 + 52 x 2) in 0.11-0.20 s: more
+  than the cap alone would suggest, and still some 75x inside the 15 s
+  Vercel function at the slowest reading.
+
+A document that takes no ``track`` at all spends neither budget and is not
+bounded here at all: 166 aliased ``activities`` fields fit the token limit and
+are served, issuing 332 statements in ~2 s. That cost belongs to the list
+fan-out, and wants its own answer; it is not what this cap is for.
+
+Batching the per-activity queries (AU-050) would let this number be raised on
+its own, without reopening the points budget.
 """
 
 TRACK_BUDGET_KEY = "track_points_remaining"
@@ -191,9 +218,16 @@ def _charge_track_field(info: Info, points: int) -> int:
     trade-off is that an honest client asking 1000 points of a 4-point track
     still pays 1000, which keeps the bound conservative rather than exact.
 
-    Both charges land before the resolver touches its session, so overrunning
-    either budget costs no SQL at all: every ``track`` field after the one that
-    overran it is refused in constant time, having issued nothing.
+    Both charges land before the resolver touches its session, so a field that
+    overruns either budget is refused having issued no SQL at all. What that
+    costs the fields after it differs by budget, because a refusal writes
+    neither counter back: the field budget is sticky, since it stops at 0 and
+    every later ``track`` field then charges it below 0 too, while the points
+    budget is not -- it keeps whatever was left, and refuses each later field
+    on that field's own cost. Measured: after a field asking 1000 points is
+    refused with 500 left, a following ``track(points: 500)`` is still served.
+    Leaving the remainder intact is deliberate; charging a refused field would
+    make an over-large field poison the cheap ones behind it.
 
     Args:
         info: Resolver info carrying this request's context.
