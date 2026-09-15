@@ -22,7 +22,15 @@ export function act(overrides: Partial<Activity> & { id: string; date: string })
   };
 }
 
-/** Same four runs as tests/test_dashboard_stats.py so both ports pin identical numbers. */
+/**
+ * The four runs `tests/test_analytics_stats.py` also spells out, kept so both
+ * suites stay readable on their own. This is NOT what holds the two ports
+ * together: two hand-typed copies agreeing is what AU-009 was raised about, and
+ * the comment that used to sit here still pointed at `test_dashboard_stats.py`,
+ * a file AU-005 renamed away. The actual guarantee is `tests/golden/`, whose
+ * inputs both languages read and whose outputs both languages must reproduce
+ * (see `src/test/golden.test.ts`); these four runs are case `basic-2021` there.
+ */
 export const STATS_ACTS: Activity[] = [
   act({ id: "a", date: "2021-01-01", distanceKm: 5, durationSec: 1500 }),
   act({

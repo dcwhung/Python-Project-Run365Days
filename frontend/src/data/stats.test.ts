@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import * as stats from "./stats";
 import { STATS_ACTS } from "@/test/fixtures";
 
-describe("stats (port of src/dashboard/stats.py)", () => {
+describe("stats (port of src/analytics/stats.py; parity is enforced by tests/golden)", () => {
   it("daysInYear", () => {
     expect(stats.daysInYear(2021)).toBe(365);
     expect(stats.daysInYear(2020)).toBe(366);
