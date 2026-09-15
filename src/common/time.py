@@ -56,15 +56,31 @@ def parse_datetime(rec_time: str, timezone: str = "Asia/Hong_Kong") -> datetime:
     - ``1634422256000`` (Unix timestamp in milliseconds, exactly 13 digits)
     - ``2021-10-17 06:10:56`` (naive local time)
 
-    The first and third are absolute instants and are converted into *timezone*; the
-    other two already carry that zone's wall clock and keep it.
+    The first and third are absolute instants and are converted into *timezone*.
+    The naive one is read as a wall clock already in *timezone* and is labelled
+    with it. The offset one is returned exactly as written -- see ``Returns``.
 
     Args:
         rec_time: The timestamp string.
         timezone: IANA zone name used for the result and for naive inputs.
 
     Returns:
-        A timezone-aware ``datetime`` in ``timezone``.
+        An aware ``datetime``, whose zone depends on which form came in:
+
+        - UTC ISO, epoch milliseconds, naive local: a ``datetime`` in
+          *timezone*.
+        - ISO with an offset: the offset **as written**, as a fixed-offset
+          zone. It is never converted to *timezone* and never checked against
+          it, so ``parse_datetime("2021-10-17T06:10:56+09:00")`` returns
+          ``+09:00``, not Hong Kong. The four supported inputs are all
+          ``+08:00`` in practice, which is why the callers see no difference;
+          that this is a property of the data and not of this function is what
+          ``TestParseDateTimeOffsetIsReturnedAsWritten`` pins.
+
+        Two neighbouring shapes are not supported at all and raise
+        ``ValueError`` through the naive branch: a ``Z`` string without
+        milliseconds, and a *negative* offset (the branch tests for ``"+"``).
+        Neither occurs in the data this parses.
 
     Raises:
         MissingTimeZoneDataError: If no tz database is reachable on this host.
