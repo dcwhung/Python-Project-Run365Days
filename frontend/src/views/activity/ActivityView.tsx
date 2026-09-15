@@ -67,6 +67,13 @@ export function ActivityView() {
     return () => window.removeEventListener("keydown", onKey);
   });
 
+  // `track.isPending` has to stay in this gate even though CUI-0016 otherwise
+  // degrades the track region on its own. A pending track has no data *and* no
+  // error, so letting it through leaves `series` null and renders `TrackError`
+  // with `readableError(null)` — "unknown error" invented mid-load, which is the
+  // same class of lie CUI-0016 fixed. Per-region pending needs its own three-way
+  // state (skeleton / error / charts) before this term can go; until then
+  // ActivityView.test.tsx pins it.
   if (all.isPending || activity.isPending || track.isPending) return <p className="text-muted">Loading…</p>;
   if (all.isError) return <p className="text-danger">Could not load activities: {readableError(all.error)}</p>;
   if (activity.isError) return <p className="text-danger">Could not load this activity: {readableError(activity.error)}</p>;
