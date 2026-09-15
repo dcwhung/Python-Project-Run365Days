@@ -68,13 +68,17 @@ export function ActivityView() {
 
   if (all.isPending || activity.isPending || track.isPending) return <p className="text-muted">Loading…</p>;
   if (all.isError) return <p className="text-danger">Could not load activities: {all.error.message}</p>;
-  if (!activity.data || !series) return <p className="text-danger">Activity not found.</p>;
+  if (activity.isError) return <p className="text-danger">Could not load this activity: {activity.error.message}</p>;
+  // Only a genuinely absent activity earns this message. A failed `track` used to
+  // land here too (series === null), telling the user the run does not exist
+  // while its metadata sat loaded in `activity.data` — see CUI-0016.
+  if (!activity.data) return <p className="text-danger">Activity not found.</p>;
   const a = activity.data;
   const hover = (i: number) => {
     pb.stop();
     pb.goTo(i);
   };
-  const avg = {
+  const avg = series && {
     ele: Number.isFinite(mean(series.ele) ?? NaN) ? `avg ${Math.round(mean(series.ele)!)} m` : undefined,
     pace: `avg ${fmtPace(a.paceSecPerKm)} /km`,
     cad: a.avgCadence ? `avg ${Math.round(a.avgCadence)} spm` : undefined,
@@ -86,7 +90,7 @@ export function ActivityView() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-lg font-semibold">
-            {series.hasGps ? "Outdoor" : "Indoor"} Run · Day {a.dayOfYear}
+            {(series?.hasGps ?? a.hasGps) ? "Outdoor" : "Indoor"} Run · Day {a.dayOfYear}
           </h1>
           <div className="text-xs text-muted">
             {longDate(a.date)} <b className="text-text">{a.startTime}</b> · activity <b className="text-text">{a.id}</b>
@@ -135,16 +139,44 @@ export function ActivityView() {
         <KpiCard label="Calories" value={a.calories != null ? String(a.calories) : "–"} unit="kcal" accent="danger" />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[1fr_300px]">
-        <RouteMap series={series} idx={pb.idx} onHover={hover} />
-        <LiveCard series={series} idx={pb.idx} playing={pb.playing} speed={pb.speed} onToggle={pb.toggle} onSpeed={pb.setSpeed} onScrub={hover} />
-      </div>
+      {series && avg ? (
+        <>
+          <div className="grid gap-4 lg:grid-cols-[1fr_300px]">
+            <RouteMap series={series} idx={pb.idx} onHover={hover} />
+            <LiveCard series={series} idx={pb.idx} playing={pb.playing} speed={pb.speed} onToggle={pb.toggle} onSpeed={pb.setSpeed} onScrub={hover} />
+          </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
-        {SPECS.map((spec) => (
-          <SeriesChart key={spec.key} series={series} spec={spec} idx={pb.idx} average={avg[spec.key]} onHover={hover} />
-        ))}
-      </div>
+          <div className="grid gap-4 md:grid-cols-2">
+            {SPECS.map((spec) => (
+              <SeriesChart key={spec.key} series={series} spec={spec} idx={pb.idx} average={avg[spec.key]} onHover={hover} />
+            ))}
+          </div>
+        </>
+      ) : (
+        <TrackError message={track.error?.message} onRetry={() => void track.refetch()} />
+      )}
+    </div>
+  );
+}
+
+interface TrackErrorProps {
+  /** Message from the failed track query, if the error carried one. */
+  message: string | undefined;
+  onRetry: () => void;
+}
+
+/**
+ * Stands in for the map, live card and charts when the track request fails.
+ * Everything above it (header, weather, KPIs) comes from `activity`, which is
+ * already loaded, so only this one region degrades.
+ */
+function TrackError({ message, onRetry }: TrackErrorProps) {
+  return (
+    <div role="alert" data-testid="track-error" className="flex flex-wrap items-center justify-between gap-3 rounded border border-border bg-surface2 px-3 py-4">
+      <p className="text-danger">Could not load the track for this activity: {message ?? "unknown error"}</p>
+      <button type="button" className="rounded border border-border px-2 py-1 hover:bg-surface" onClick={onRetry}>
+        Retry
+      </button>
     </div>
   );
 }
