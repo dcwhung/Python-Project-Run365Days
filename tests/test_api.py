@@ -1,4 +1,5 @@
 import importlib.util
+from contextlib import ExitStack
 from datetime import date, timedelta
 from pathlib import Path
 from types import MappingProxyType
@@ -1302,27 +1303,67 @@ run against enforces, and a statement over it fails outright with "too many SQL
 variables" rather than degrading.
 """
 
+
+def batch_parameters(activities: int, points: int) -> int:
+    """Bound parameters the batch SELECT carries for *activities* sampled tracks.
+
+    Three terms, which is the whole of W-020: the position IN lists are the big
+    one, but they are not the only one.
+
+    - ``activities * points`` positions, one per sample;
+    - ``2 * activities``: every track binds its id twice, once in the
+      subquery's ``IN`` and once in its own ``_sample_filter`` ``==`` arm;
+    - ``+ 1`` for the ``- 1`` in ``row_number() OVER (...) - 1``, which
+      SQLAlchemy binds as a parameter rather than inlining.
+
+    A track taken *whole* is cheaper than this -- it binds no positions and
+    joins one shared ``IN`` list -- so an all-sampled batch is the expensive
+    shape, which is what both fixtures below build.
+    """
+    return activities * points + 2 * activities + 1
+
+
 WIDEST_BATCH_ACTIVITIES = 50
-"""Activities in the widest-batch fixture.
+"""Activities in the batch that spends the *points* budget exactly.
 
 Chosen with WIDEST_BATCH_POINTS so their product is exactly
-MAX_TRACK_POINTS_PER_REQUEST: that is the most positions the points budget can
-let one batch bind, and so the worst case for the parameter count.
+MAX_TRACK_POINTS_PER_REQUEST: the most positions the points budget can let one
+batch bind. That is not the same as the most *parameters*, which this fixture
+was previously documented as being (W-020) -- see WORST_CASE_BATCH_ACTIVITIES.
 """
 
 WIDEST_BATCH_POINTS = MAX_TRACK_POINTS_PER_REQUEST // WIDEST_BATCH_ACTIVITIES
 """Samples per track in that fixture, so the batch spends the budget exactly."""
 
+WORST_CASE_BATCH_ACTIVITIES = MAX_TRACK_FIELDS_PER_REQUEST
+"""Activities in the batch that really is the parameter worst case.
+
+Since every track costs 2 parameters beyond its positions, spending the
+*field* cap beats spending the points budget even though it binds fewer
+positions: 64 x 156 binds 9,984 positions and 10,113 parameters, against
+50 x 200's 10,000 positions and 10,101. Measured by sweeping every
+``(activities, points)`` the budgets admit -- 64 x 156 is the maximum of all
+of them, and the shape nothing exercised while the 50 x 200 fixture claimed
+the title.
+"""
+
+WORST_CASE_BATCH_POINTS = MAX_TRACK_POINTS_PER_REQUEST // WORST_CASE_BATCH_ACTIVITIES
+"""Samples per track there: as many as the points budget affords across the field cap."""
+
 
 @pytest.fixture
-def widest_batch_session(tmp_path):
-    path = tmp_path / "widest.db"
-    # One row more than the ask, so every track is sampled rather than taken
-    # whole: an unsampled track binds its id and no positions at all.
-    stored = [WIDEST_BATCH_POINTS + 1] * WIDEST_BATCH_ACTIVITIES
-    _write_track_db(path, stored, prefix="w")
-    with db.session_scope(db.make_engine(path)) as session:
-        yield session
+def batch_session(tmp_path):
+    """Return a factory opening a session on a database of *activities* tracks."""
+    with ExitStack() as scopes:
+
+        def build(activities: int, points: int) -> Session:
+            path = tmp_path / f"batch-{activities}x{points}.db"
+            # One row more than the ask, so every track is sampled rather than
+            # taken whole: an unsampled track binds its id and no positions.
+            _write_track_db(path, [points + 1] * activities, prefix="w")
+            return scopes.enter_context(db.session_scope(db.make_engine(path)))
+
+        yield build
 
 
 @pytest.fixture
@@ -1340,8 +1381,19 @@ def sql_params():
         event.remove(Engine, "before_cursor_execute", tally)
 
 
+@pytest.mark.parametrize(
+    "activities,points,expected",
+    [
+        pytest.param(
+            WIDEST_BATCH_ACTIVITIES, WIDEST_BATCH_POINTS, 10101, id="spends-the-points-budget"
+        ),
+        pytest.param(
+            WORST_CASE_BATCH_ACTIVITIES, WORST_CASE_BATCH_POINTS, 10113, id="spends-the-field-cap"
+        ),
+    ],
+)
 def test_the_widest_batch_stays_under_sqlites_bound_parameter_ceiling(
-    widest_batch_session, sql_params
+    batch_session, sql_params, activities, points, expected
 ):
     # What batching trades away. Each track contributes an IN list of its own
     # positions, so the parameters that used to be spread over 2N statements
@@ -1349,16 +1401,48 @@ def test_the_widest_batch_stays_under_sqlites_bound_parameter_ceiling(
     # it raises. The points budget is what holds the total down, which is why
     # AU-050 must not be read as a reason to raise it: at 10,000 points this
     # sits inside the ceiling with room, and it scales one for one.
-    assert WIDEST_BATCH_ACTIVITIES <= MAX_TRACK_FIELDS_PER_REQUEST
-    assert WIDEST_BATCH_POINTS <= MAX_TRACK_POINTS
-    ids = [f"w{i}" for i in range(WIDEST_BATCH_ACTIVITIES)]
+    #
+    # Both shapes, because the budgets bound two different things and only one
+    # of them is the parameter maximum: the second case is the real worst case
+    # and had nothing running it (W-020).
+    assert activities <= MAX_TRACK_FIELDS_PER_REQUEST
+    assert points <= MAX_TRACK_POINTS
+    assert activities * points <= MAX_TRACK_POINTS_PER_REQUEST, "the points budget must allow it"
+    session = batch_session(activities, points)
+    # The build above runs on the same Engine class the tally listens to, so
+    # its inserts have to go before the batch is measured.
+    sql_params.clear()
 
-    batched = service.tracks(widest_batch_session, ids, WIDEST_BATCH_POINTS)
+    batched = service.tracks(session, [f"w{i}" for i in range(activities)], points)
 
-    assert all(len(rows) == WIDEST_BATCH_POINTS for rows in batched.values())
+    assert all(len(rows) == points for rows in batched.values())
     widest = max(sql_params)
+    # Pinned exactly, not just bounded: the composition is what W-020 got
+    # wrong, so a term appearing or disappearing has to turn this red rather
+    # than be absorbed by an inequality.
+    assert widest == batch_parameters(activities, points) == expected
     # Not vacuous: the SELECT really does bind a position per sample, so this
     # would have caught an IN list that grew past what the budget allows.
     assert widest > MAX_TRACK_POINTS_PER_REQUEST
     assert widest <= MAX_TRACK_POINTS_PER_REQUEST + 2 * MAX_TRACK_FIELDS_PER_REQUEST
     assert widest < SQLITE_BOUND_PARAMETER_CEILING
+
+
+def test_no_batch_the_budgets_allow_binds_more_parameters_than_the_worst_case(sql_params):
+    # The claim WORST_CASE_BATCH_ACTIVITIES makes, as a gate rather than as
+    # prose: of every (activities, points) the three caps admit, none binds
+    # more than the shape the test above runs. Arithmetic rather than 64 more
+    # databases -- batch_parameters is what the measured case pins it against.
+    worst = batch_parameters(WORST_CASE_BATCH_ACTIVITIES, WORST_CASE_BATCH_POINTS)
+    allowed = [
+        (activities, min(MAX_TRACK_POINTS, MAX_TRACK_POINTS_PER_REQUEST // activities))
+        for activities in range(1, MAX_TRACK_FIELDS_PER_REQUEST + 1)
+    ]
+
+    assert max(batch_parameters(a, p) for a, p in allowed) == worst
+    assert batch_parameters(WIDEST_BATCH_ACTIVITIES, WIDEST_BATCH_POINTS) < worst, (
+        "the points-budget fixture must not be mistaken for the maximum again"
+    )
+    # The headroom the safety conclusion rests on, stated where it can go red:
+    # the ceiling is over three times the widest batch the budgets can build.
+    assert worst * 3 < SQLITE_BOUND_PARAMETER_CEILING
