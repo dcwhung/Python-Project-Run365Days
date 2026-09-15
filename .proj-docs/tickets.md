@@ -2284,3 +2284,22 @@ Signed-zero 亦精確對齊（一參數形式回 Python `int` 冇 `-0`；兩參�
 | **CUI-0062** | 🟢 Low | Ledger 機械而家零行，`test_every_ledgered_divergence_still_diverges`（兩邊）斷言唔到嘢、永遠唔會紅。實證：我個 mutation 令 golden 紅但呢條測試**通過**。應加一條寫 temp ledger 入 tmpdir 嘅測試 |
 | **CUI-0063** | 🟢 Low | 真實資料 cross-check（4,921 key、api-vs-static、365 條真跑）係 scratch 建完就刪。佢比 constructed golden 對「可達性」問題強得多，而且**正正係佢揭發咗 ledger 漏咗嘅 limit-3 分歧**。要 `data/raw/` + 生成 export，所以要 opt-in / 標記為 slow |
 | **CUI-0064** | 🟢 Low | `frontend/src/lib/dates.ts:22` 同 `stats.ts:42` 嘅 `dayOfYear` 係兩份同樣公式，兩份都唔喺 golden 覆蓋內。已證明 tie-free（292,560 日），所以係重複而唔係 bug |
+
+---
+
+## 狀態補正（2026-09-15）—— 五張票已完成但之前只寫喺摘要度，冇入狀態表
+
+做 handover 時實掃發現：呢五張喺各輪摘要入面有記錄，但**冇一行講「Done」**，
+所以任何用 grep 統計未完成項目嘅人都會將佢哋當成仲開住。
+
+| ID | 完成於 | Commit | 核實方式 |
+|---|---|---|---|
+| **CUI-0021** | P2 Round 1 | `850d2ae` | Main agent 注入 `OperationalError` → 500；`ClientArgumentError` → 200 |
+| **CUI-0022** | P1 Round 2 | `89c6e6a` | `ruff check .` exit 0（base commit 曾經 531 errors） |
+| **CUI-0024** | P1 Round 1 | `570da64` | Mutation：`EXPORT_TRACK_POINTS` 600 → 900，前後端 guard 各自紅 |
+| **CUI-0029** | P2 Round 1 | `d6752e6` | Mutation：還原 ORM select → guard 紅；還原 → 綠 |
+| **CUI-0052** | Handover 前 | `a101849` | Mutation 雙向：改名 / 加未宣告 package 各自紅 |
+
+> **教訓**：本 registry 用「摘要段落」記錄細節、用「狀態表」記錄狀態，
+> 但呢五張只入咗前者。**一張票喺摘要入面被詳細描述過，唔等於佢喺狀態表入面被標記過。**
+> 將來每輪收尾應該用一次 grep 對賬，而唔係靠寫摘要時順手記得。
