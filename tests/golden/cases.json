@@ -1,0 +1,232 @@
+{
+  "_comment": [
+    "Inputs for the cross-language conformance harness (AU-009). Read by BOTH",
+    "tests/test_cross_language_golden.py and frontend/src/test/golden.test.ts.",
+    "This file is hand-authored on purpose: it is input, not expected output, and",
+    "each case exists to reach a named branch. Expected output lives in",
+    "expected.tsv and is machine-generated -- never edit that by hand.",
+    "",
+    "Activities carry only the seven fields the stats functions read. The rest of",
+    "the exported activity record (weather, elevation, has_gps) is irrelevant here",
+    "and is covered by mappers.test.ts / test_export_records.py."
+  ],
+
+  "days_in_year": [1900, 1999, 2000, 2012, 2020, 2021, 2024, 2100, 2400],
+
+  "week_index": [
+    {
+      "year": 2021,
+      "note": "1 Jan is a Friday: week 0 is the 3-day stub Fri-Sun",
+      "dates": ["2021-01-01", "2021-01-03", "2021-01-04", "2021-12-26", "2021-12-27", "2021-12-31"]
+    },
+    {
+      "year": 2018,
+      "note": "1 Jan is a Monday: week 0 is a whole week and needs no clamp",
+      "dates": ["2018-01-01", "2018-01-07", "2018-01-08", "2018-12-30", "2018-12-31"]
+    },
+    {
+      "year": 2012,
+      "note": "leap year starting Sunday: 54 week rows, the maximum this scheme can make",
+      "dates": ["2012-01-01", "2012-01-02", "2012-02-28", "2012-02-29", "2012-03-01", "2012-12-30", "2012-12-31"]
+    },
+    {
+      "year": 2020,
+      "note": "leap year starting Wednesday; 29 Feb must not shift the week of 1 Mar by two",
+      "dates": ["2020-01-01", "2020-02-28", "2020-02-29", "2020-03-01", "2020-12-31"]
+    },
+    {
+      "year": 2024,
+      "note": "leap year starting Monday",
+      "dates": ["2024-01-01", "2024-02-29", "2024-12-30", "2024-12-31"]
+    }
+  ],
+
+  "stats": [
+    {
+      "id": "basic-2021",
+      "year": 2021,
+      "note": "the four runs both suites already pinned by hand, kept so the harness subsumes them",
+      "probe_days": [0, 1, 2, 45, 364],
+      "activities": [
+        { "id": "a", "date": "2021-01-01", "distance_km": 5.0, "duration_sec": 1500, "pace_sec_per_km": 300, "calories": 300, "avg_cadence": 170.0 },
+        { "id": "b", "date": "2021-01-02", "distance_km": 10.0, "duration_sec": 3600, "pace_sec_per_km": 360, "calories": 800, "avg_cadence": 180.0 },
+        { "id": "c", "date": "2021-01-02", "distance_km": 2.0, "duration_sec": 400, "pace_sec_per_km": 200, "calories": null, "avg_cadence": null },
+        { "id": "d", "date": "2021-02-15", "distance_km": 6.0, "duration_sec": 1620, "pace_sec_per_km": 270, "calories": 300, "avg_cadence": 170.0 }
+      ]
+    },
+    {
+      "id": "empty-2021",
+      "year": 2021,
+      "note": "no runs at all: every function must still produce a full-length year",
+      "probe_days": [0, 364],
+      "activities": []
+    },
+    {
+      "id": "leap-2020",
+      "year": 2020,
+      "note": "366 days; runs on both sides of 29 Feb and on 31 Dec",
+      "probe_days": [0, 58, 59, 60, 364, 365],
+      "activities": [
+        { "id": "j1", "date": "2020-01-01", "distance_km": 8.0, "duration_sec": 2400, "pace_sec_per_km": 300, "calories": 500, "avg_cadence": 168.0 },
+        { "id": "f28", "date": "2020-02-28", "distance_km": 6.0, "duration_sec": 1980, "pace_sec_per_km": 330, "calories": 400, "avg_cadence": 172.0 },
+        { "id": "f29", "date": "2020-02-29", "distance_km": 21.1, "duration_sec": 7200, "pace_sec_per_km": 341, "calories": 1500, "avg_cadence": 176.0 },
+        { "id": "m01", "date": "2020-03-01", "distance_km": 5.0, "duration_sec": 1800, "pace_sec_per_km": 360, "calories": 320, "avg_cadence": 165.0 },
+        { "id": "d31", "date": "2020-12-31", "distance_km": 10.0, "duration_sec": 3000, "pace_sec_per_km": 300, "calories": 700, "avg_cadence": 180.0 }
+      ]
+    },
+    {
+      "id": "starts-monday-2018",
+      "year": 2018,
+      "note": "week 0 starts on 1 Jan, so the max(start, jan1) clamp is a no-op here",
+      "probe_days": [0, 6, 7, 364],
+      "activities": [
+        { "id": "p", "date": "2018-01-01", "distance_km": 7.5, "duration_sec": 2250, "pace_sec_per_km": 300, "calories": 480, "avg_cadence": 174.0 },
+        { "id": "q", "date": "2018-12-31", "distance_km": 5.0, "duration_sec": 1500, "pace_sec_per_km": 300, "calories": 300, "avg_cadence": 170.0 }
+      ]
+    },
+    {
+      "id": "leap-starts-sunday-2012",
+      "year": 2012,
+      "note": "the 54-week case: 1 Jan is a Sunday and sits alone in week 0",
+      "probe_days": [0, 1, 59, 365],
+      "activities": [
+        { "id": "s1", "date": "2012-01-01", "distance_km": 9.0, "duration_sec": 2700, "pace_sec_per_km": 300, "calories": 600, "avg_cadence": 171.0 },
+        { "id": "s2", "date": "2012-01-02", "distance_km": 5.0, "duration_sec": 1650, "pace_sec_per_km": 330, "calories": 330, "avg_cadence": 169.0 },
+        { "id": "s3", "date": "2012-12-31", "distance_km": 12.0, "duration_sec": 3900, "pace_sec_per_km": 325, "calories": 900, "avg_cadence": 175.0 }
+      ]
+    },
+    {
+      "id": "nulls-and-zeros-2021",
+      "year": 2021,
+      "note": "every nullable field absent somewhere; a zero-distance run (pace is None, not a division); a pace of 0 (falsy, so it must not win 'fastest')",
+      "probe_days": [0, 1, 2, 3],
+      "activities": [
+        { "id": "z0", "date": "2021-03-01", "distance_km": 0.0, "duration_sec": 0, "pace_sec_per_km": null, "calories": null, "avg_cadence": null },
+        { "id": "z1", "date": "2021-03-02", "distance_km": 6.0, "duration_sec": 1800, "pace_sec_per_km": 0, "calories": null, "avg_cadence": null },
+        { "id": "z2", "date": "2021-03-03", "distance_km": 6.0, "duration_sec": 1800, "pace_sec_per_km": null, "calories": null, "avg_cadence": null },
+        { "id": "z3", "date": "2021-03-04", "distance_km": 4.0, "duration_sec": 1000, "pace_sec_per_km": 250, "calories": null, "avg_cadence": null }
+      ]
+    },
+    {
+      "id": "ties-and-boundaries-2021",
+      "year": 2021,
+      "note": "ties on every personal-best key (first wins in both ports), the 5.00 km eligibility edge, and a month whose only runs are under 5 km",
+      "probe_days": [0, 100, 200],
+      "activities": [
+        { "id": "t1", "date": "2021-04-01", "distance_km": 10.0, "duration_sec": 3000, "pace_sec_per_km": 300, "calories": 700, "avg_cadence": 180.0 },
+        { "id": "t2", "date": "2021-04-02", "distance_km": 10.0, "duration_sec": 3000, "pace_sec_per_km": 300, "calories": 700, "avg_cadence": 180.0 },
+        { "id": "t3", "date": "2021-05-01", "distance_km": 5.0, "duration_sec": 1200, "pace_sec_per_km": 240, "calories": 400, "avg_cadence": 190.0 },
+        { "id": "t4", "date": "2021-05-02", "distance_km": 4.99, "duration_sec": 1000, "pace_sec_per_km": 200, "calories": 300, "avg_cadence": 170.0 },
+        { "id": "t5", "date": "2021-06-01", "distance_km": 3.0, "duration_sec": 780, "pace_sec_per_km": 260, "calories": 200, "avg_cadence": 168.0 },
+        { "id": "t6", "date": "2021-06-02", "distance_km": 2.0, "duration_sec": 500, "pace_sec_per_km": 250, "calories": 150, "avg_cadence": 166.0 }
+      ]
+    },
+    {
+      "id": "rounding-edges-2021",
+      "year": 2021,
+      "note": "AIMED at the half-way rounding cases: 24.5 km over four runs makes avg_distance_km exactly 6.125, and 2.00 km in 1001 s makes the pace quotient exactly 500.5. Both are dyadic, so no float noise hides the tie-break rule.",
+      "probe_days": [0, 1, 2, 3, 4],
+      "activities": [
+        { "id": "r1", "date": "2021-07-01", "distance_km": 6.0, "duration_sec": 1800, "pace_sec_per_km": 300, "calories": 400, "avg_cadence": 170.0 },
+        { "id": "r2", "date": "2021-07-02", "distance_km": 6.5, "duration_sec": 1950, "pace_sec_per_km": 300, "calories": 430, "avg_cadence": 170.0 },
+        { "id": "r3", "date": "2021-07-03", "distance_km": 6.0, "duration_sec": 1800, "pace_sec_per_km": 300, "calories": 400, "avg_cadence": 170.0 },
+        { "id": "r4", "date": "2021-07-04", "distance_km": 6.0, "duration_sec": 1800, "pace_sec_per_km": 300, "calories": 400, "avg_cadence": 170.0 }
+      ]
+    },
+    {
+      "id": "half-second-pace-2021",
+      "year": 2021,
+      "note": "one 2.00 km run in 1001 s: totals and weekly both divide to exactly 500.5 s/km",
+      "probe_days": [0, 1],
+      "activities": [
+        { "id": "h1", "date": "2021-08-02", "distance_km": 2.0, "duration_sec": 1001, "pace_sec_per_km": 501, "calories": 130, "avg_cadence": 164.0 }
+      ]
+    }
+  ],
+
+  "training_load": [
+    { "id": "tl-empty", "daily": [] },
+    {
+      "id": "tl-dyadic",
+      "note": "5.25 km on day one makes ctl exactly 5.25/42 = 0.125, the other half-way rounding case",
+      "daily": [
+        { "date": "2021-01-01", "distance_km": 5.25 },
+        { "date": "2021-01-02", "distance_km": 5.25 },
+        { "date": "2021-01-03", "distance_km": 0.0 }
+      ]
+    },
+    {
+      "id": "tl-warmup",
+      "note": "50 days, longer than CTL_DAYS=42, so the chronic average is exercised past its time constant; rest days, a spike and a taper keep tsb on both sides of zero",
+      "daily": [
+        { "date": "2021-01-01", "distance_km": 0.0 },
+        { "date": "2021-01-02", "distance_km": 0.0 },
+        { "date": "2021-01-03", "distance_km": 10.0 },
+        { "date": "2021-01-04", "distance_km": 0.0 },
+        { "date": "2021-01-05", "distance_km": 5.3 },
+        { "date": "2021-01-06", "distance_km": 0.0 },
+        { "date": "2021-01-07", "distance_km": 12.7 },
+        { "date": "2021-01-08", "distance_km": 0.0 },
+        { "date": "2021-01-09", "distance_km": 8.1 },
+        { "date": "2021-01-10", "distance_km": 21.1 },
+        { "date": "2021-01-11", "distance_km": 0.0 },
+        { "date": "2021-01-12", "distance_km": 0.0 },
+        { "date": "2021-01-13", "distance_km": 6.4 },
+        { "date": "2021-01-14", "distance_km": 0.0 },
+        { "date": "2021-01-15", "distance_km": 9.9 },
+        { "date": "2021-01-16", "distance_km": 0.0 },
+        { "date": "2021-01-17", "distance_km": 15.0 },
+        { "date": "2021-01-18", "distance_km": 0.0 },
+        { "date": "2021-01-19", "distance_km": 5.0 },
+        { "date": "2021-01-20", "distance_km": 0.0 },
+        { "date": "2021-01-21", "distance_km": 7.7 },
+        { "date": "2021-01-22", "distance_km": 0.0 },
+        { "date": "2021-01-23", "distance_km": 11.2 },
+        { "date": "2021-01-24", "distance_km": 30.0 },
+        { "date": "2021-01-25", "distance_km": 0.0 },
+        { "date": "2021-01-26", "distance_km": 0.0 },
+        { "date": "2021-01-27", "distance_km": 0.0 },
+        { "date": "2021-01-28", "distance_km": 4.2 },
+        { "date": "2021-01-29", "distance_km": 0.0 },
+        { "date": "2021-01-30", "distance_km": 6.6 },
+        { "date": "2021-01-31", "distance_km": 0.0 },
+        { "date": "2021-02-01", "distance_km": 8.8 },
+        { "date": "2021-02-02", "distance_km": 0.0 },
+        { "date": "2021-02-03", "distance_km": 10.4 },
+        { "date": "2021-02-04", "distance_km": 0.0 },
+        { "date": "2021-02-05", "distance_km": 0.0 },
+        { "date": "2021-02-06", "distance_km": 13.3 },
+        { "date": "2021-02-07", "distance_km": 42.2 },
+        { "date": "2021-02-08", "distance_km": 0.0 },
+        { "date": "2021-02-09", "distance_km": 0.0 },
+        { "date": "2021-02-10", "distance_km": 0.0 },
+        { "date": "2021-02-11", "distance_km": 0.0 },
+        { "date": "2021-02-12", "distance_km": 3.1 },
+        { "date": "2021-02-13", "distance_km": 0.0 },
+        { "date": "2021-02-14", "distance_km": 5.5 },
+        { "date": "2021-02-15", "distance_km": 0.0 },
+        { "date": "2021-02-16", "distance_km": 0.0 },
+        { "date": "2021-02-17", "distance_km": 0.0 },
+        { "date": "2021-02-18", "distance_km": 0.0 },
+        { "date": "2021-02-19", "distance_km": 0.0 }
+      ]
+    }
+  ],
+
+  "downsample": [
+    { "id": "shorter-than-limit", "n": 3, "limit": 5 },
+    { "id": "exactly-limit", "n": 5, "limit": 5 },
+    { "id": "limit-one", "n": 3, "limit": 1 },
+    { "id": "limit-zero", "n": 3, "limit": 0 },
+    { "id": "limit-negative", "n": 3, "limit": -1 },
+    { "id": "limit-two", "n": 9, "limit": 2 },
+    { "id": "half-step-6-3", "n": 6, "limit": 3 },
+    { "id": "half-step-10-5", "n": 10, "limit": 5 },
+    { "id": "half-step-14-3", "n": 14, "limit": 3 },
+    { "id": "whole-step-11-3", "n": 11, "limit": 3 },
+    { "id": "one-over-default", "n": 151, "limit": 150 },
+    { "id": "default-limit-typical-track", "n": 900, "limit": 150 },
+    { "id": "api-max", "n": 1500, "limit": 1000 },
+    { "id": "single-point", "n": 1, "limit": 150 }
+  ]
+}

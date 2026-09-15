@@ -1,0 +1,49 @@
+# Known cross-language disagreements between src/analytics/ and frontend/src/ (AU-009).
+#
+# THIS FILE IS HAND-MAINTAINED. Nothing generates it, and nothing may. It is the
+# only way a key can be excused from golden/expected.tsv, so a new divergence
+# cannot be absorbed by re-running a tool -- a person has to write the line, name
+# both values, and defend it in review. Both suites hold each language to its own
+# recorded value here, so fixing a divergence turns that language red until the
+# line is deleted and the golden regenerated. A ledger entry is a record, not a mute.
+#
+# Columns: key <TAB> python <TAB> typescript <TAB> note
+#
+# ---------------------------------------------------------------------------
+# Every line below has one root cause, measured rather than assumed:
+#
+#   Python's round() breaks an exact tie to the nearest EVEN integer.
+#   JavaScript's Math.round() breaks it UPWARD, toward +Infinity.
+#
+# The two implementations therefore disagree whenever a quotient lands exactly
+# on a half. Three call sites reach it:
+#
+#   _pace / pace     int(round(sec / km))       vs Math.round(sec / km)
+#   round(v, 2)      round(v, 2)                vs Math.round(v * 100) / 100
+#   downsample       round(i * step)            vs Math.round(i * step)
+#
+# Measured breadth over the constructed probe space: 1000 of 4001 half-integer
+# pace quotients differ; 865 of 20001 three-decimal values differ under round-2;
+# 274 of 1275 realistic (n, limit) downsample pairs pick a different item.
+#
+# Measured reachability on the repository's own 365-run export: ZERO of 3098
+# emitted values differ, and no (n, 150) downsample pair differs at all -- 150 is
+# the API default. That is why this has never been noticed, and it is exactly
+# what makes it worth pinning: the data that would expose it has not arrived yet.
+#
+# These are not one-ULP artefacts. A visitor sees 500 s/km in api mode and
+# 501 s/km in static mode for the same run, and a three-point track request
+# returns a different GPS sample. Deciding which language moves is NOT this
+# ticket's call: `builder.downsample` sits on the byte-identical export path
+# (src/export/records.py), so Python cannot move there without changing the
+# published bytes, which points at the TypeScript side -- but that changes
+# numbers the static dashboard already shows, so it is handed back deliberately.
+# ---------------------------------------------------------------------------
+stats/half-second-pace-2021/totals.avg_pace_sec_per_km	500	501	1001 s over 2.00 km is exactly 500.5 s/km; stats.py _pace rounds to even, stats.ts pace rounds up
+stats/half-second-pace-2021/monthly[7].avg_pace_sec_per_km	500	501	same run seen through monthly(); same _pace tie
+stats/half-second-pace-2021/weekly[31].avg_pace_sec_per_km	500	501	same run seen through weekly(); same _pace tie
+stats/rounding-edges-2021/totals.avg_distance_km	6.12	6.13	24.5 km over 4 runs is exactly 6.125; round(v,2) rounds to even, Math.round(v*100)/100 rounds up
+training_load/tl-dyadic[0].ctl	0.12	0.13	5.25/CTL_DAYS is exactly 0.125; same round-to-2 tie inside training_load
+downsample/half-step-6-3	0,2,5	0,3,5	6 points down to 3: step 2.5 makes index 1 a tie, so the two ports keep a different middle sample
+downsample/half-step-10-5	0,2,4,7,9	0,2,5,7,9	10 points down to 5: step 2.25 puts i=2 on 4.5, another tie
+downsample/half-step-14-3	0,6,13	0,7,13	14 points down to 3: step 6.5 makes index 1 a tie
