@@ -15,3 +15,6 @@ dist/
 # Generated data (rebuild with the run365days CLI)
 data/processed/*
 !data/processed/.gitkeep
+
+# ai-dev-team subagent worktrees (ephemeral, never committed)
+.claude/worktrees/

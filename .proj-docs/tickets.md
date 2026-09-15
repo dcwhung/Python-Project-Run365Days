@@ -25,9 +25,9 @@
 | ID | 優先 | 標題 | 來源 |
 |---|---|---|---|
 | **AU-047** | P1 | `Activity.track` N+1 fan-out 仍未解決 | Lane C 申報，main agent 核實 `src/api/schema.py:137-139` |
-| **AU-048** | P1 | epoch-ms path 語義錯 8 小時；測試常數係捏造 | Lane B 申報，證據見下 |
+| **AU-048** | P1 | epoch-ms path 語義錯 8 小時；測試常數係捏造 | Lane B 申報 → ✅ **Done** `6fcb3cc`（2026-09-15） |
 | **AU-049** | P2 | `create_app(..., graphiql: bool = True)` 預設仍然開 | Lane C 申報 |
-| **AU-050** | P2 | `{ activities { track } }` 仍然係 2N round-trip（AU-047 加咗 budget 但冇 batch） | 2026-09-14 AU-047 實測分拆 |
+| **AU-050** | P2 | `{ activities { track } }` 仍然係 2N round-trip（AU-047 加咗 budget 但冇 batch） | ✅ **Done** `2a043f7`（2026-09-15）—— 但見下方 CUI-0019，wall clock 倒退 |
 
 #### AU-047 — `Activity.track` N+1 fan-out
 
@@ -735,3 +735,103 @@ Alias route（原本零覆蓋）而家有三條測試，其中 `test_the_parser_
 |---|---|---|---|
 | **S-027** | 🟢 Suggestion | `_page_field` 個 `MAX_PAGE_SIZE` assertion 嘅理由弱咗一半：原本立論係「fan-out 根本唔可能」所以 page window 係唯一出路；而家已知 alias route 可行，所以呢個 helper 揀 page window 純粹係短。AU-050 抬高 field cap 時重建佢嘅選項多過一個 | pending |
 | **S-028** | 🟢 Suggestion | `from graphql import ...` 被 ruff 排入 first-party block（`run365days` 隔籬），即使 `pyproject.toml` 寫住 `known-first-party = ["run365days"]`。放第三方 block 會被 `I001` 拒。ruff 自己嘅判決、CI 一致，但讀落怪 —— 可能同 repo root 有個 `api/graphql.py` 有關 | pending |
+
+---
+
+## 2026-09-15 Batch — CUI-0016 / AU-048 / AU-050（三 lane 並行 + 兩輪 review + QA）
+
+流程：3 條並行 lane → UI visual gate → batch review round 1（**warn 89**）→ 2 條修正 lane →
+batch review round 2（**pass 99**）→ batch QA（**pass，0 Critical**）→ 1 條 docstring lane。
+
+| Ticket | 狀態 | Commit |
+|---|---|---|
+| **CUI-0016** 🟡 `ActivityView` 將 track 失敗誤報成「Activity not found.」 | ✅ **Done** | `88c5c6f` `b84b7b7` |
+| **AU-048** P1 epoch-ms 語義錯 8 小時 | ✅ **Done** | `6fcb3cc` |
+| **AU-050** P2 track batching | ✅ **Done** | `2a043f7` |
+
+測試：Python **309 → 350**、前端 **87 → 108**。
+
+### Review round 1 開嘅 item（全部 ✅ Done）
+
+| ID | 級別 | 內容 | Commit |
+|---|---|---|---|
+| **W-018** | 🟡 | `track.isPending` 留喺 global loading gate 嘅**申報理由係假**（reviewer 實測拆走之後 105 條全綠）。真理由係拆走會令載入途中 `readableError(null)` 彈「unknown error」——即 CUI-0016 本身要修嗰類謊話。保留啱，但冇註釋冇測試 | `d1dbbde` |
+| **W-019** | 🟡 | `parse_datetime` 個 `Returns: aware datetime in *timezone*` 對 offset 分支係**假**（`+09:00` 入 `+09:00` 出，零轉換），AU-048 仲新加一句將呢個未檢查嘅假設寫成 contract | `bd6de39` |
+| **W-020** | 🟡 | `WIDEST_BATCH_ACTIVITIES` 自稱 bound-parameter worst case 但唔係 | `cb41ac8` |
+| **W-021** | 🟡 | `_charge_track_field` 講「兩個 counter 都唔會寫返」，但只搬 field counter 去 points check 之前，97 條測試零紅 —— 一半 gate | `24fd43b` |
+| **S-029** | 🟢 | `readableError` 嘅 `Array.isArray` guard 冇 load-bearing input（`isRecord` 嗰半係 equivalent mutant，唔算 gap，見下） | `ef5ae67` |
+| **S-031** | 🟢 | `round(ts/1000, 1)` 偽造 0.1 秒精度，無註釋無測試 | `1ba8ec0` |
+| **S-032** | 🟢 | `src/common/time.py` 常數欠 docstring（違反 CLAUDE.md §5） | `9165f0d` |
+| **S-033** | 🟢 | wall-clock 讀數 `0.17-0.21` 低過實測下限 | `150d7d9` |
+
+### Review round 1 開但**刻意未做**
+
+| ID | 級別 | 內容 | 狀態 |
+|---|---|---|---|
+| **S-030** | 🟢 | activities list 空 → `current` undefined → `enabled: !!id` 令 query 永遠 `isPending` → 頁面**永遠「Loading…」**，冇 empty state。Pre-existing，同 CUI-0016 唔同源 | **pending** —— 加 empty state 係真視覺改動，要另行 UI visual gate |
+| **S-034** | 🟢 | pending 軸嘅分層降級（per-region 三態：skeleton / error / charts）。做咗之後先可以將 `track.isPending` 由 global gate 拆走 | **pending** —— 已喺 `ActivityView.tsx:70` 註釋點名為前置條件 |
+
+### 三處「下游用實測推翻上游」（本批最有價值嘅部分）
+
+| # | 誰推翻誰 | 內容 |
+|---|---|---|
+| 1 | Reviewer → Lane A | 「拆走 `track.isPending` 會整 flaky `views.test.tsx`」係假 —— 實測拆走之後 105 條全綠。理由錯，但結論啱 |
+| 2 | Reviewer → Lane C | `WIDEST_BATCH_*` 唔係 worst case；真 worst case 係 64×156 |
+| 3 | **Lane D → Reviewer** | ① fixture 綁 **10,101** 唔係 10,100（公式係 `positions + 2N + 1`，第三項係 `row_number() OVER (...) - 1` 嗰個 `- 1` 被 SQLAlchemy 綁成 parameter，五個 shape 全部食正）② reviewer 建議嘅 `P // (F+1)` 會得出 9,921，**低過 fixture**；正確係 `P // F` = 156 → 10,113 |
+
+Reviewer round 2 **兩處都撤回**，並自我診斷：
+
+> Round 1 我**量咗** (64,156)=10,113 但**算咗** (50,200)=10,100，再將兩者放埋同一個表，冇標示邊個係量邊個係算……呢個正正係我開 W-020 去 ticket 佢嘅同一個毛病。
+
+即係話 Lane C 最初報嘅 10,101 **一直都係啱**（只不過係 fixture 值而非 worst case），reviewer round 1 嗰句「tree 入面零命中」已正式撤回。
+
+### Bound parameter 實測（三項公式，已 gate）
+
+| shape | 實測 params |
+|---|---|
+| fixture (50, 200) | 10,101 |
+| **真 worst case (64, 156)** | **10,113** |
+| SQLite 編譯預設上限 | 32,766（headroom 3.24×，超限係硬 raise `too many SQL variables`，唔係變慢） |
+
+⚠️ **`MAX_TRACK_POINTS_PER_REQUEST` 而家多咗一個隱性 consumer**：調高佢會一比一推高 bound parameter 數。呢個 coupling 有 gate 守住（調高會令 `assert widest < 32766` 變紅）。
+
+### Equivalent mutant 判定（Lane E 提出，reviewer 裁決成立）
+
+`isRecord(first)` 換成 null-safe `first?.message` 之後 108 條全綠。域窮舉：`first` 來自 `JSON.parse`，要分開兩者需要「唔係 object 但有 truthy `.message`」嘅值（boxed String、function），**JSON 表達唔到**。`isRecord` 剩返嘅職責係型別收窄避免 `as` cast，由 `tsc` 守唔係由 suite 守。
+
+> Lane E **冇**砌人為測試去殺一個 equivalent mutant（嗰樣就係 test-gaming），而係去釘真正有分別嘅 `null`，再喺註釋寫明測試買到乜、買唔到乜。
+
+### QA 開嘅 ticket（全部**唔阻 release**）
+
+| ID | 級別 | 內容 | 狀態 |
+|---|---|---|---|
+| **CUI-0019** | 🟠 High | AU-050 嘅 `_sample_filter()` 砌 N 條 OR arm，SQLite 對 subquery 每 row 評估晒 → **O(batch²)**。真實 export（134,041 track row）上 field cap 嗰個 fan-out **67 ms → 158.7 ms（2.37×）**，128 條 3.9×，365 條 8.9×（3.8 秒）。Statement count 的確 130 → 4，但 wall clock 升咗 | pending |
+| **CUI-0020** | 🟡 Medium | docstring 嘅 wall-clock 喺 `year_db` fixture（**600** 條 track row）量，卻用嚟論證 production（**134,041** 條，224×）嘅餘裕。同一 shape fixture 10.4 ms vs production 165.6 ms（16×）；「some 60x inside the 15 s Vercel function」production 實際係 **38×** | pending |
+| **CUI-0021** | 🔵 Low | api / static 取樣 rounding 差一個 index（**pre-existing**，今日不可達） | pending |
+
+### QA 等價性證據（0 Critical 嘅依據）
+
+QA **唔收**我提供嘅 baseline DB —— 佢查到個 `generated_at` 係 AU-048 之後 AU-050 之前，唔係真 pre-batch baseline，於是自己 `git archive 1e820fe` 展開成棵舊代碼樹重新生成。
+
+| 驗證 | 規模 | 結果 |
+|---|---|---|
+| Export 逐 table | 7 table，`track_points` 134,041 row | 6/7 完全相同，唯一差異 `meta.generated_at` |
+| Static JSON | 370 檔 | **369 byte-identical** |
+| batch vs single track | 365 activity × 13 個 points = **4,745 條逐點（8 欄）** | 0 不符 |
+| service 層 pre/post | **6,205 次** `service.track()` | 0 差異 |
+| Document A/B | 87 條（含前端 8 條真實 document） | 全部 SAME |
+| AU-048 死碼 claim | 重 parse **1,095 個 raw 檔**，330,553 次 `parse_datetime` | **epoch-ms 分支 0 次** —— claim 成立，冇一條平移 8 小時 |
+| 前端真機 | 9 個場景 | 全對，console 零意外 error |
+
+### 系統性觀察 —— W-017 要擴展
+
+AU-047 立嘅 W-017 係「**數字**值得寫低就值得 assert」。本批顯示要擴展成「**判斷**值得寫低就值得 assert」：
+
+- 「呢個 fixture 係 worst case」（W-020）—— 判斷，錯，冇 gate
+- 「呢個 counter 唔會寫返」（W-021）—— 判斷，啱，半 gate
+- 「呢句唔可以拆走，否則 flaky」（W-018）—— 判斷，錯，冇 gate
+
+另外兩條新嘅失敗模式：
+
+1. **「量」同「算」混喺同一個表而唔標示** —— reviewer round 1 自己中招，而佢當時已經見到實測同算式差 1 但冇追。
+2. **測試只斷言「應該出現嘅嘢」，冇斷言「唔應該出現嘅嘢」** —— CUI-0016 第一版斷言「有冇 track 專屬訊息」，所以成舊序列化 `ClientError`（連 raw GraphQL document 同 variables）吐晒出街都照樣綠。要真機截圖先捉到。
