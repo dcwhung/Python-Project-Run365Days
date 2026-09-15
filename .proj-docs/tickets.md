@@ -1,6 +1,6 @@
 # Ticket Registry — Run365Days
 
-**最後更新**：2026-09-14（P1 全清 + P2 Round 1：AU-019/025/026/027/029/036/037 + CUI-0021/0029 完成）
+**最後更新**：2026-09-15（P2 全清 + AU-009 跨語言 golden；8 個真分歧已揭發，用戶揀方案 A 修 TS 側）
 
 > 由 `/audit`（AU-NNN）同 `/review`（C/W/S-NNN）產生嘅 ticket 集中登記處。
 > 編號全局唯一、永不重用。已完成嘅保留紀錄，只改狀態。
@@ -2000,3 +2000,161 @@ Projection 刻意**維持係 ref**（每一幀同每次 pointer 移動都讀，�
 | **CUI-0057** | 🟢 Low | `data/stats.ts`（20 個短宣告）同 `views/weight/model.ts`（15 個）而家係 AU-022 最大熱點，而 audit 只掃過 `.tsx` 所以從未列過佢哋 |
 | **CUI-0058** | 🟢 Low | `src/App.tsx` 留喺頂層而其餘 app shell 全部喺 `src/app/`，連**佢自己嘅測試 `App.test.tsx` 都已經喺 `app/`** —— 測試同被測物分處兩個目錄 |
 | **CUI-0059** | 🟢 Low | JS bundle 660 kB（gzip 206 kB）單一 chunk，每次 build 都有 Vite 警告；冇配置 code-splitting，冇人擁有 |
+
+---
+
+## AU-009 修復摘要（2026-09-15）—— 跨語言 golden，第一次跑就搵到 8 個真 bug
+
+| 指標 | 前 | 後 |
+|---|---|---|
+| Python tests | 546 | **550** |
+| Frontend tests | 123（23 files） | **126（24 files）** |
+| Coverage | 95.08% | 95.08% |
+| Static export / CSS hash | — | **未變** |
+| 實作檔案改動 | — | **零**（`git diff --stat -- src/ stats.ts downsample.ts` 空） |
+
+`src/analytics/stats.py`（222 行）同 `frontend/src/data/stats.ts`（202 行）係同一套邏輯嘅兩份實作，
+七個對應 function，加上 `downsample` 第二實例。**之前唯一嘅一致性保障係兩邊各自人手打嘅 fixture。**
+
+---
+
+## 8 個真分歧 —— 單一根因，main agent 獨立驗證
+
+```
+Python  round(500.5)=500   round(2.5)=2   round(6.125,2)=6.12     ← 半數取偶
+JS      Math.round(500.5)=501  (2.5)=3   Math.round(6.125*100)/100=6.13   ← 半數向上
+```
+
+| # | 位置 | 輸入 | Python | TS |
+|---|---|---|---|---|
+| 1–3 | `totals` / `monthly` / `weekly` 嘅 `avg_pace_sec_per_km` | 2.00 km / 1001 s = 500.5 | **500** | **501** |
+| 4 | `totals.avg_distance_km` | 24.5 km ÷ 4 = 6.125 | **6.12** | **6.13** |
+| 5 | `training_load[].ctl` | 5.25 ÷ 42 = 0.125 | **0.12** | **0.13** |
+| 6–8 | `downsample(6,3)` / `(10,5)` / `(14,3)` | step 落喺半數 | `[0,2,5]` | `[0,3,5]` |
+
+**唔係 one-ULP 雜訊**：訪客喺 api mode 睇 500 s/km、static mode 睇 501 s/km，
+而三點 track 請求會攞到**唔同嘅 GPS 取樣點**。
+
+### 但今日零可達 —— main agent 獨立實測
+
+```
+365 條真實 activity 逐條 pace 分歧: 0/365
+全年 avg pace 商數 307.688…      py=308  js=308   一致
+avg_distance_km 6.3978…          py=6.4  js=6.4   一致
+downsample(600,150) / (600,600)  兩者都冇分歧
+```
+
+**呢個正正就係「從來冇人發現」嘅原因，亦正正係值得釘死嘅原因** —— 會揭發佢嘅資料只係未到。
+一個 2 km 跑 16:41 完全係普通訓練跑。
+
+### 邊邊可以郁（約束係硬嘅，已核實）
+
+| | 喺 export path？ | 可唔可以郁 |
+|---|---|---|
+| `analytics.builder.downsample` | ✅ `src/export/records.py:229` | ❌ 一郁就改變已發佈 bytes |
+| `analytics.stats` | ❌ 只有 `api/schema.py` 消費 | 理論上可以 |
+
+**用戶拍板：方案 A —— TypeScript 改用 Python 語義。** 因為實測今日冇一個真實值會變，
+「改變顯示數字」呢個代價今日等於零；而改 Python 要重新發佈全部 365 條 track。
+
+---
+
+## 個機制設計得好，值得複製
+
+### 1. Golden 係第三方，所以保障對稱
+
+`tests/golden/cases.json` 放**人手撰寫嘅輸入**，`tests/golden/expected.tsv` 放**機器生成嘅輸出**
+（5,479 個 `key<TAB>canonical-value`）。**兩種語言都對同一份檔案比對。**
+
+- 只改 Python → pytest 紅
+- 只改 TypeScript → vitest 紅
+- 兩邊一致咁改 → 兩邊綠（正確，因為佢哋而家真係同意）
+
+「Python 生成、TS 驗證」呢種安排**只會守住 TS 一邊** —— 呢個唔對稱正正係佢冇咁做嘅原因。
+
+### 2. 「漫不經心重新生成」結構上做唔到
+
+`UPDATE_GOLDEN=1` 可以由任何一邊重新生成 —— **但佢係同一個檔案**。由 Python 重生成會令 TypeScript
+喺分歧嗰啲 key 上紅，反之亦然。**唔存在一條令兩邊同時變綠嘅指令。**
+
+實測（M3）：mutate Python → 跑 regenerator → pytest 綠、**vitest 喺全部 10 個 key 紅**。
+
+### 3. Ledger 活唔過佢記錄嗰個 bug
+
+`tests/golden/divergences.tsv` 係**唯一**可以令一個 key 豁免嘅途徑，而**冇任何嘢會生成佢**。
+要消音必須人手寫低 key、**兩種語言各自嘅值**、同理由 —— 一個可 review 嘅 diff，唔係一個工具呼叫。
+
+而且每邊都斷言「一個 ledgered key 仍然出返佢記錄嗰個值」，所以**修好之後嗰行會令佢紅，逼你刪咗佢**。
+
+### 4. 浮點：精確比較，冇容差 —— 而且係量度之後先決定
+
+| 比較 | 分歧率 |
+|---|---|
+| `int(round(x))` vs `Math.round(x)` | **1000 / 4001** |
+| `round(v,2)` vs `Math.round(v*100)/100` | **865 / 20001** |
+| downsample 嘅 `round(i*step)` | **274 / 1275** |
+
+結論：**呢啲唔係浮點雜訊，係真分歧** —— 而每個回傳值本身已經係整數或者已經被實作 round 到兩位小數，
+**根本冇「真雜訊」需要容差去吸收**。一個 0.01 km 或 1 s/km 嘅分歧，**細過任何值得寫嘅容差**。
+
+> 呢個判斷直接引用咗 AU-008 嘅教訓：`pytest.approx(rel=1e-3)` 正正就係咁樣藏起咗一個 bug 成世。
+
+Canonical form 用**最短 round-trip 十進制**（Python `repr` / JS `String`），整數型 float 收成整數
+（Python 寫 `23.0` 而 JS 寫 `23`，而呢度嘅契約係數值而唔係型別）。最短 round-trip 同 double 係雙射，
+所以**字串相等即係 bit 相等**。指數表示法**明確拒絕**而唔係輸出（兩邊串法唔同：`1e-07` vs `1e-7`），
+呢個 guard 本身喺兩邊都有測試。
+
+### 5. 輸入覆蓋係列舉分支再砌，唔係抽樣
+
+9 個 stats case、3 個 training-load case、14 個 downsample case、9 個 `days_in_year` 探針、27 個 `week_index` 探針。
+覆蓋：世紀非閏年（1900/2100）同世紀閏年（2000/2400）；週一 / 週五 / 週三 / 週日開年
+（**2012 = 54 週，呢個週制嘅上限**）；2 月 28/29 日同 3 月 1 日；12 月 31 日；
+全空；calories / cadence 全 null；零距離；`pace == 0`（falsy，唔可以贏 `fastest`）；
+`FASTEST_MIN_KM` 兩邊（5.00 合格 / 4.99 唔合格但 pace 更快）；四種 tie-break；
+空月份同「只有 <5km 跑」嘅月份；50 日 training-load 序列（長過 `CTL_DAYS = 42`，含休息日、42.2 km 尖峰、taper）。
+
+**Rounding 邊界係刻意瞄準嘅**：24.5 km ÷ 4 = 6.125、2.00 km / 1001 s = 500.5、5.25 ÷ 42 = 0.125 ——
+全部係 dyadic，所以冇浮點雜訊遮住 tie-break 規則。
+
+全年序列（`daily_distance`、`training_load`）用 `len` + **全部行嘅 sha256 digest** + 探針索引嘅完整行儲存。
+實測（M5）：喺一個**冇被探針覆蓋**嘅索引 mutate → **只有 `.digest` 紅** —— 證明 digest 真係覆蓋全部行而唔係抽樣。
+
+### 6. 冇加 CI job，而且係刻意推翻 audit 建議
+
+兩半本來就已經喺同一個 checkout 上每次 push / PR 都跑（`pytest tests` 喺 `lint-test`、
+`golden.test.ts` 喺 `frontend`）。兩邊都綠 → Python == golden 且 TypeScript == golden →
+**Python == TypeScript（傳遞性）**。第三個 job 會重跑同一個比較，而且要裝齊兩套 toolchain。
+
+呢個 repo 自己 `pages.yml` 嘅註釋就長篇論證過「一份放喺第二個地方嘅清單就係一份會漂移嘅拷貝」（AU-010）。
+理由寫入咗 harness 嘅 module docstring，令將來嘅讀者唔會將「冇 job」讀成疏忽。
+
+---
+
+## Main agent 獨立驗證咗嘅
+
+| Claim | 結果 |
+|---|---|
+| Python vs JS 半數進位根因 | ✅ 逐個數字重現 |
+| 真實資料零分歧 | ✅ 自己跑 365 條，0/365 |
+| Gate 真係會紅 | ✅ mutate `_pace` → 10 個值紅、訊息清楚；還原 → 綠 |
+| `stats.py` 唔喺 export path、`downsample` 喺 | ✅ grep 確認 |
+
+---
+
+## 一個 main agent 之前一直做啱但冇講清楚嘅嘢
+
+Lane 指出：**static export 唔係 run-to-run byte-reproducible** —— `meta.json` 帶 `generated_at`，
+所以一個 naive tree hash 每次都唔同。
+
+我一直用嘅斷言方式（總 bytes + 檔案數 + `diff -r` 只有 `meta.json` 唔同）**係啱嘅**，
+但如果將來有 lane 改用 tree hash 就會追鬼影。**正確做法：tree hash 要排除 `meta.json`。**
+呢點已經寫入本檔案嘅基準說明。
+
+---
+
+## 新開
+
+| ID | 級別 | 標題 |
+|---|---|---|
+| **CUI-0060** | 🟡 Medium | `src/api/service.py::_even_positions` 係取樣算術嘅**第三份**手寫拷貝，佢自己 docstring 都咁講；今日同 Python 一致（同語言）但**冇任何嘢比對佢**。同 AU-009 同一缺陷類別，低一層。純函數 `(total, points)`，好平就可以摺入現有 harness |
+| **CUI-0061** | 🟢 Low | `frontend/src/data/stats.ts:13-15` 嘅註釋仍然寫住「a line-for-line port of `src/dashboard/stats.py`」—— AU-005 已將該路徑改名做 `src/analytics/`。同類過時註釋已修兩處，呢處因為 lane scope 限制而留低 |
