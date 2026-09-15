@@ -769,7 +769,7 @@ batch review round 2（**pass 99**）→ batch QA（**pass，0 Critical**）→ 
 | ID | 級別 | 內容 | 狀態 |
 |---|---|---|---|
 | **S-030** | 🟢 | activities list 空 → `current` undefined → `enabled: !!id` 令 query 永遠 `isPending` → 頁面**永遠「Loading…」**，冇 empty state。Pre-existing，同 CUI-0016 唔同源 | **pending** —— 加 empty state 係真視覺改動，要另行 UI visual gate |
-| **S-034** | 🟢 | pending 軸嘅分層降級（per-region 三態：skeleton / error / charts）。做咗之後先可以將 `track.isPending` 由 global gate 拆走 | **pending** —— 已喺 `ActivityView.tsx:70` 註釋點名為前置條件 |
+| **S-037** | 🟢 | pending 軸嘅分層降級（per-region 三態：skeleton / error / charts）。做咗之後先可以將 `track.isPending` 由 global gate 拆走 | **pending** —— 已喺 `ActivityView.tsx:70` 註釋點名為前置條件<br>⚠️ 本條原本誤編為 S-034，見下方「編號撞車更正」 |
 
 ### 三處「下游用實測推翻上游」（本批最有價值嘅部分）
 
@@ -835,3 +835,28 @@ AU-047 立嘅 W-017 係「**數字**值得寫低就值得 assert」。本批顯�
 
 1. **「量」同「算」混喺同一個表而唔標示** —— reviewer round 1 自己中招，而佢當時已經見到實測同算式差 1 但冇追。
 2. **測試只斷言「應該出現嘅嘢」，冇斷言「唔應該出現嘅嘢」** —— CUI-0016 第一版斷言「有冇 track 專屬訊息」，所以成舊序列化 `ClientError`（連 raw GraphQL document 同 variables）吐晒出街都照樣綠。要真機截圖先捉到。
+
+### Review round 3（CUI-0019 docstring lane，`4df728e`）
+
+| ID | 級別 | 內容 | 狀態 |
+|---|---|---|---|
+| **S-034** | 🟢 | `224x` 應為 **223x**（134041 / 600 = 223.40）。幅度 0.3%，但方向係加強自己論點 | ✅ **Done** `bc0a7ca` |
+| **S-035** | 🟢 | 「the two 52-parent shapes, **which open no batch**」係錯 —— 實測 `_parent_flood(52)` 開 1 個 batch、`_distinct_parent_flood(52)` 開 52 個，每個 1 條 OR arm。結論啱，機制描述錯 | ✅ **Done** `bc0a7ca` |
+| **S-036** | 🟢 | 個「預期會紅」嘅設計要寫白啲：講明將 `BATCH_COST_GROWTH_FLOOR` 由 1.5 調落 0.9 唔係合法嘅扮綠方法；常數 docstring 寫「Below 1.0 would mean…」但 assertion 實際喺 1.5 fire，並排易誤導；順帶記低 2.15 係喺 SQLite 3.45.1 量 | pending |
+
+### ⚠️ 編號撞車更正（2026-09-15）
+
+`S-034` 一度被派咗兩次：main agent 喺本檔用佢登記「per-region pending 三態」，而 code reviewer 同時獨立派畀「224x → 223x」。
+
+**裁決：reviewer 嗰個版本保留 S-034。** 理由係佢已經寫死咗喺 git history（`bc0a7ca` 同 merge commit `14a7f9d` 嘅 message、以及 955 行 review 報告），改唔到；main agent 嗰個只喺本檔出現過一次，改動成本近乎零。per-region pending 三態**已重編為 S-037**。
+
+成因：main agent 喺 reviewer 仲跑緊、未交報告嗰陣就自行派新編號，冇留意 reviewer 手上可能已經用緊同一段號。**教訓：ID 只應由一個角色派，或者派之前一定要先睇晒所有 in-flight 嘅 agent 輸出。**
+
+### CUI-0006 同 W-019 嘅關係（2026-09-15 補充）
+
+`CUI-0006`（`parse_datetime` 嘅 ISO-with-offset 分支無視 `timezone` 參數）**仍然 pending，行為未改**。W-019 做嘅係將呢個行為由「docstring 講到佢會轉換」改成「docstring 照實講佢唔轉換」，並加咗四條測試釘死現狀。即係話 CUI-0006 由「未記載嘅行為」變成「已記載並有 gate 嘅行為」——要唔要改返，仍然係一個未決嘅產品決定。
+
+### CUI-0017 嘅數字已被 AU-050 改變（2026-09-15 補充）
+
+`CUI-0017` 講嘅「實測 request 層面去到 208」喺 AU-050 之後**只對 distinct-parent 嘅形狀成立**：52 個 aliased parent 指住**同一條** activity 而家係 **106**（per-request memoization），指住 **52 條唔同** activity 先仍然係 208。修 CUI-0017 嗰陣要用返新數字。
+
