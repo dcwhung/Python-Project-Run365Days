@@ -11,11 +11,13 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
-from graphql import GraphQLSyntaxError, parse
+from graphql import GraphQLList, GraphQLNonNull, GraphQLObjectType, GraphQLSyntaxError, parse
+from graphql import build_schema as build_schema_from_sdl
 from run365days.api import db, service
 from run365days.api.app import GRAPHQL_PATH, HEALTH_PATH, create_app
 from run365days.api.schema import (
     MAX_PAGE_SIZE,
+    MAX_QUERY_DEPTH,
     MAX_QUERY_TOKENS,
     MAX_TRACK_FIELDS_PER_REQUEST,
     MAX_TRACK_POINTS,
@@ -417,6 +419,80 @@ def test_query_deeper_than_the_configured_limit_is_rejected():
     result = shallow_schema.execute_sync(DEEPEST_CLIENT_QUERY)
     assert result.errors
     assert "depth" in str(result.errors[0]).lower()
+
+
+DEEPEST_REACHABLE_DEPTH = 4
+"""The smallest ``max_depth`` that admits the deepest document this schema can build.
+
+One *below* MAX_QUERY_DEPTH, which is the whole of CUI-0003: the depth limiter
+cannot fire against the schema as it stands, and MAX_QUERY_TOKENS is what
+actually answers an alias flood.
+"""
+
+
+def _unwrap(gql_type):
+    """Strip ``!`` and ``[]`` off *gql_type* to get at the named type inside."""
+    while isinstance(gql_type, GraphQLList | GraphQLNonNull):
+        gql_type = gql_type.of_type
+    return gql_type
+
+
+def _deepest_selection(gql_type, seen=()):
+    """Field levels the deepest document rooted at *gql_type* can nest.
+
+    Walks the type graph rather than any particular document, so it answers
+    "how deep can a client go", not "how deep does the dashboard go".
+
+    Counts the leaf field as a level, which ``QueryDepthLimiter`` does not, so
+    the ``max_depth`` the same document needs is one less than this returns.
+    ``seen`` carries the types already on this path: the graph is acyclic
+    today, and this is what keeps the walk finite on the day it stops being.
+    """
+    if not isinstance(gql_type, GraphQLObjectType) or gql_type.name in seen:
+        return 0
+    seen = (*seen, gql_type.name)
+    return max(
+        (
+            1 + _deepest_selection(_unwrap(field.type), seen)
+            for name, field in gql_type.fields.items()
+            if not name.startswith("__")
+        ),
+        default=0,
+    )
+
+
+def test_the_depth_limiter_refuses_one_level_below_the_deepest_document(year_session):
+    # CUI-0003. The existing max_depth=2 test above shows the limiter refusing
+    # something; it does not show where the edge is. These two calls put the
+    # deepest document the schema can express on either side of it, so the
+    # limiter is pinned as connected rather than merely present -- the schema
+    # reports 100% coverage on build_schema either way.
+    deep_enough = build_schema(max_depth=DEEPEST_REACHABLE_DEPTH)
+    served = deep_enough.execute_sync(DEEPEST_CLIENT_QUERY, context_value={"session": year_session})
+    assert not served.errors, served.errors
+    assert served.data["year"] is not None
+
+    one_short = build_schema(max_depth=DEEPEST_REACHABLE_DEPTH - 1)
+    refused = one_short.execute_sync(DEEPEST_CLIENT_QUERY, context_value={"session": year_session})
+    assert refused.errors
+    assert "depth" in str(refused.errors[0]).lower()
+
+
+def test_the_type_graph_stays_one_level_below_the_depth_limit():
+    # What this test is for is the person who adds a nested field. MAX_QUERY_DEPTH
+    # is set one level above anything the schema can express, so today the
+    # limiter never fires -- deliberately, as headroom. Deepen the type graph by
+    # one and that silently becomes "fires on the deepest legal document", which
+    # is a change worth noticing rather than discovering from a client. This is
+    # what notices it.
+    root = build_schema_from_sdl(schema.as_str()).query_type
+    reachable = _deepest_selection(root) - 1
+
+    assert reachable == DEEPEST_REACHABLE_DEPTH, (
+        "the type graph changed depth; re-read MAX_QUERY_DEPTH's docstring, which "
+        "says the limiter cannot fire, and the test above, which says where it would"
+    )
+    assert reachable < MAX_QUERY_DEPTH, "the limiter can now refuse a document the schema allows"
 
 
 def test_document_with_too_many_tokens_is_rejected(client):

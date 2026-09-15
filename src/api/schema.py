@@ -210,8 +210,26 @@ MAX_QUERY_DEPTH = 5
 
 The deepest document the dashboard sends is ``YearQuery`` at depth 4
 (year -> personalBests -> longest -> weather -> leaf), which is also the
-deepest the acyclic type graph allows today; 5 leaves one level of headroom
-for a new nested field without reopening the limit question.
+deepest the acyclic type graph allows today. So 5 is one level of headroom and
+nothing else: **this limiter cannot fire against the schema as it stands**, and
+that is the choice, not an oversight (CUI-0003). A document deep enough to
+refuse cannot be written, so nothing a client sends today is stopped here.
+
+What actually answers the abuse this was reached for is
+:data:`MAX_QUERY_TOKENS`. An alias flood is wide rather than deep -- it repeats
+a depth-2 field hundreds of times -- so the depth limiter would let every one
+of them through whatever it were set to, and the token limiter is what refuses
+them. Read "we have a depth limit" as covering that and the cover is imaginary.
+
+Keeping the headroom rather than tightening to 4 costs nothing while the graph
+stays this shape, and means a new nested field is a schema change rather than
+also a limit change. The trade is that the limit then stops being unreachable
+without anyone noticing, so it is a test that notices:
+``test_the_type_graph_stays_one_level_below_the_depth_limit`` walks the type
+graph and goes red the moment a field makes it deeper, and
+``test_the_depth_limiter_refuses_one_level_below_the_deepest_document`` holds
+the limiter either side of that edge, since ``build_schema`` reports full
+coverage whether the extension is wired up or not.
 """
 
 MAX_QUERY_TOKENS = 1000
