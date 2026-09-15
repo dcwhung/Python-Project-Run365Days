@@ -91,7 +91,10 @@ request issues, because every parent field carrying a ``track`` costs about two
 statements of its own first -- a list plus its warnings for ``activities``, a
 get plus its warnings for ``activity(id:)`` -- and it pays them whether the
 ``track`` under it is served or refused. That half of the cost is bounded by
-:data:`MAX_QUERY_TOKENS` alone.
+:data:`MAX_QUERY_TOKENS` alone, and
+``test_a_flood_of_aliased_parents_issues_more_statements_than_the_field_cap_bounds``
+holds the two apart: the widest flood of parents the token limit admits issues
+208 statements where this cap on its own would account for 128.
 
 Measured through the Flask client against the ``year_db`` fixture in
 ``tests/test_api.py``: 365 activities, of which one carries a full 600-point
