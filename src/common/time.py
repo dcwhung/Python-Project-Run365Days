@@ -94,6 +94,15 @@ def parse_datetime(rec_time: str, timezone: str = "Asia/Hong_Kong") -> datetime:
         elif "+" in rec_time:
             return dateutil.parser.parse(rec_time)
     elif rec_time.isdigit() and len(rec_time) == _UNIX_MS_DIGITS:
+        # Quantised to a tenth of a second, which is coarser than the input:
+        # a millisecond residue is rounded rather than carried, so 1634422256092
+        # comes back as .100000 -- 8ms this timestamp never had. Kept because it
+        # predates AU-048 and every value that reaches it is a whole second
+        # (residues across the 660 tracked activities are 659 x 0 and 1 x 92), so
+        # changing it would alter no output while changing a shared parser. The
+        # fabrication is pinned by test_a_millisecond_residue_is_rounded_to_a
+        # _tenth_of_a_second so removing the round is a deliberate act, not a
+        # silent one. `fromtimestamp` takes the unrounded float perfectly well.
         epoch_seconds = round(int(rec_time) / _MS_PER_SECOND, 1)
         # Epoch milliseconds name an absolute instant (Garmin's beginTimestamp, equal to
         # its startTimeGmt), so the instant is converted into *timezone* rather than

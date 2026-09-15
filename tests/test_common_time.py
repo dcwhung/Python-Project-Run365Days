@@ -201,6 +201,19 @@ class TestParseDateTimeEpochMilliseconds:
         assert dt.isoformat() == "2021-10-17T14:10:56+08:00"
         assert dt - parse_datetime(GARMIN_BEGIN_TIMESTAMP_MS) == timedelta(hours=8)
 
+    def test_a_millisecond_residue_is_rounded_to_a_tenth_of_a_second(self):
+        # The `round(..., 1)` in the epoch branch, which had no comment and no
+        # test (S-031). It is coarser than its own input: 092ms becomes .100000,
+        # 8ms this timestamp never carried. Pinned rather than corrected --
+        # every value that actually reaches this path is a whole second, so
+        # dropping the round changes nothing in the data and would still change
+        # a parser three callers share. This is what makes that a decision.
+        assert parse_datetime("1634422256092").isoformat() == "2021-10-17T06:10:56.100000+08:00"
+        # A residue under 50ms goes the other way, to no sub-second part at all.
+        assert parse_datetime("1634422256040").isoformat() == "2021-10-17T06:10:56+08:00"
+        # And the whole-second case every tracked activity but one actually has.
+        assert parse_datetime(GARMIN_BEGIN_TIMESTAMP_MS).microsecond == 0
+
     def test_ten_digit_epoch_seconds_are_not_treated_as_epoch_milliseconds(self):
         # Only 13-digit strings take the epoch path; anything else falls through to
         # the naive "%Y-%m-%d %H:%M:%S" parse and is rejected.
