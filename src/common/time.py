@@ -53,8 +53,11 @@ def parse_datetime(rec_time: str, timezone: str = "Asia/Hong_Kong") -> datetime:
 
     - ``2021-10-16T22:10:56.000Z`` (UTC ISO with milliseconds)
     - ``2021-10-17T06:10:56+08:00`` (ISO with offset)
-    - ``1634451056000`` (Unix timestamp in milliseconds)
+    - ``1634422256000`` (Unix timestamp in milliseconds, exactly 13 digits)
     - ``2021-10-17 06:10:56`` (naive local time)
+
+    The first and third are absolute instants and are converted into *timezone*; the
+    other two already carry that zone's wall clock and keep it.
 
     Args:
         rec_time: The timestamp string.
@@ -76,14 +79,14 @@ def parse_datetime(rec_time: str, timezone: str = "Asia/Hong_Kong") -> datetime:
             return dateutil.parser.parse(rec_time)
     elif rec_time.isdigit() and len(rec_time) == _UNIX_MS_DIGITS:
         epoch_seconds = round(int(rec_time) / _MS_PER_SECOND, 1)
-        # KNOWN INCORRECT, kept deliberately. The epoch is read as UTC and then
-        # relabelled -- not converted -- to *timezone*, so the result is 8 hours off for
-        # Asia/Hong_Kong. AU-003 was scoped to the offset only and preserved this wall
-        # clock; correcting the shift is AU-048. TestParseDateTimeWallClockUnchanged in
-        # tests/test_common_time.py pins the current behaviour on purpose and must be
-        # updated in the same change as this line.
-        naive_utc = datetime.fromtimestamp(epoch_seconds, tz=dt_timezone.utc).replace(tzinfo=None)
-        return naive_utc.replace(tzinfo=tz)
+        # Epoch milliseconds name an absolute instant (Garmin's beginTimestamp, equal to
+        # its startTimeGmt), so the instant is converted into *timezone* rather than
+        # relabelled: the wall clock legitimately differs from the UTC one. Garmin's
+        # startTimeLocal is that wall clock re-encoded as if it were UTC and must never
+        # reach here -- feeding it in lands 8 hours late, which is the defect AU-003 left
+        # in place and AU-048 fixed. See TestParseDateTimeAbsoluteInstantInputs and
+        # TestParseDateTimeEpochMilliseconds in tests/test_common_time.py.
+        return datetime.fromtimestamp(epoch_seconds, tz=tz)
 
     return datetime.strptime(rec_time, "%Y-%m-%d %H:%M:%S").replace(tzinfo=tz)
 
