@@ -224,3 +224,36 @@ class TestExportedColumnNames:
         assert RAW_HOURLY_TIME_COLUMN in hourly
         assert RAW_WARNING_SIGNAL_COLUMN in warning
         assert SUN_MOON_SUNRISE_COLUMN in daily and SUN_MOON_SUNSET_COLUMN in daily
+
+
+class TestMissingStringColumnsReadAsEmptyText:
+    """A missing string column reads as ``""``, never as ``None`` (CUI-0014).
+
+    This is a deliberate choice, not an oversight: the string fields are
+    annotated ``str``, and defaulting a missing column to ``""`` is what keeps
+    that annotation honest without widening five fields to ``str | None``. The
+    pre-CUI-0011 readers produced ``None`` here, so this is a real narrowing --
+    accepted on CUI-0014 because no committed row is missing a column, and
+    pinned here so it cannot drift back unnoticed.
+
+    If anyone restores the ``None`` behaviour, these tests fail.
+    """
+
+    def test_hourly_from_raw_row_reads_a_missing_string_column_as_empty_text(self):
+        row = {RAW_DATE_COLUMN: "2021-01-08", RAW_HOURLY_TIME_COLUMN: "12:00"}
+
+        record = HourlyWeather.from_raw_row(row)
+
+        assert record.description == ""
+        assert record.description is not None
+
+    def test_warning_from_raw_row_reads_a_missing_string_column_as_empty_text(self):
+        row = {RAW_DATE_COLUMN: "2021-01-08", RAW_WARNING_SIGNAL_COLUMN: "AMBER"}
+
+        record = WeatherWarning.from_raw_row(row)
+
+        assert record.warning_type == ""
+        assert record.start_time == ""
+        assert record.end_time == ""
+        assert record.icon_url == ""
+        assert None not in (record.warning_type, record.start_time, record.end_time)

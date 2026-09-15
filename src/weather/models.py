@@ -52,6 +52,18 @@ _DAILY_RAINFALL_COLUMN: Final = "Total Rainfall (mm)"
 _DAILY_WIND_COLUMN: Final = "Avg. Wind Speed (km/h)"
 
 _MISSING_TEXT: Final = ""
+"""What a missing *string* column reads as: empty text, not ``None`` (CUI-0014).
+
+Every string field on these dataclasses is annotated ``str``, and this default is
+what keeps that annotation honest -- the alternative was widening five fields to
+``str | None`` to describe a case no committed row exhibits. The pre-CUI-0011
+readers produced ``None`` here, so this is a deliberate narrowing, accepted on
+CUI-0014 and pinned by ``TestMissingStringColumnsReadAsEmptyText``.
+
+It applies to absent *readings* only. The date column is the row's identity
+rather than a reading, so it is read with ``row[RAW_DATE_COLUMN]`` and a missing
+one raises ``KeyError`` -- see :meth:`HourlyWeather.from_raw_row`.
+"""
 
 
 @dataclass
@@ -92,6 +104,20 @@ class HourlyWeather:
         Readings go through :func:`to_float` because the committed file spells
         the same column both ways -- ``Temperature (°C)`` is a JSON number in
         17,938 rows and a string in 46 -- and a fresh collection writes floats.
+
+        A missing ``Time`` or ``Description`` reads as :data:`_MISSING_TEXT`
+        (``""``), not ``None``: the fields are annotated ``str`` and stay that
+        way. This differs from the pre-CUI-0011 reader, which produced ``None``
+        -- a deliberate narrowing accepted on CUI-0014, where all 17,984
+        committed hourly rows were found to share one key set, so no real row
+        reaches it. ``""`` and ``None`` are not interchangeable downstream
+        (``value is None`` catches only one, and JSON writes ``""`` vs ``null``),
+        hence the explicit note and the tests that pin it.
+
+        ``Date`` is the exception and is read with ``row[...]``: it is the row's
+        identity, the key every export record and day lookup joins on, so a row
+        without one is broken data. It raises ``KeyError`` by design rather than
+        defaulting to ``""`` and quietly producing a record keyed on empty text.
         """
         return cls(
             date=row[RAW_DATE_COLUMN],
@@ -136,7 +162,19 @@ class WeatherWarning:
 
     @classmethod
     def from_raw_row(cls, row: dict) -> "WeatherWarning":
-        """Build a warning from a ``weather_warning_history.json`` row."""
+        """Build a warning from a ``weather_warning_history.json`` row.
+
+        All five text columns default to :data:`_MISSING_TEXT` (``""``) when
+        absent, not to ``None``, keeping the ``str`` annotations honest. The
+        pre-CUI-0011 reader produced ``None``; the narrowing was accepted on
+        CUI-0014 after all 461 committed warning rows were found to carry every
+        column, and ``TestMissingStringColumnsReadAsEmptyText`` pins it so it
+        cannot drift back silently.
+
+        ``Date`` is deliberately read with ``row[...]`` and raises ``KeyError``
+        when absent -- see :meth:`HourlyWeather.from_raw_row` for why the key
+        column fails fast while the readings degrade.
+        """
         return cls(
             date=row[RAW_DATE_COLUMN],
             warning_type=row.get(_WARNING_TYPE_COLUMN, _MISSING_TEXT),
@@ -203,6 +241,12 @@ class DailyWeather:
         Readings go through :func:`to_float`, so HKO's non-numeric placeholders
         (``"Trace"`` for immeasurable rainfall) read as ``None``. The joined
         sun/moon columns are ignored -- see :meth:`to_raw_row`.
+
+        :data:`_MISSING_TEXT` does not arise here: every reading this class
+        declares is ``float | None``, so a missing one already reads as ``None``
+        and there is no string field to default. ``Date`` fails fast on ``[...]``
+        exactly as on the other two classes -- see
+        :meth:`HourlyWeather.from_raw_row` (CUI-0014).
         """
         return cls(
             date=row[RAW_DATE_COLUMN],
