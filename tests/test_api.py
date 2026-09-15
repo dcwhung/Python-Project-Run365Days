@@ -48,6 +48,37 @@ def client(sample_records, tmp_path):
     return app.test_client()
 
 
+def _activity_row(index: int, stored: int, prefix: str = "r", has_gps: bool = True):
+    """One activity carrying *stored* track rows, numbered ``seq``/``sec`` 0..stored-1.
+
+    ``sec`` is the row's own position, which is what lets every sampling test
+    read a returned ``sec`` as "this is the row the sampler picked".
+    """
+    day = (date(2021, 1, 1) + timedelta(days=index)).isoformat()
+    return models.Activity(
+        id=f"{prefix}{index}",
+        date=day,
+        start_time=f"{day} 06:00:00",
+        day_of_year=index + 1,
+        distance_km=5.0,
+        duration_sec=1800,
+        pace_sec_per_km=360,
+        calories=300,
+        avg_cadence=83.0,
+        avg_temp_c=None,
+        elevation_min_m=None,
+        elevation_max_m=None,
+        ascent_m=None,
+        has_gps=has_gps,
+        num_points=stored,
+        weather_description=None,
+        weather_temp_c=None,
+        weather_humidity_pct=None,
+        weather_wind_kmh=None,
+        track_points=[models.TrackPoint(seq=s, sec=s, lat=22.3, lon=114.2) for s in range(stored)],
+    )
+
+
 def _write_year_db(path: Path) -> None:
     """A full year of rows, with one activity carrying a real-sized track."""
     engine = create_engine(sqlite_url(path))
@@ -61,36 +92,27 @@ def _write_year_db(path: Path) -> None:
         )
         for i in range(YEAR_DAYS):
             day = (date(2021, 1, 1) + timedelta(days=i)).isoformat()
-            session.add(
-                models.Activity(
-                    id=f"r{i}",
-                    date=day,
-                    start_time=f"{day} 06:00:00",
-                    day_of_year=i + 1,
-                    distance_km=5.0,
-                    duration_sec=1800,
-                    pace_sec_per_km=360,
-                    calories=300,
-                    avg_cadence=83.0,
-                    avg_temp_c=None,
-                    elevation_min_m=None,
-                    elevation_max_m=None,
-                    ascent_m=None,
-                    has_gps=True,
-                    num_points=STORED_TRACK_POINTS if i == 0 else 0,
-                    weather_description=None,
-                    weather_temp_c=None,
-                    weather_humidity_pct=None,
-                    weather_wind_kmh=None,
-                    track_points=[
-                        models.TrackPoint(seq=s, sec=s, lat=22.3, lon=114.2)
-                        for s in range(STORED_TRACK_POINTS if i == 0 else 0)
-                    ],
-                )
-            )
+            session.add(_activity_row(i, STORED_TRACK_POINTS if i == 0 else 0))
             session.add(models.WeightEntry(date=day, weight_lbs=154.0, weight_kg=70.0, bmi=24.0))
             session.add(models.DailyWeather(date=day, max_temp_c=21.0))
             session.add(models.WeatherWarning(date=day, type="Fire Danger", signal="RED"))
+        session.commit()
+    engine.dispose()
+
+
+def _write_track_db(path: Path, lengths, prefix: str) -> None:
+    """A database whose only interesting axis is how long each activity's track is."""
+    engine = create_engine(sqlite_url(path))
+    models.Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        session.add_all(
+            [
+                models.Meta(key="year", value="2021"),
+                models.Meta(key="generated_at", value="2026-01-01T00:00:00"),
+            ]
+        )
+        for i, stored in enumerate(lengths):
+            session.add(_activity_row(i, stored, prefix=prefix, has_gps=stored > 0))
         session.commit()
     engine.dispose()
 
@@ -113,6 +135,40 @@ def year_client(year_db):
 def year_session(year_db):
     with db.session_scope(db.make_engine(year_db)) as session:
         yield session
+
+
+VARIED_TRACK_LENGTHS = (0, 1, 2, 4, 250, 347, 600, 601, 1250)
+"""Stored track lengths for the batching fixture: every activity a different one.
+
+A batch reads many tracks in one statement, so a sampler that derived one
+stride for the whole batch -- or that rounded in SQL rather than in Python --
+would still look right on a fixture where every track is the same length. The
+lengths straddle the 600-row export limit and include the degenerate 0, 1 and 2
+that the position arithmetic has to survive.
+"""
+
+VARIED_IDS = tuple(f"v{i}" for i in range(len(VARIED_TRACK_LENGTHS)))
+"""Activity ids of the varied fixture, in the order ``activities`` returns them."""
+
+
+@pytest.fixture
+def varied_db(tmp_path):
+    path = tmp_path / "varied.db"
+    _write_track_db(path, VARIED_TRACK_LENGTHS, prefix="v")
+    return path
+
+
+@pytest.fixture
+def varied_session(varied_db):
+    with db.session_scope(db.make_engine(varied_db)) as session:
+        yield session
+
+
+@pytest.fixture
+def varied_client(varied_db):
+    app = create_app(varied_db, graphiql=False)
+    app.testing = True
+    return app.test_client()
 
 
 def gql(client, query, variables=None):
@@ -568,11 +624,19 @@ def test_the_schema_does_not_batch_operations():
 
 
 # ── AU-047 C-001: a per-request bound on track round trips ─────────────────
-SQL_PER_TRACK_FIELD = 2
-"""Statements one ``track`` field issues: a COUNT then a SELECT.
+SQL_PER_TRACK_BATCH = 2
+"""Statements one batched ``track`` read issues: a grouped COUNT, then one SELECT.
 
-See ``service._even_sample_filter``. The number is fixed -- it does not move
-with ``points`` -- which is exactly why the points budget cannot bound it.
+The COUNT is grouped by ``activity_id`` and the SELECT numbers rows with
+``row_number() OVER (PARTITION BY activity_id ORDER BY seq)``, so one of each
+covers the whole batch. See ``service.tracks``.
+
+This is the number AU-050 moved. It is charged per *batch*, not per ``track``
+field: before the ticket every field paid two statements of its own, which is
+why the first DOCUMENTED_WORST_CASES row -- a page of 64 tracks -- asserted 130
+where it now asserts 4. It is still fixed, and still does not move with
+``points``, which is why the points budget cannot bound the round trips and
+MAX_TRACK_FIELDS_PER_REQUEST has to.
 """
 
 SQL_PER_LIST_FIELD = 2
@@ -593,19 +657,21 @@ figure -- this document lexes to 515 of MAX_QUERY_TOKENS.
 """
 
 ALIAS_FLOOD_MAX_SQL = (
-    MAX_TRACK_FIELDS_PER_REQUEST * SQL_PER_TRACK_FIELD + ALIAS_FLOOD_ALIASES * SQL_PER_LIST_FIELD
+    MAX_TRACK_FIELDS_PER_REQUEST * SQL_PER_TRACK_BATCH + ALIAS_FLOOD_ALIASES * SQL_PER_LIST_FIELD
 )
 """Statements a flood of this width may issue, whether it is served or refused.
 
-Every ``track`` field the cap allows, plus one list query and one warnings
-query for each of the ALIAS_FLOOD_ALIASES parents.
+Every ``track`` field the cap allows opening a batch of its own -- the worst
+case, which batching makes an over-estimate rather than a reading -- plus one
+list query and one warnings query for each of the ALIAS_FLOOD_ALIASES parents.
 
 Deliberately *not* named as a per-request ceiling, because it is not one: the
 cap bounds ``track`` statements only, and each parent field carrying a track
 pays for itself on top. A document that spends its tokens on more parents than
-this flood does goes higher -- 52 aliased parents each taking one track are
-legal, served, and issue 208 statements. See the docstring of
-``MAX_TRACK_FIELDS_PER_REQUEST`` for what the cap does and does not bound.
+this flood does goes higher -- 52 aliased parents each taking one track of a
+*different* activity are legal, served, and issue 208 statements. See the
+docstring of ``MAX_TRACK_FIELDS_PER_REQUEST`` for what the cap does and does
+not bound.
 """
 
 
@@ -669,10 +735,24 @@ def _aliased_tracks(tracks: int, activity_id: str = TRACKED_ACTIVITY_ID) -> str:
 
 
 def _parent_flood(parents: int, activity_id: str = TRACKED_ACTIVITY_ID) -> str:
-    """*parents* aliased ``activity(id:)`` fields, one cheap ``track`` each."""
+    """*parents* aliased ``activity(id:)`` fields, one cheap ``track`` each.
+
+    All of them name the same activity, so their tracks are one batch.
+    """
     fields = " ".join(
         f'a{n}: activity(id: "{activity_id}") {{ {CHEAP_TRACK} }}' for n in range(parents)
     )
+    return _document(fields)
+
+
+def _distinct_parent_flood(parents: int) -> str:
+    """*parents* aliased ``activity(id:)`` fields, each naming a different activity.
+
+    The same shape as ``_parent_flood`` and the same token cost -- an id is one
+    STRING token whatever it spells -- but no two of these tracks can share a
+    batch, so this is the shape that still pays two statements per track.
+    """
+    fields = " ".join(f'a{n}: activity(id: "r{n}") {{ {CHEAP_TRACK} }}' for n in range(parents))
     return _document(fields)
 
 
@@ -768,9 +848,10 @@ DOCUMENTED_WORST_CASES = (
         "saturating the cap takes one list field",
         _cheap_tracks(MAX_TRACK_FIELDS_PER_REQUEST),
         19,
-        130,
+        4,
     ),
-    ("spending the document on parents reaches further", _parent_flood(52), 990, 208),
+    ("52 parents of one activity share one batch", _parent_flood(52), 990, 106),
+    ("52 parents of different activities share none", _distinct_parent_flood(52), 990, 208),
     ("a document that takes no track is not bounded here", _list_flood(166), 998, 332),
 )
 """(label, document, tokens, statements) for each worst case the docstrings cite.
@@ -811,9 +892,9 @@ def test_aliased_track_fields_under_one_parent_reach_the_field_cap(year_client, 
 
     served = gql(year_client, fits)
     assert len(served["activity"]) == MAX_TRACK_FIELDS_PER_REQUEST
-    assert sql_count[0] == (
-        SQL_PER_ACTIVITY_FIELD + MAX_TRACK_FIELDS_PER_REQUEST * SQL_PER_TRACK_FIELD
-    )
+    # One activity, one `points`, so all 64 fields are one batch: the parent's
+    # two statements plus the batch's two, not two per field as before AU-050.
+    assert sql_count[0] == SQL_PER_ACTIVITY_FIELD + SQL_PER_TRACK_BATCH
 
     over = _aliased_tracks(MAX_TRACK_FIELDS_PER_REQUEST + 1)
     assert _token_count(over) == 725 < MAX_QUERY_TOKENS, "the parser must not be the one refusing"
@@ -1016,3 +1097,217 @@ def test_track_fails_closed_when_the_context_cannot_be_seeded(year_session):
     assert result.errors
     assert NOT_SEEDED in result.errors[0].message
     assert _track_rows(result) == []
+
+
+# ── AU-050: one statement per batch of tracks, not two per track ───────────
+@pytest.fixture
+def track_rows_loaded():
+    """Count the ORM track points every session materialises while the fixture is alive."""
+    loaded = [0]
+
+    def tally(_session, obj):
+        if isinstance(obj, models.TrackPoint):
+            loaded[0] += 1
+
+    # On the Session class, not an instance: create_app opens its own session
+    # per request, so a test client gives no session to attach to.
+    event.listen(Session, "loaded_as_persistent", tally)
+    try:
+        yield loaded
+    finally:
+        event.remove(Session, "loaded_as_persistent", tally)
+
+
+@pytest.mark.parametrize("points", [1, 2, 3, 5, 7, 10, 37, 150, 599, 600, 1000])
+def test_batched_tracks_match_the_reference_downsampler(varied_session, points):
+    # The constraint the whole ticket hangs on. Every track in this batch is a
+    # different length, so each one needs its own stride and its own rounding:
+    # a batch that derived one stride for all of them, or that rounded in SQL
+    # rather than in Python, would come back off by a row here and nowhere else.
+    batched = service.tracks(varied_session, VARIED_IDS, points)
+
+    for activity_id, stored in zip(VARIED_IDS, VARIED_TRACK_LENGTHS, strict=True):
+        expected = downsample(list(range(stored)), points)
+        got = [row["sec"] for row in batched[activity_id]]
+        assert got == expected, f"{activity_id}: stored={stored} points={points}"
+
+
+def test_a_batched_track_carries_the_same_columns_as_a_single_one(varied_session):
+    points = 7
+    batched = service.tracks(varied_session, VARIED_IDS, points)
+    for activity_id in VARIED_IDS:
+        assert batched[activity_id] == service.track(varied_session, activity_id, points)
+
+
+def test_a_track_read_in_a_batch_matches_the_same_track_read_alone(varied_client):
+    # Through GraphQL, so the two paths differ in batch width rather than only
+    # in which service function was called: the page reads nine tracks in one
+    # statement, ``activity(id:)`` reads one.
+    selection = "track(points: 7) { sec lat lon elevationM distanceM speedMps cadence tempC }"
+    page = gql(varied_client, _one_page(len(VARIED_IDS), selection))["activities"]
+
+    for activity_id, row in zip(VARIED_IDS, page, strict=True):
+        alone = gql(varied_client, f'{{ activity(id: "{activity_id}") {{ {selection} }} }}')
+        assert row["track"] == alone["activity"]["track"], activity_id
+
+
+def test_an_activity_without_a_stored_track_comes_back_empty_from_a_batch(varied_client):
+    rows = gql(varied_client, _one_page(len(VARIED_IDS), "id track(points: 7) { sec }"))
+    by_id = {row["id"]: row["track"] for row in rows["activities"]}
+
+    empty = [i for i, stored in enumerate(VARIED_TRACK_LENGTHS) if stored == 0]
+    assert empty, "the fixture must contain a trackless activity"
+    for i in empty:
+        assert by_id[VARIED_IDS[i]] == []
+    # And the batch is not poisoned by them: the tracks beside them still come.
+    assert any(track for track in by_id.values())
+
+
+def test_asking_for_more_points_than_are_stored_returns_the_whole_track(varied_session):
+    batched = service.tracks(varied_session, VARIED_IDS, MAX_TRACK_POINTS)
+    for activity_id, stored in zip(VARIED_IDS, VARIED_TRACK_LENGTHS, strict=True):
+        assert len(batched[activity_id]) == min(stored, MAX_TRACK_POINTS)
+
+
+@pytest.mark.parametrize("activities", [1, 2, 8, 32, MAX_TRACK_FIELDS_PER_REQUEST])
+def test_a_page_of_tracks_costs_the_same_statements_however_wide_it_is(
+    year_client, sql_count, activities
+):
+    # AU-050 in one assertion: the statement count is flat in the width of the
+    # fan-out. Before batching this read SQL_PER_LIST_FIELD + 2 x activities.
+    served = gql(year_client, _cheap_tracks(activities))["activities"]
+
+    assert len(served) == activities
+    assert sql_count[0] == SQL_PER_LIST_FIELD + SQL_PER_TRACK_BATCH
+
+
+def test_a_batch_is_keyed_by_points_as_well_as_by_activity(year_client, sql_count):
+    # Two samples of one track are two different answers, so they cannot share
+    # a cached read. Same activity, different `points`: one batch each, and
+    # the rows that come back differ accordingly.
+    asks = (3, 5, 9)
+    fields = " ".join(f"p{n}: track(points: {n}) {{ sec }}" for n in asks)
+    served = gql(year_client, _document(f'activity(id: "{TRACKED_ACTIVITY_ID}") {{ {fields} }}'))
+
+    activity = served["activity"]
+    assert [len(activity[f"p{n}"]) for n in asks] == list(asks)
+    assert sql_count[0] == SQL_PER_ACTIVITY_FIELD + len(asks) * SQL_PER_TRACK_BATCH
+
+
+PREFETCH_DB_ACTIVITIES = 2 * (MAX_TRACK_POINTS_PER_REQUEST // MAX_TRACK_POINTS)
+"""Activities in the prefetch fixture: twice as many as a full-track page can afford."""
+
+PREFETCH_DB_STORED = 12
+"""Track rows each of those activities stores. Small, so the count below is exact."""
+
+
+@pytest.fixture
+def prefetch_client(tmp_path):
+    path = tmp_path / "prefetch.db"
+    _write_track_db(path, [PREFETCH_DB_STORED] * PREFETCH_DB_ACTIVITIES, prefix="p")
+    app = create_app(path, graphiql=False)
+    app.testing = True
+    return app.test_client()
+
+
+def test_the_batch_never_reads_further_than_the_points_budget_reaches(
+    prefetch_client, track_rows_loaded
+):
+    # A batch is a prefetch: it reads tracks for fields whose charge has not
+    # been levied yet. If it read the whole page it would materialise rows the
+    # budgets exist to refuse -- which is the entire point of charging before
+    # the SQL goes out. So it stops where the budget does, and this is where
+    # the two are held against each other.
+    affordable = MAX_TRACK_POINTS_PER_REQUEST // MAX_TRACK_POINTS
+    assert affordable < PREFETCH_DB_ACTIVITIES, "the budget must be the binding limit here"
+
+    body = gql_partial(prefetch_client, _fan_out_query(PREFETCH_DB_ACTIVITIES, MAX_TRACK_POINTS))
+
+    assert str(MAX_TRACK_POINTS_PER_REQUEST) in " ".join(e["message"] for e in body["errors"])
+    # Every activity here stores a track, so a batch that read the whole page
+    # would land PREFETCH_DB_ACTIVITIES x PREFETCH_DB_STORED rows in memory on
+    # a request that is refused. It reads the affordable prefix and no more.
+    assert track_rows_loaded[0] == affordable * PREFETCH_DB_STORED
+
+
+def test_the_batch_never_reads_further_than_the_field_budget_reaches(year_client, sql_count):
+    # The other budget, on a page one wider than the field cap. `track` is a
+    # non-null list, so refusing one nulls the page around it -- what is left
+    # to check is that the batch stopped at the cap rather than reading the
+    # 65th, and that it still cost the flat two statements.
+    body = gql_partial(year_client, _cheap_tracks(MAX_TRACK_FIELDS_PER_REQUEST + 1))
+
+    assert str(MAX_TRACK_FIELDS_PER_REQUEST) in " ".join(e["message"] for e in body["errors"])
+    assert sql_count[0] == SQL_PER_LIST_FIELD + SQL_PER_TRACK_BATCH
+
+
+# ── AU-050: batching moved the cost from round trips to bound parameters ───
+SQLITE_BOUND_PARAMETER_CEILING = 32766
+"""SQLite's default ``SQLITE_MAX_VARIABLE_NUMBER`` since 3.32 (2020).
+
+Deliberately the compiled-in default rather than this machine's reading, which
+is higher: the number that matters is the one the smallest build the API might
+run against enforces, and a statement over it fails outright with "too many SQL
+variables" rather than degrading.
+"""
+
+WIDEST_BATCH_ACTIVITIES = 50
+"""Activities in the widest-batch fixture.
+
+Chosen with WIDEST_BATCH_POINTS so their product is exactly
+MAX_TRACK_POINTS_PER_REQUEST: that is the most positions the points budget can
+let one batch bind, and so the worst case for the parameter count.
+"""
+
+WIDEST_BATCH_POINTS = MAX_TRACK_POINTS_PER_REQUEST // WIDEST_BATCH_ACTIVITIES
+"""Samples per track in that fixture, so the batch spends the budget exactly."""
+
+
+@pytest.fixture
+def widest_batch_session(tmp_path):
+    path = tmp_path / "widest.db"
+    # One row more than the ask, so every track is sampled rather than taken
+    # whole: an unsampled track binds its id and no positions at all.
+    stored = [WIDEST_BATCH_POINTS + 1] * WIDEST_BATCH_ACTIVITIES
+    _write_track_db(path, stored, prefix="w")
+    with db.session_scope(db.make_engine(path)) as session:
+        yield session
+
+
+@pytest.fixture
+def sql_params():
+    """Record how many bound parameters each statement carries."""
+    counts: list[int] = []
+
+    def tally(_conn, _cursor, _statement, parameters, *_args, **_kwargs):
+        counts.append(len(parameters or ()))
+
+    event.listen(Engine, "before_cursor_execute", tally)
+    try:
+        yield counts
+    finally:
+        event.remove(Engine, "before_cursor_execute", tally)
+
+
+def test_the_widest_batch_stays_under_sqlites_bound_parameter_ceiling(
+    widest_batch_session, sql_params
+):
+    # What batching trades away. Each track contributes an IN list of its own
+    # positions, so the parameters that used to be spread over 2N statements
+    # now arrive in one -- and a statement over the ceiling does not run slowly,
+    # it raises. The points budget is what holds the total down, which is why
+    # AU-050 must not be read as a reason to raise it: at 10,000 points this
+    # sits inside the ceiling with room, and it scales one for one.
+    assert WIDEST_BATCH_ACTIVITIES <= MAX_TRACK_FIELDS_PER_REQUEST
+    assert WIDEST_BATCH_POINTS <= MAX_TRACK_POINTS
+    ids = [f"w{i}" for i in range(WIDEST_BATCH_ACTIVITIES)]
+
+    batched = service.tracks(widest_batch_session, ids, WIDEST_BATCH_POINTS)
+
+    assert all(len(rows) == WIDEST_BATCH_POINTS for rows in batched.values())
+    widest = max(sql_params)
+    # Not vacuous: the SELECT really does bind a position per sample, so this
+    # would have caught an IN list that grew past what the budget allows.
+    assert widest > MAX_TRACK_POINTS_PER_REQUEST
+    assert widest <= MAX_TRACK_POINTS_PER_REQUEST + 2 * MAX_TRACK_FIELDS_PER_REQUEST
+    assert widest < SQLITE_BOUND_PARAMETER_CEILING
