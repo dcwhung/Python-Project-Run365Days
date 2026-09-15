@@ -1,4 +1,5 @@
 import importlib.util
+import re
 from contextlib import ExitStack
 from datetime import date, timedelta
 from pathlib import Path
@@ -1446,3 +1447,130 @@ def test_no_batch_the_budgets_allow_binds_more_parameters_than_the_worst_case(sq
     # The headroom the safety conclusion rests on, stated where it can go red:
     # the ceiling is over three times the widest batch the budgets can build.
     assert worst * 3 < SQLITE_BOUND_PARAMETER_CEILING
+
+
+# ── CUI-0019: what the batch predicate costs as the batch widens ───────────
+BATCH_COST_PREFIX = "c"
+"""Activity id prefix for the fixture below, kept clear of ``w`` and ``r``."""
+
+BATCH_COST_STORED = 60
+"""Track rows each activity in that fixture stores.
+
+Any number above the ``points`` the reads below ask for would do: what has to
+hold is that every track is *sampled* rather than taken whole, since a whole
+track joins one shared ``IN`` list and contributes no arm of its own.
+"""
+
+BATCH_COST_NARROW = 8
+"""The narrow batch the wide one is compared against.
+
+An eighth of MAX_TRACK_FIELDS_PER_REQUEST, so the widths differ by enough for
+the growth to show over the fixed per-statement cost that dilutes it.
+"""
+
+BATCH_COST_GROWTH_FLOOR = 1.5
+"""How much dearer per track the wide batch has to be for this to count.
+
+A floor, not a reading: the measured figure is about 2.15, and the gap between
+the two is the room this leaves for a SQLite build that emits a different
+number of opcodes for the same plan. The true exponent is steeper than 1.5
+suggests -- a square would be 8x here -- but most of a small batch's cost is
+the row_number subquery and the ORDER BY, which are linear and drag the
+measured ratio down. Below 1.0 would mean the cost had stopped growing per
+track, which is what CUI-0019 is for.
+"""
+
+BATCH_COST_FLAT_CEILING = 1.1
+"""How far the whole-track control is allowed to move, per track.
+
+The same read with no sampling builds a single ``activity_id IN (...)`` arm
+instead of one arm per track, and measures 1.00 here. It is in the test to
+keep the sampled reading from being read as "wide batches touch more rows":
+this one touches sixty times as many and does not move.
+"""
+
+
+def _or_arms(statement: str) -> int:
+    """Return the number of arms in *statement*'s top-level disjunction."""
+    return len(re.findall(r"\bOR\b", statement)) + 1
+
+
+def _batch_read(engine, width: int, points: int | None) -> tuple[int, str]:
+    """Return (VDBE steps, SELECT text) for one batch read of *width* tracks.
+
+    Steps rather than seconds. SQLite's progress callback fires once per
+    virtual-machine instruction, so what comes back is a count of work done --
+    deterministic for a given build and fixture, where a wall time is not.
+    This repo does not assert wall times anywhere and should not start: a
+    second of CI is not a property of the code.
+    """
+    statements: list[str] = []
+    steps = [0]
+
+    def capture(_conn, _cursor, statement, *_args, **_kwargs):
+        statements.append(statement)
+
+    def tick():
+        steps[0] += 1
+        return 0
+
+    with db.session_scope(engine) as session:
+        raw = session.connection().connection.dbapi_connection
+        event.listen(Engine, "before_cursor_execute", capture)
+        raw.set_progress_handler(tick, 1)
+        try:
+            service.tracks(session, [f"{BATCH_COST_PREFIX}{i}" for i in range(width)], points)
+        finally:
+            raw.set_progress_handler(None, 1)
+            event.remove(Engine, "before_cursor_execute", capture)
+    return steps[0], statements[-1]
+
+
+@pytest.fixture
+def batch_cost_engine(tmp_path):
+    """A database of MAX_TRACK_FIELDS_PER_REQUEST equally long tracks."""
+    path = tmp_path / "batch-cost.db"
+    _write_track_db(
+        path,
+        [BATCH_COST_STORED] * MAX_TRACK_FIELDS_PER_REQUEST,
+        prefix=BATCH_COST_PREFIX,
+    )
+    engine = db.make_engine(path)
+    try:
+        yield engine
+    finally:
+        engine.dispose()
+
+
+def test_the_batch_predicate_costs_more_per_track_as_the_batch_widens(batch_cost_engine):
+    # The claim MAX_TRACK_FIELDS_PER_REQUEST's docstring now makes, as a gate:
+    # AU-050 cut the statement count with a predicate whose own cost grows with
+    # the width of the batch, so this cap is the wrong number to raise. QA
+    # measured that as wall clock on the real export (CUI-0019); wall clock in
+    # CI buys a flaky test, so what runs here is the work SQLite does.
+    narrow_steps, narrow_sql = _batch_read(batch_cost_engine, BATCH_COST_NARROW, 1)
+    wide_steps, wide_sql = _batch_read(batch_cost_engine, MAX_TRACK_FIELDS_PER_REQUEST, 1)
+
+    # The cause, pinned on its own so a failure below says which half moved:
+    # the predicate is exactly as wide as the batch.
+    assert _or_arms(narrow_sql) == BATCH_COST_NARROW
+    assert _or_arms(wide_sql) == MAX_TRACK_FIELDS_PER_REQUEST
+
+    narrow_per_track = narrow_steps / BATCH_COST_NARROW
+    wide_per_track = wide_steps / MAX_TRACK_FIELDS_PER_REQUEST
+    assert wide_per_track > BATCH_COST_GROWTH_FLOOR * narrow_per_track, (
+        "a track in a full batch has stopped costing more than one in a narrow "
+        "batch -- if CUI-0019 is what changed that, the paragraph on raising "
+        "MAX_TRACK_FIELDS_PER_REQUEST changes with it"
+    )
+
+    # The control: same fixture, same widths, sixty times the rows returned,
+    # one IN arm instead of sixty-four. Flat. So what grows above is the
+    # predicate, not the batch's row count.
+    flat_narrow, flat_narrow_sql = _batch_read(batch_cost_engine, BATCH_COST_NARROW, None)
+    flat_wide, flat_wide_sql = _batch_read(batch_cost_engine, MAX_TRACK_FIELDS_PER_REQUEST, None)
+
+    assert _or_arms(flat_narrow_sql) == _or_arms(flat_wide_sql) == 1
+    assert flat_wide / MAX_TRACK_FIELDS_PER_REQUEST < BATCH_COST_FLAT_CEILING * (
+        flat_narrow / BATCH_COST_NARROW
+    ), "the unsampled path is the flat one this test is calibrated against"

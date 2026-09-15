@@ -97,12 +97,20 @@ Measured through the Flask client against the ``year_db`` fixture in
 ``tests/test_api.py``: 365 activities, of which one carries a full 600-point
 track -- 600 track rows in the database, not 365 x 600. Statement counts do
 not depend on that; the wall-clock readings below do, and are one machine's
-reading rather than a bound. They are quoted to one significant figure on
-purpose: an earlier revision wrote two of them as two-figure intervals
-(``0.07-0.08``, ``0.17-0.21``) and both were narrower than the same machine
-produced on a re-run, which reads as a measured bound when it is not one
-(S-033). If a figure here ever needs to be tight enough to matter, it needs an
-assertion, and a wall time in CI buys a flaky test rather than a guarantee:
+reading of this fixture rather than a bound. They do not carry to
+production: the real export holds 134,041 track rows, 224x what this fixture
+holds, and since AU-050 the batch read is the one path here whose cost
+follows that total. QA measured both on 2026-09-15 -- the 64-track page
+below read 10.4 ms against the fixture and 165.6 ms against the real export,
+16x, while the two 52-parent shapes, which open no batch, moved by under
+1.4x. Restating these readings against a production-sized fixture is
+CUI-0020; none of them is asserted, so none of them goes red on its own.
+They are quoted to one significant figure on purpose: an earlier revision
+wrote two of them as two-figure intervals (``0.07-0.08``, ``0.17-0.21``) and
+both were narrower than the same machine produced on a re-run, which reads
+as a measured bound when it is not one (S-033). If a figure here ever needs
+to be tight enough to matter, it needs an assertion, and a wall time in CI
+buys a flaky test rather than a guarantee:
 
 * The shortest way to saturate this cap is one list field -- not the only
   way. ``activities(limit: 64) { track(points: 1) }`` is 19 tokens and issues
@@ -121,8 +129,11 @@ assertion, and a wall time in CI buys a flaky test rather than a guarantee:
   (52 x 2 + 2) in ~0.08 s, while 52 parents naming 52 *different*
   activities cannot share and issue 208 (52 x 2 + 52 x 2) in ~0.2 s --
   more than the cap alone would suggest, and still some 60x inside the 15 s
-  Vercel function at the slowest reading. AU-050 flattened the fan-out under
-  one parent; it does not flatten a document that spends itself on parents.
+  Vercel function at the slowest reading *of this fixture*. The worst legal
+  shape QA measured against the real export on 2026-09-15 came to 390 ms,
+  some 38x, so the headroom is tens of times over, not sixty. AU-050
+  flattened the fan-out under one parent; it does not flatten a document that
+  spends itself on parents.
 
 A document that takes no ``track`` at all spends neither budget and is not
 bounded here at all: 166 aliased ``activities`` fields fit the token limit at
@@ -137,13 +148,34 @@ turns those red rather than leaving this prose quietly wrong. The wall-clock
 figures are the exception: they are one machine's reading, not a bound,
 because asserting a wall time in CI buys a flaky test rather than a guarantee.
 
-AU-050 has since made a page of tracks cost two statements however wide it is,
-which weakens the round-trip argument for keeping this number where it is --
-but not to nothing, because the worst case above is unshared batches, still two
-statements per field. Raising it stays a separate decision with its own
-measurement: it is the points budget and :data:`MAX_QUERY_TOKENS` that would
-then be doing the bounding, and a cap at or above :data:`MAX_PAGE_SIZE` breaks
-the fan-out the tests reach it with.
+AU-050 has since made a page of tracks cost two statements however wide it is.
+An earlier revision of this docstring read that as weakening the round-trip
+argument for keeping this number where it is. Measurement says the opposite.
+The two statements are bought with a predicate carrying one OR arm per track
+in the batch (:func:`run365days.api.service._sample_filter`), and the whole
+disjunction is evaluated against every row the numbered subquery scans, so the
+work grows with the *square* of the batch width where the pre-AU-050 shape --
+one index-bounded statement per track -- grew with the width. QA measured it
+on 2026-09-15 at the service layer against the real export (134,041 track
+rows, ``points: 1``, median of 3), as a multiple of what the same read cost
+before AU-050: 16 tracks 0.9x, 32 tracks 1.5x, 64 -- this cap -- 2.4x, 128
+3.9x, 365 8.9x, the last being 3.8 s. Statement count fell, wall clock rose,
+and how far it rose is a function of how wide this cap lets a batch get.
+
+So raising this number is the direction this implementation is worst in, not
+one batching has made safer. Those figures are a reading rather than a bound
+and nothing asserts them; what is asserted is the shape they come from, by
+``test_the_batch_predicate_costs_more_per_track_as_the_batch_widens``, which
+holds the per-track cost of a 64-track batch above that of an 8-track one and
+would go red if the predicate ever stopped being the thing that grows. The
+superlinearity itself is CUI-0019 and belongs to
+:func:`run365days.api.service.tracks`, not to this cap.
+
+What survives from before: the worst case above is unshared batches, still two
+statements per field; raising this number stays a separate decision with its
+own measurement, since it is the points budget and :data:`MAX_QUERY_TOKENS`
+that would then be doing the bounding; and a cap at or above
+:data:`MAX_PAGE_SIZE` breaks the fan-out the tests reach it with.
 """
 
 TRACK_BUDGET_KEY = "track_points_remaining"
