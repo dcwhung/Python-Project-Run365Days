@@ -2,6 +2,7 @@ import type { Activity, DailyWeather, DayDistance, PersonalBests, Totals } from 
 import { actTemp, isSevere } from "@/lib/weather";
 import { mean } from "@/lib/stats-helpers";
 import { fmtDuration, fmtPace } from "@/lib/format";
+import type { AccentName } from "@/styles/accents";
 
 /** Pure view-model helpers for the Overview; every function is unit-tested. */
 
@@ -26,7 +27,7 @@ export interface PersonalBestRow {
   value: string;
   /** Typical (average) run relative to the record, 0..1, drawn as the bar width. */
   ratio: number;
-  color: "violet" | "accent" | "accent2" | "warn" | "danger";
+  color: AccentName;
 }
 
 export function personalBestRows(pb: PersonalBests, totals: Totals): PersonalBestRow[] {

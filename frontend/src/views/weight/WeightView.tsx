@@ -1,6 +1,6 @@
 import { Bar, Line, Scatter } from "react-chartjs-2";
 import { useWeight, useYear } from "@/data/hooks";
-import { MONTHS, fmtShortDate } from "@/lib/format";
+import { MONTHS, fmtShortDate, fmtSigned } from "@/lib/format";
 import { WEEKDAYS } from "@/lib/dates";
 import { toWeightUnit, usePrefs } from "@/lib/prefs";
 import { BASE, COLORS, GRID, NO_GRID, NO_LEGEND, alpha, dayAxis } from "@/components/charts/theme";
@@ -18,7 +18,6 @@ import {
   weightKpis,
 } from "./model";
 
-const signed = (v: number) => `${v > 0 ? "+" : ""}${v}`;
 const upDown = (v: number | null) =>
   (v ?? 0) <= 0 ? alpha(COLORS.accent2, 0.7) : alpha(COLORS.danger, 0.7);
 
@@ -165,7 +164,7 @@ export function WeightView() {
                 ...BASE,
                 plugins: {
                   ...NO_LEGEND,
-                  tooltip: { callbacks: { label: (c) => `${signed(c.parsed.y ?? 0)} ${u}` } },
+                  tooltip: { callbacks: { label: (c) => `${fmtSigned(c.parsed.y ?? 0)} ${u}` } },
                 },
                 scales: {
                   x: { grid: NO_GRID },
@@ -189,7 +188,9 @@ export function WeightView() {
                 plugins: {
                   ...NO_LEGEND,
                   tooltip: {
-                    callbacks: { label: (c) => `${signed(c.parsed.y ?? 0)} ${u} vs previous day` },
+                    callbacks: {
+                      label: (c) => `${fmtSigned(c.parsed.y ?? 0)} ${u} vs previous day`,
+                    },
                   },
                 },
                 scales: {
@@ -221,7 +222,7 @@ export function WeightView() {
                     callbacks: {
                       label: (c) => {
                         const p = c.raw as (typeof wkPts)[number];
-                        return `week of ${fmtShortDate(p.weekStart)} · ${p.x} km · ${signed(p.y)} ${u}`;
+                        return `week of ${fmtShortDate(p.weekStart)} · ${p.x} km · ${fmtSigned(p.y)} ${u}`;
                       },
                     },
                   },
@@ -254,7 +255,7 @@ export function WeightView() {
               <span className="text-danger">{r.up}</span>,
               <span className="text-accent2">{r.down}</span>,
               r.same,
-              signed(conv(r.net)!),
+              fmtSigned(conv(r.net)!),
               ends[r.month - 1] != null ? conv(ends[r.month - 1]) : "–",
             ],
           }))}

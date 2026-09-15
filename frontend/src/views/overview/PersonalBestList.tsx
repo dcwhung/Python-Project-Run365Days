@@ -2,15 +2,8 @@ import { useNavigate } from "react-router-dom";
 import type { PersonalBests, Totals } from "@/data/types";
 import { fmtShortDate } from "@/lib/format";
 import { Card } from "@/components/ui/Card";
+import { ACCENT_BG } from "@/styles/accents";
 import { personalBestRows } from "./model";
-
-const BAR = {
-  violet: "bg-violet",
-  accent: "bg-accent",
-  accent2: "bg-accent2",
-  warn: "bg-warn",
-  danger: "bg-danger",
-};
 
 export function PersonalBestList({
   personalBests,
@@ -36,7 +29,7 @@ export function PersonalBestList({
               <span className="w-20 text-muted">{r.label}</span>
               <span className="h-1.5 flex-1 overflow-hidden rounded bg-surface2">
                 <span
-                  className={`block h-full ${BAR[r.color]}`}
+                  className={`block h-full ${ACCENT_BG[r.color]}`}
                   style={{ width: `${Math.round(r.ratio * 100)}%` }}
                 />
               </span>

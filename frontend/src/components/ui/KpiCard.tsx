@@ -1,10 +1,4 @@
-const ACCENTS = {
-  accent: "bg-accent",
-  accent2: "bg-accent2",
-  warn: "bg-warn",
-  danger: "bg-danger",
-  violet: "bg-violet",
-} as const;
+import { ACCENT_BG, type AccentName } from "@/styles/accents";
 
 export function KpiCard({
   label,
@@ -17,7 +11,7 @@ export function KpiCard({
   value: string;
   unit?: string;
   sub?: string;
-  accent?: keyof typeof ACCENTS;
+  accent?: AccentName;
 }) {
   return (
     <div className="relative overflow-hidden rounded-card border border-border bg-surface p-4">
@@ -27,7 +21,7 @@ export function KpiCard({
         {unit && <span className="ml-1 text-base text-muted">{unit}</span>}
       </div>
       {sub && <div className="mt-1 text-xs text-muted">{sub}</div>}
-      <div className={`absolute inset-x-0 bottom-0 h-0.5 ${ACCENTS[accent]}`} />
+      <div className={`absolute inset-x-0 bottom-0 h-0.5 ${ACCENT_BG[accent]}`} />
     </div>
   );
 }

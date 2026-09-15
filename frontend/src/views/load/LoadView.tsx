@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Bar, Chart, Line } from "react-chartjs-2";
 import type { ChartData } from "chart.js";
 import { useActivities, useYear } from "@/data/hooks";
-import { fmtDuration, fmtKm, fmtPace, fmtShortDate } from "@/lib/format";
+import { fmtDuration, fmtKm, fmtPace, fmtShortDate, fmtSigned } from "@/lib/format";
 import { WEEKDAYS } from "@/lib/dates";
 import { paceOf, weeksWithActivities, type WeekWithActivities } from "@/lib/analytics";
 import { actTemp, wxEmoji } from "@/lib/weather";
@@ -11,8 +11,6 @@ import { Card } from "@/components/ui/Card";
 import { KpiCard } from "@/components/ui/KpiCard";
 import { DataTable } from "@/components/ui/DataTable";
 import { loadKpis, rollingWeeks, topWeeks, weekChange, weekdayAvgKm } from "./model";
-
-const signed = (v: number) => `${v > 0 ? "+" : ""}${v}`;
 
 export function LoadView() {
   const year = useYear();
@@ -66,7 +64,7 @@ export function LoadView() {
         />
         <KpiCard
           label="Form (TSB)"
-          value={signed(k.tsb)}
+          value={fmtSigned(k.tsb)}
           sub={`year end · ${k.tsb >= 0 ? "fresh" : "fatigued"}`}
           accent="accent2"
         />
@@ -144,7 +142,7 @@ export function LoadView() {
                 y2: {
                   grid: NO_GRID,
                   position: "right",
-                  ticks: { callback: (v) => signed(Number(v)) },
+                  ticks: { callback: (v) => fmtSigned(Number(v)) },
                 },
               },
             }}
