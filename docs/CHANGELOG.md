@@ -4,6 +4,41 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Release branches
 are named `release/vX` and tags `vX.Y.Z`.
 
+## [3.1.0] - 2026-09-15 - `develop`
+
+### Added
+- `Activity.track` resolves a page of activities in two statements instead of
+  two per field, using `row_number()` over a per-activity partition. Sample
+  positions are still computed in Python, so the reference downsampler stays
+  the single sampler and the export is byte-identical (AU-050).
+
+### Fixed
+- The activity view no longer reports a failed track query as "Activity not
+  found." The header, weather and KPIs the activity query already returned
+  stay on screen and only the map and charts are replaced, carrying the
+  GraphQL message rather than the serialised request (CUI-0016).
+- `parse_datetime` converts 13-digit epoch milliseconds into the target zone
+  instead of relabelling UTC, which had put that path 8 hours early. The test
+  constant pinning it was Garmin's `startTimeLocal` -- the local wall clock
+  re-encoded as if it were UTC -- which had made the defect look correct. No
+  exported data changes: no parser feeds this path (AU-048).
+
+### Changed
+- Documentation a measurement had outrun: the field cap's docstring no longer
+  reads AU-050's statement-count win as an argument for raising the cap --
+  measured against the real export, raising it is the direction this
+  implementation is worst in -- and the wall-clock readings taken against a
+  600-row fixture now say so rather than standing in for production
+  (CUI-0019, CUI-0020).
+
+### Known issues
+- The batch sample predicate carries one OR arm per track and is evaluated
+  against every row the numbered subquery scans, so its cost grows with the
+  square of the batch width: at the 64-field cap a fan-out costs 2.4x what it
+  did before batching. No client sends that shape -- the dashboard reads one
+  track at a time -- and the worst legal shape stays some 38x inside the 15 s
+  function limit (CUI-0019).
+
 ## [3.0.0] - 2026-09-09 - `develop`
 
 API-backed React dashboard, deployed to Vercel (API mode) and GitHub Pages
