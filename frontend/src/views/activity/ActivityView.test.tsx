@@ -50,6 +50,31 @@ function failed(message: string): QueryStub {
   return { data: undefined, isPending: false, isError: true, error: new Error(message), refetch: vi.fn(async () => undefined) };
 }
 
+/** The GraphQL error the API really returns when the track budget is exceeded. */
+const BUDGET_MESSAGE = "Track request exceeds the per-request point budget.";
+
+const TRACK_DOCUMENT =
+  "query Track($id: ID!, $points: Int!) {\n activity(id: $id) {\n id\n track(points: $points) {\n sec\n lat\n lon\n elevationM\n distanceM\n speedMps\n cadence\n tempC\n }\n }\n}";
+
+/**
+ * A `graphql-request` ClientError as it actually arrives: `message` is the
+ * serialised response *and* request, so rendering it raw leaks the whole
+ * GraphQL document and variables onto the page. Captured from a real run
+ * against the Flask API (activity 7213538827, TRACK_POINTS = 600).
+ */
+function clientError(): QueryStub {
+  const response = {
+    data: null,
+    errors: [{ message: BUDGET_MESSAGE }],
+    status: 200,
+    headers: {},
+    body: JSON.stringify({ data: null, errors: [{ message: BUDGET_MESSAGE }] }),
+  };
+  const request = { query: TRACK_DOCUMENT, variables: { id: "7213538827", points: 600 } };
+  const error = Object.assign(new Error(`${BUDGET_MESSAGE}: ${JSON.stringify({ response, request })}`), { response, request });
+  return { data: undefined, isPending: false, isError: true, error, refetch: vi.fn(async () => undefined) };
+}
+
 function wire({ all, one, track }: { all?: QueryStub; one?: QueryStub; track?: QueryStub } = {}) {
   const stubs = {
     all: all ?? succeeded([ACT]),
@@ -104,6 +129,16 @@ describe("ActivityView", () => {
     expect(screen.getByTestId("act-wx")).toHaveTextContent("Rain");
     expect(screen.getByTestId("act-kpis")).toHaveTextContent("5.00");
     expect(screen.getByTestId("act-kpis")).toHaveTextContent("Avg Pace");
+  });
+
+  it("should show only the GraphQL message, never the serialised request, for a ClientError", () => {
+    wire({ track: clientError() });
+    renderView();
+    const panel = screen.getByTestId("track-error");
+    expect(panel).toHaveTextContent(BUDGET_MESSAGE);
+    expect(panel.textContent).not.toContain('{"response"');
+    expect(panel.textContent).not.toContain("query Track(");
+    expect(panel.textContent).not.toContain('"variables"');
   });
 
   it("should refetch the track when Retry is pressed", () => {
