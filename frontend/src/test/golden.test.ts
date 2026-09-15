@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -25,7 +25,12 @@ import type { Activity, DayDistance } from "@/data/types";
  * belongs to neither language, so changing one implementation alone turns that
  * one red. Its module docstring carries the full design, including why
  * regenerating cannot paper over a divergence and why `golden/divergences.tsv`
- * is hand-maintained.
+ * is hand-maintained. That ledger is currently absent, which is the healthy
+ * state: its eight entries all came from one root cause -- Python breaking a
+ * tie to the even neighbour where `Math.round` breaks it upward -- and AU-009-A
+ * closed them by giving TypeScript Python's rule (`@/lib/rounding`). The
+ * machinery stays for the next divergence; what must never exist is the file
+ * with no rows in it.
  *
  * Reading a file outside `frontend/`: this runs in node, so `readFileSync` is
  * fine and Vite's `server.fs.allow` never enters into it -- that guard is about
@@ -268,6 +273,7 @@ function emit(cases: Cases, casesBytes: Buffer): Map<string, string> {
 
 function readTsv(path: string, columns: number): Map<string, string[]> {
   const rows = new Map<string, string[]>();
+  if (!existsSync(path)) return rows;
   const text = readFileSync(path, "utf8");
   text.split("\n").forEach((line, i) => {
     if (!line || line.startsWith("#")) return;
@@ -320,9 +326,9 @@ describe("cross-language golden (AU-009)", () => {
 
   it("still produces the TypeScript value recorded for every ledgered divergence", () => {
     expect(
-      divergences.size,
-      "the divergence ledger is empty -- delete it rather than leave a stub",
-    ).toBeGreaterThan(0);
+      divergences.size > 0 || !existsSync(DIVERGENCES_FILE),
+      "the divergence ledger records nothing -- delete it rather than leave a stub",
+    ).toBe(true);
     const unknown = [...divergences.keys()].filter((k) => !emitted.has(k));
     expect(unknown, "ledger names keys nothing emits").toEqual([]);
 

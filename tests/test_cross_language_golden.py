@@ -36,6 +36,15 @@ that side red until the ledger line is deleted, and a new divergence cannot be
 absorbed by any tool. Adding a line is a reviewable diff that names the
 function, the input and both numbers.
 
+The ledger is currently absent, and that is the healthy state: the eight
+entries it opened with all came from one root cause -- Python breaking a tie to
+the even neighbour where `Math.round` breaks it upward -- and AU-009-A closed
+them by giving TypeScript Python's rule (`frontend/src/lib/rounding.ts`). The
+machinery stays because the next divergence needs somewhere to be recorded;
+create the file again to record one. What must never exist is the file with no
+rows in it, which would read as a ledger someone forgot to fill in, so that is
+asserted against rather than merely discouraged.
+
 No CI job was added for this, deliberately. The audit suggested one, but both
 halves already run on every push and pull request -- this file inside `pytest
 tests` in the lint-test job, `golden.test.ts` inside `npm test` in the frontend
@@ -316,7 +325,9 @@ def test_every_ledgered_divergence_still_diverges(emitted, divergences) -> None:
     Fixing the divergence must turn this red, so that the ledger cannot outlive
     the bug it records and quietly keep excusing a key that now agrees.
     """
-    assert divergences, "the divergence ledger is empty -- delete it rather than leave a stub"
+    assert divergences or not DIVERGENCES_FILE.exists(), (
+        "the divergence ledger records nothing -- delete it rather than leave a stub"
+    )
     unknown = sorted(set(divergences) - set(emitted))
     assert not unknown, f"ledger names keys nothing emits: {unknown}"
 

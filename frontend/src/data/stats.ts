@@ -1,3 +1,4 @@
+import { roundHalfEven } from "@/lib/rounding";
 import type {
   Activity,
   DayDistance,
@@ -45,17 +46,17 @@ function weekday(d: Date): number {
   return (d.getUTCDay() + 6) % 7;
 }
 
-const round = (v: number, digits: number) => {
-  const f = 10 ** digits;
-  return Math.round(v * f) / f;
-};
+// Python's round, not Math.round: it breaks a tie to the even neighbour and it
+// rounds the decimal the double really is rather than the double times a power
+// of ten. See lib/rounding.ts; both differences were live divergences (AU-009).
+const round = (v: number, digits: number) => roundHalfEven(v, digits);
 const sum = (values: (number | null | undefined)[]) =>
   values.reduce<number>((acc, v) => acc + (v ?? 0), 0);
 const mean = (values: (number | null | undefined)[]): number | null => {
   const vals = values.filter((v): v is number => v != null);
   return vals.length ? sum(vals) / vals.length : null;
 };
-const pace = (km: number, sec: number): number | null => (km ? Math.round(sec / km) : null);
+const pace = (km: number, sec: number): number | null => (km ? roundHalfEven(sec / km) : null);
 
 function fastest(activities: Activity[]): Activity | null {
   const eligible = activities.filter(
