@@ -75,7 +75,7 @@
 | Technical spec | `.proj-docs/specs/` | ❌ 未建立 |
 | Implementation plan | `.proj-docs/plans/` | ❌ 未建立 |
 | Session log | [`.claude/session-logs/2026-09-14_14-55.md`](../.claude/session-logs/2026-09-14_14-55.md) | ✅ 2026-09-14（AU-047 + CLAUDE.md） |
-| Session log | [`.claude/session-logs/2026-09-15_15-30.md`](../.claude/session-logs/2026-09-15_15-30.md) | ✅ 2026-09-15（v3.1.0：3 lane 並行 + 3 輪 review + QA） |
+| Session log | [`.claude/session-logs/2026-09-15_15-30.md`](../.claude/session-logs/2026-09-15_15-30.md) | ✅ 2026-09-15（v3.1.0：3 lane 並行 + 3 輪 review + QA）<br>**含 §HANDOVER —— 下一個 session 由呢度開始** |
 
 ---
 
