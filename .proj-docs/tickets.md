@@ -1843,3 +1843,160 @@ Lane 用 AST 量度：**36 個 function 嘅 span >30 行，但扣走 docstring �
 | **CUI-0053** | 🟢 Low | AU-021 嘅「>30 行」指標用 span 量度，會獎勵刪 docstring；應改為量度代碼行（36 → 5） |
 | **CUI-0054** | 🟢 Low | `tcx.py:parse`（51 代碼行）同 `gpx.py:parse`（46）係 AU-021 剩返嘅真正工作，結構同啱啱拆咗嗰個平行 |
 | **CUI-0055** | 🟢 Low | 三處前端註釋指住已經唔存在嘅路徑：`data/stats.ts:14`、`stats.test.ts:5`（→ `src/dashboard/stats.py`）、`test/fixtures.ts:25`（→ `tests/test_dashboard_stats.py`） |
+
+---
+
+## P2 Round 2 修復摘要（2026-09-15）—— 前端結構對齊
+
+| 指標 | 前 | 後 |
+|---|---|---|
+| Frontend tests | 123（23 files） | **123（23 files）**（純重組，零測試增減） |
+| 最長 component | `PerformanceView.tsx` **322** 行 | `ActivitiesView.tsx` **225** 行（刻意留低） |
+| ≤3 字符嘅短宣告 | 225 | **172**（−53） |
+| **CSS bundle sha256** | `74a1a510…7ecad`（21,037 B） | **完全相同**（`build` 同 `build:static` 都係） |
+
+**P2 至此全清**（除 AU-009 —— 佢要等 AU-005 改名落地，而家可以開）。
+
+---
+
+## ⚠️ Tailwind 註釋洩漏 —— main agent 獨立重現，比想像中嚴重
+
+Lane 報告佢中途撞咗兩次：`routeCanvas.ts` 一個註釋寫「a white **ring** around the dot」，CSS hash 即刻跳。
+
+**Main agent 實測重現**（喺 merge 後嘅 tree 加返同一句註釋）：
+
+```
+加「ring」前  74a1a510c3d6…  21,037 B
+加「ring」後  5c95e5520e93…  21,292 B   ← 同 lane 報嘅 hash 一字不差
+              .ring{--tw-ring-shadow:...;box-shadow:...}     ← 真 CSS 規則，+255 B
+還原後        74a1a510c3d6…  21,037 B
+```
+
+**一個純文字註釋入面嘅英文字，ship 咗一條真規則俾每一個訪客。** Lane 改用「rim」並留低警告註釋。
+
+呢個係 **CUI-0046 嘅第二次實例**（第一次係測試描述入面嘅「container」/「invisible」，339 B）。
+`@source not "./**/*.test.ts(x)"` **只擋測試檔，production 檔案入面嘅散文仍然被掃**。
+Lane 順帶掃過全部非測試 `.ts`/`.tsx` 搵 `container|invisible|truncate|isolate|contents|collapse|antialiased|italic|underline|capitalize|grayscale|sepia|blur|sticky`：
+只有 `WarningSprite.test.tsx`（已被擋）同 `MARKER_RING`（大寫，唔係 candidate）。
+
+**建議**：CI 加一步 build 完對比 CSS hash / byte size 同 committed baseline —— 兩次都會即刻捉到。
+（Lane 冇加，因為要掂 `.github/`，唔喺佢 lane。）
+
+---
+
+## 我張 AU-021 行數表**每一行都錯**，而且錯法有系統性
+
+| 檔案 | 我 brief 寫 | 實際（`76cc1f1`） |
+|---|---|---|
+| `PerformanceView.tsx` | **冇列** | **322** ← 最長 |
+| `WeatherView.tsx` | **冇列** | **315** |
+| `LoadView.tsx` | 281 | 298 |
+| `WeightView.tsx` | **冇列** | 265 |
+| `ActivitiesView.tsx` | **冇列** | 221 |
+| `ActivityView.tsx` | 170 | 187 |
+| `RouteMap.tsx` | 163 | 176 |
+
+我寫「`LoadView.tsx` 281 行明顯係第二個」—— 佢實際係**第三**，而頭兩個我完全冇提。
+
+**根因係我個量度方法錯**：我用 awk 量「兩個 `export function` 宣告之間嘅距離」，
+所以漏咗檔案尾部、最後一個 function 之後嘅內容、同埋唔係以 `export function` 開頭嘅結構。
+**唔係抄錯數，係量錯。** 呢個係本 session 第九個報錯嘅數字。
+
+Lane 冇跟我張表，自己重量之後拆咗四個而唔係我點名嗰兩個。
+
+---
+
+## AU-028 —— 拒絕咗 `<type-group>/<name>/`，理由成立
+
+Lane 唔用 audit 建議嘅六個資料夾各裝一個檔案，理由：**呢個 codebase 其他地方都唔咁做** ——
+`views/overview/` 係十個扁平 `.tsx`、`lib/` 扁平、`data/` 只喺有真分組時開 `api/` / `static/`。
+
+改用「**按 component 知道嘅領域分組；`ui/` 就係乜都唔知嗰組**」：
+
+```
+components/ui/       Card  DataTable  KpiCard              （唔知道有 run 呢回事）
+components/weather/  WarningIcons  WarningSprite(+test)  WeatherTag
+components/charts/   theme.ts                              （本來就有）
+```
+
+四個搬入 `weather/` 嘅確實全部係天氣 component（`warnInfo`、HKO 信號、`actTemp`/`wxEmoji`），
+所以 `weather/` 講到嘢，而一個 placeholder `domain/` 唔會。**測試檔跟住 component 走**（硬要求）。
+
+七個搬動有六個係 `R100`（純 `git mv`）。
+
+### 順帶收乾三處重複
+
+- `KpiCard.ACCENTS` / `PersonalBestList.BAR` 係同一個五項 Tailwind class map，而 `views/overview/model.ts`
+  仲**第三次**用 inline union 串一次同樣五個名 → 收歸 `src/styles/accents.ts`（放喺 `tokens.ts` / `signalColors.ts` 隔籬）
+- `LoadView` 同 `WeightView` 各有一個**一模一樣**嘅 `const signed` → `lib/format.ts` 嘅 `fmtSigned`
+- 四個 chart 各自喺 view 內嘅 closure 重建同一條反向 pace scale → `paceAxis.ts`
+
+---
+
+## AU-022 —— 規則係「作用域長度」，唔係「唔准用短名」
+
+> **改名嘅條件**：個名活得過一眼 —— 佢跨越 JSX 邊界、作用域超過約十行、或者佢本身誤導。
+> **保留嘅條件**：佢生於一個短表達式或者 2–3 行 callback，而嗰行本身已經講咗佢係乜。
+
+**刻意保留**：map / tooltip / forEach callback 入面嘅 `p` `i` `x` `y` `d` `c` `w` `r`；canvas 慣用語 `dpr`；
+`seriesCanvas.ts` 嘅範圍對 `lo`/`hi`；3 行 function 入面表示 0..1 比例嘅 `t`。
+
+**兩個「誤導」個案值得記**：
+- `SeriesChart` 個 tick loop counter 叫 `m`，但**佢裝住嘅係秒唔係分鐘** → `tickSec`（就算只得一句都改）
+- `PerformanceView` 個 `min` **就喺一個真 `Math.min` 隔籬** → `toPlotMinutes`
+
+**一個貫穿七個 view 嘅碰撞**：`const year = useYear()` 之後 `const y = year.data` ——
+好名俾咗 query wrapper，單字母俾咗數據。全部改成 `const yearQuery = useYear(); const year = yearQuery.data`。
+只改四個會將一種不一致換成更差嘅一種。
+
+### 兩個佢用 blind regex 整出嚟、自己捉返嘅 bug
+
+1. `"Pace (min/km)"` → `"Pace (toPlotMinutes/km)"` —— **一個會 render 出嚟嘅軸標籤**
+2. `activities.findIndex((a) => a.id === current)` → `activity.id === current` —— **真邏輯錯**，callback 個 `a` 同外層個 `a` 係兩回事
+
+兩個都係**機器捉到而唔係肉眼**：佢對全部改過嘅檔案做咗字串 / template-literal multiset 前後比對，
+最終 **18 處差異全部有交代、冇一處會 render**（`fmtSigned` 去重、alpha 抽成常數、JSX 文字化、import 增加、型別位置嘅 `weightUnit`）。
+
+---
+
+## AU-021 —— 拆咗六個，準則講得出
+
+| 檔案 | 前 | 後 |
+|---|---|---|
+| `PerformanceView.tsx` | 322 | **56** |
+| `WeatherView.tsx` | 315 | **38** |
+| `LoadView.tsx` | 298 | **45** |
+| `WeightView.tsx` | 265 | **70** |
+| `SeriesChart.tsx` | 163 | **66** |
+| `RouteMap.tsx` | 176 | **115** |
+
+**準則**：當一個檔案裝住**幾個獨立 panel、每個各帶 40–80 行配置**，或者當佢**將 imperative canvas 繪圖同 React lifecycle 撈埋一齊**先拆。
+
+四個 dashboard view 本身就係一串 `<Card>`，而 `views/overview/` **本來就已經係佢哋而家嘅形狀** ——
+即係令四個 view 追返嗰個本來就啱嘅，而唔係發明一個新 layout。
+
+**留低嘅有理由**：`ActivitiesView`（225，一個 filter bar 一個 table，長度係一個順住讀落去嘅 54 行 `COLUMNS` 陣列）、
+`ActivityView`（192，已經係 `RouteMap`/`LiveCard`/`SeriesChart` 嘅組合，剩返嘅冇嘢可以再抽）、
+`WarningSprite`（172，20 個 SVG `<symbol>` 平鋪、零邏輯，拆散反而睇唔到成套）、
+`SettingsView`（162，長度就係表單欄位）。
+
+### AU-046 順帶清咗
+
+`RouteMap.layout()` 本來伸手入 React render 出嚟嘅節點寫 `firstElementChild.style.width` 同 `lastElementChild.textContent`。
+兩個數字而家係 component state，由一個 `<ScaleBar>` render。
+
+**Main agent 核實**：`grep -rn "firstElementChild\|lastElementChild\|innerHTML\|\.textContent *=\|appendChild\|removeChild"` 對 `frontend/src` **零命中**。
+
+Projection 刻意**維持係 ref**（每一幀同每次 pointer 移動都讀，用 state 會令張卡逐幀 re-render）—— 冇「順手修」。
+`DiamondGrid.tsx:32-33` 用自己個 ref 設自己 `<canvas>` 嘅 backing store 尺寸，**唔係 AU-046 嗰個 pattern**，已量度並留低、冇當成已修。
+
+---
+
+## 新開
+
+| ID | 級別 | 標題 |
+|---|---|---|
+| **CUI-0056** | 🟡 Medium | CI 應該 build 完對比 CSS hash / byte size 同 committed baseline —— Tailwind 註釋洩漏已經出咗**兩次**（339 B、255 B），兩次都會即刻捉到 |
+| **CUI-0057** | 🟢 Low | `data/stats.ts`（20 個短宣告）同 `views/weight/model.ts`（15 個）而家係 AU-022 最大熱點，而 audit 只掃過 `.tsx` 所以從未列過佢哋 |
+| **CUI-0058** | 🟢 Low | `src/App.tsx` 留喺頂層而其餘 app shell 全部喺 `src/app/`，連**佢自己嘅測試 `App.test.tsx` 都已經喺 `app/`** —— 測試同被測物分處兩個目錄 |
+| **CUI-0059** | 🟢 Low | JS bundle 660 kB（gzip 206 kB）單一 chunk，每次 build 都有 Vite 警告；冇配置 code-splitting，冇人擁有 |
