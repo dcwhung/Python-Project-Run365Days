@@ -17,27 +17,29 @@ import {
   weekdayPace,
 } from "./model";
 
-const min = (sec: number | null) => (sec ? paceToPlotMin(sec) : null);
+/** Pace in seconds/km as the minutes value the pace axes are plotted in. */
+const toPlotMinutes = (sec: number | null) => (sec ? paceToPlotMin(sec) : null);
 
 export function PerformanceView() {
   const navigate = useNavigate();
-  const year = useYear();
-  const activities = useActivities();
-  if (year.isPending || activities.isPending) return <p className="text-muted">Loading…</p>;
-  if (year.isError || activities.isError)
+  const yearQuery = useYear();
+  const activitiesQuery = useActivities();
+  if (yearQuery.isPending || activitiesQuery.isPending)
+    return <p className="text-muted">Loading…</p>;
+  if (yearQuery.isError || activitiesQuery.isError)
     return <p className="text-danger">Could not load data.</p>;
-  const acts = activities.data;
-  const y = year.data;
-  const k = performanceKpis(acts);
-  const { points, trend, dayAct } = paceSeries(acts, y.dailyDistance);
-  const labels = y.dailyDistance.map((d) => d.date);
-  const hist = distanceHistogram(acts);
-  const wd = weekdayPace(acts);
-  const tod = timeOfDayPace(acts);
-  const cp = acts
+  const activities = activitiesQuery.data;
+  const year = yearQuery.data;
+  const kpis = performanceKpis(activities);
+  const { points, trend, dayAct } = paceSeries(activities, year.dailyDistance);
+  const labels = year.dailyDistance.map((d) => d.date);
+  const histogram = distanceHistogram(activities);
+  const weekdayPaces = weekdayPace(activities);
+  const timeOfDayPaces = timeOfDayPace(activities);
+  const cadenceVsPace = activities
     .filter((a) => a.avgCadence && a.paceSecPerKm)
-    .map((a) => ({ x: a.avgCadence!, y: min(a.paceSecPerKm)!, id: a.id, date: a.date }));
-  const rows = monthlyTable(acts);
+    .map((a) => ({ x: a.avgCadence!, y: toPlotMinutes(a.paceSecPerKm)!, id: a.id, date: a.date }));
+  const rows = monthlyTable(activities);
   const paceScale = (extra = {}) => ({
     grid: GRID,
     reverse: true,
@@ -48,48 +50,48 @@ export function PerformanceView() {
   return (
     <div className="space-y-4" data-testid="perf-view">
       <h1 className="text-lg font-semibold">
-        Performance <span className="text-sm font-normal text-muted">· {k.runs} runs</span>
+        Performance <span className="text-sm font-normal text-muted">· {kpis.runs} runs</span>
       </h1>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6" data-testid="perf-kpis">
         <KpiCard
           label="Avg pace"
-          value={fmtPace(k.avgPace)}
+          value={fmtPace(kpis.avgPace)}
           unit="/km"
           sub="distance-weighted"
           accent="accent"
         />
         <KpiCard
           label="Best pace (≥5 km)"
-          value={fmtPace(k.fastest?.paceSecPerKm)}
+          value={fmtPace(kpis.fastest?.paceSecPerKm)}
           unit="/km"
-          sub={k.fastest ? fmtShortDate(k.fastest.date) : ""}
+          sub={kpis.fastest ? fmtShortDate(kpis.fastest.date) : ""}
           accent="accent2"
         />
         <KpiCard
           label="Avg run"
-          value={k.avgKm.toFixed(2)}
+          value={kpis.avgKm.toFixed(2)}
           unit="km"
-          sub={`${fmtDuration(k.avgSec)} per run`}
+          sub={`${fmtDuration(kpis.avgSec)} per run`}
           accent="warn"
         />
         <KpiCard
           label="Longest run"
-          value={k.longest ? fmtKm(k.longest.distanceKm) : "–"}
+          value={kpis.longest ? fmtKm(kpis.longest.distanceKm) : "–"}
           unit="km"
-          sub={k.longest ? fmtShortDate(k.longest.date) : ""}
+          sub={kpis.longest ? fmtShortDate(kpis.longest.date) : ""}
           accent="violet"
         />
         <KpiCard
           label="Avg cadence"
-          value={k.avgCadence ? String(Math.round(k.avgCadence)) : "–"}
+          value={kpis.avgCadence ? String(Math.round(kpis.avgCadence)) : "–"}
           unit="spm"
-          sub={k.maxCadence ? `max ${k.maxCadence} spm` : ""}
+          sub={kpis.maxCadence ? `max ${kpis.maxCadence} spm` : ""}
           accent="danger"
         />
         <KpiCard
           label="Runs ≥ 10 km"
-          value={String(k.longRuns)}
-          sub={`${k.midRuns} runs ≥ 7 km`}
+          value={String(kpis.longRuns)}
+          sub={`${kpis.midRuns} runs ≥ 7 km`}
           accent="accent"
         />
       </div>
@@ -147,10 +149,10 @@ export function PerformanceView() {
           <div className="h-52">
             <Bar
               data={{
-                labels: hist.map((h) => h.label),
+                labels: histogram.map((h) => h.label),
                 datasets: [
                   {
-                    data: hist.map((h) => h.count),
+                    data: histogram.map((h) => h.count),
                     backgroundColor: alpha(COLORS.violet, 0.7),
                     borderRadius: 5,
                   },
@@ -174,7 +176,7 @@ export function PerformanceView() {
                 labels: WEEKDAYS,
                 datasets: [
                   {
-                    data: wd.map((w) => min(w.pace)),
+                    data: weekdayPaces.map((w) => toPlotMinutes(w.pace)),
                     backgroundColor: alpha(COLORS.accent, 0.7),
                     borderRadius: 5,
                   },
@@ -187,15 +189,15 @@ export function PerformanceView() {
                   tooltip: {
                     callbacks: {
                       label: (c) =>
-                        `${fmtPace(minToSec(c.parsed.y ?? 0))} /km · ${wd[c.dataIndex].runs} runs`,
+                        `${fmtPace(minToSec(c.parsed.y ?? 0))} /km · ${weekdayPaces[c.dataIndex].runs} runs`,
                     },
                   },
                 },
                 scales: {
                   x: { grid: NO_GRID },
                   y: paceScale({
-                    min: Math.min(...wd.map((w) => min(w.pace) ?? 9)) - 0.2,
-                    max: Math.max(...wd.map((w) => min(w.pace) ?? 0)) + 0.2,
+                    min: Math.min(...weekdayPaces.map((w) => toPlotMinutes(w.pace) ?? 9)) - 0.2,
+                    max: Math.max(...weekdayPaces.map((w) => toPlotMinutes(w.pace) ?? 0)) + 0.2,
                   }),
                 },
               }}
@@ -206,10 +208,10 @@ export function PerformanceView() {
           <div className="h-52">
             <Bar
               data={{
-                labels: tod.map((t) => t.label.split(" ")[0]),
+                labels: timeOfDayPaces.map((t) => t.label.split(" ")[0]),
                 datasets: [
                   {
-                    data: tod.map((t) => min(t.pace)),
+                    data: timeOfDayPaces.map((t) => toPlotMinutes(t.pace)),
                     backgroundColor: alpha(COLORS.warn, 0.7),
                     borderRadius: 5,
                   },
@@ -221,9 +223,9 @@ export function PerformanceView() {
                   ...NO_LEGEND,
                   tooltip: {
                     callbacks: {
-                      title: (c) => tod[c[0].dataIndex].label,
+                      title: (c) => timeOfDayPaces[c[0].dataIndex].label,
                       label: (c) =>
-                        `${fmtPace(minToSec(c.parsed.y ?? 0))} /km · ${tod[c.dataIndex].runs} runs`,
+                        `${fmtPace(minToSec(c.parsed.y ?? 0))} /km · ${timeOfDayPaces[c.dataIndex].runs} runs`,
                     },
                   },
                 },
@@ -241,7 +243,7 @@ export function PerformanceView() {
               data={{
                 datasets: [
                   {
-                    data: cp,
+                    data: cadenceVsPace,
                     backgroundColor: alpha(COLORS.accent2, 0.5),
                     pointRadius: 4,
                     pointHoverRadius: 6,
@@ -251,14 +253,14 @@ export function PerformanceView() {
               options={{
                 ...BASE,
                 onClick: (_e, els) => {
-                  if (els.length) navigate(`/activity/${cp[els[0].index].id}`);
+                  if (els.length) navigate(`/activity/${cadenceVsPace[els[0].index].id}`);
                 },
                 plugins: {
                   ...NO_LEGEND,
                   tooltip: {
                     callbacks: {
                       label: (c) => {
-                        const p = c.raw as (typeof cp)[number];
+                        const p = c.raw as (typeof cadenceVsPace)[number];
                         return `${fmtShortDate(p.date)} · ${p.x} spm · ${fmtPace(minToSec(p.y))}/km`;
                       },
                     },
@@ -304,13 +306,13 @@ export function PerformanceView() {
                 bold: true,
                 c: [
                   "Year",
-                  k.runs,
-                  y.totals.distanceKm.toFixed(1),
-                  fmtDuration(y.totals.durationSec),
-                  fmtPace(y.totals.avgPaceSecPerKm),
-                  fmtPace(k.fastest?.paceSecPerKm),
-                  k.avgCadence ? Math.round(k.avgCadence) : "–",
-                  y.totals.calories.toLocaleString(),
+                  kpis.runs,
+                  year.totals.distanceKm.toFixed(1),
+                  fmtDuration(year.totals.durationSec),
+                  fmtPace(year.totals.avgPaceSecPerKm),
+                  fmtPace(kpis.fastest?.paceSecPerKm),
+                  kpis.avgCadence ? Math.round(kpis.avgCadence) : "–",
+                  year.totals.calories.toLocaleString(),
                 ],
               },
             ]}

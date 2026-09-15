@@ -20,27 +20,27 @@ import {
 } from "./model";
 
 /** One colour per sky condition, in the order `conditions()` returns them. */
-const COND_COLORS = [COLORS.warn, COLORS.accent, COLORS.violet, COLORS.blue, COLORS.danger];
+const CONDITION_COLORS = [COLORS.warn, COLORS.accent, COLORS.violet, COLORS.blue, COLORS.danger];
 
 export function WeatherView() {
   const navigate = useNavigate();
-  const year = useYear();
-  const activities = useActivities();
-  const weather = useWeather();
-  if (year.isPending || activities.isPending || weather.isPending)
+  const yearQuery = useYear();
+  const activitiesQuery = useActivities();
+  const weatherQuery = useWeather();
+  if (yearQuery.isPending || activitiesQuery.isPending || weatherQuery.isPending)
     return <p className="text-muted">Loading…</p>;
-  if (year.isError || activities.isError || weather.isError)
+  if (yearQuery.isError || activitiesQuery.isError || weatherQuery.isError)
     return <p className="text-danger">Could not load data.</p>;
-  const acts = activities.data;
-  const wx = weather.data;
-  const k = weatherKpis(acts, wx);
-  const range = temperatureRange(year.data.dailyDistance, acts, wx);
+  const activities = activitiesQuery.data;
+  const dailyWeather = weatherQuery.data;
+  const kpis = weatherKpis(activities, dailyWeather);
+  const range = temperatureRange(yearQuery.data.dailyDistance, activities, dailyWeather);
   const labels = range.map((r) => r.date);
-  const conds = conditions(acts);
-  const bands = temperatureBands(acts);
-  const hp = humidityPoints(acts);
-  const ext = extremes(acts);
-  const erow = (a: (typeof acts)[number]) => ({
+  const skyConditions = conditions(activities);
+  const bands = temperatureBands(activities);
+  const humidityVsPace = humidityPoints(activities);
+  const extremeRuns = extremes(activities);
+  const extremeRow = (a: (typeof activities)[number]) => ({
     id: a.id,
     c: [
       `${fmtShortDate(a.date)} ${a.startTime}`,
@@ -60,49 +60,49 @@ export function WeatherView() {
       >
         <KpiCard
           label="Avg run temp"
-          value={k.avgTemp != null ? k.avgTemp.toFixed(1) : "–"}
+          value={kpis.avgTemp != null ? kpis.avgTemp.toFixed(1) : "–"}
           unit="°C"
           sub="Garmin sensor"
           accent="warn"
         />
         <KpiCard
           label="Hottest run"
-          value={k.hottest ? actTemp(k.hottest)!.toFixed(1) : "–"}
+          value={kpis.hottest ? actTemp(kpis.hottest)!.toFixed(1) : "–"}
           unit="°C"
           sub={
-            k.hottest
-              ? `${fmtShortDate(k.hottest.date)} · ${fmtPace(k.hottest.paceSecPerKm)}/km`
+            kpis.hottest
+              ? `${fmtShortDate(kpis.hottest.date)} · ${fmtPace(kpis.hottest.paceSecPerKm)}/km`
               : ""
           }
           accent="danger"
         />
         <KpiCard
           label="Coldest run"
-          value={k.coldest ? actTemp(k.coldest)!.toFixed(1) : "–"}
+          value={kpis.coldest ? actTemp(kpis.coldest)!.toFixed(1) : "–"}
           unit="°C"
           sub={
-            k.coldest
-              ? `${fmtShortDate(k.coldest.date)} · ${fmtPace(k.coldest.paceSecPerKm)}/km`
+            kpis.coldest
+              ? `${fmtShortDate(kpis.coldest.date)} · ${fmtPace(kpis.coldest.paceSecPerKm)}/km`
               : ""
           }
           accent="accent"
         />
         <KpiCard
           label="Rain / thunder at start"
-          value={String(k.wetStart)}
-          sub={`${k.rainyDays} runs on days with rainfall`}
+          value={String(kpis.wetStart)}
+          sub={`${kpis.rainyDays} runs on days with rainfall`}
           accent="accent"
         />
         <KpiCard
           label="Severe warnings"
-          value={String(k.severe)}
+          value={String(kpis.severe)}
           sub="T3+ or rainstorm signal that day"
           accent="danger"
         />
         <KpiCard
           label="Before sunrise"
-          value={String(k.beforeSunrise)}
-          sub={`${Math.round((k.beforeSunrise / (k.runs || 1)) * 100)}% of runs started in the dark`}
+          value={String(kpis.beforeSunrise)}
+          sub={`${Math.round((kpis.beforeSunrise / (kpis.runs || 1)) * 100)}% of runs started in the dark`}
           accent="violet"
         />
       </div>
@@ -168,9 +168,13 @@ export function WeatherView() {
           <div className="h-52">
             <Bar
               data={{
-                labels: conds.map((c) => `${wxEmoji(c.label)} ${c.label}`),
+                labels: skyConditions.map((c) => `${wxEmoji(c.label)} ${c.label}`),
                 datasets: [
-                  { data: conds.map((c) => c.runs), backgroundColor: COND_COLORS, borderRadius: 5 },
+                  {
+                    data: skyConditions.map((c) => c.runs),
+                    backgroundColor: CONDITION_COLORS,
+                    borderRadius: 5,
+                  },
                 ],
               }}
               options={{
@@ -181,7 +185,7 @@ export function WeatherView() {
                   tooltip: {
                     callbacks: {
                       label: (c) =>
-                        `${c.parsed.x} runs · avg ${fmtPace(conds[c.dataIndex].pace)}/km`,
+                        `${c.parsed.x} runs · avg ${fmtPace(skyConditions[c.dataIndex].pace)}/km`,
                     },
                   },
                 },
@@ -232,7 +236,7 @@ export function WeatherView() {
               data={{
                 datasets: [
                   {
-                    data: hp,
+                    data: humidityVsPace,
                     backgroundColor: alpha(COLORS.blue, 0.5),
                     pointRadius: 4,
                     pointHoverRadius: 6,
@@ -242,14 +246,14 @@ export function WeatherView() {
               options={{
                 ...BASE,
                 onClick: (_e, els) => {
-                  if (els.length) navigate(`/activity/${hp[els[0].index].id}`);
+                  if (els.length) navigate(`/activity/${humidityVsPace[els[0].index].id}`);
                 },
                 plugins: {
                   ...NO_LEGEND,
                   tooltip: {
                     callbacks: {
                       label: (c) => {
-                        const p = c.raw as (typeof hp)[number];
+                        const p = c.raw as (typeof humidityVsPace)[number];
                         return `${fmtShortDate(p.date)} · ${p.x}% RH · ${fmtPace(minToSec(p.y))}/km`;
                       },
                     },
@@ -280,7 +284,7 @@ export function WeatherView() {
               { h: "Avg km", num: true },
               { h: "Avg pace", num: true },
             ]}
-            rows={warningTable(acts).map((w) => ({
+            rows={warningTable(activities).map((w) => ({
               key: w.signal,
               c: [
                 <WarningIcons signals={[w.signal]} />,
@@ -303,9 +307,9 @@ export function WeatherView() {
               { h: "Pace", num: true },
             ]}
             rows={[
-              ...ext.hottest.map(erow),
+              ...extremeRuns.hottest.map(extremeRow),
               { key: "gap", c: ["…", "", "", "", ""] },
-              ...ext.coldest.map(erow),
+              ...extremeRuns.coldest.map(extremeRow),
             ]}
           />
         </Card>

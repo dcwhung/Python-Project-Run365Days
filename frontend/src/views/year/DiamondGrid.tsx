@@ -4,42 +4,49 @@ import { MONTHS } from "@/lib/format";
 import { monthLengths } from "@/lib/dates";
 import { FONT_SANS, TOKENS } from "@/styles/tokens";
 
-const LABEL_W = 34;
+/** Width of the month-name gutter down the left edge. */
+const LABEL_WIDTH_PX = 34;
 const GAP = 4;
+/** Every row is sized for the longest month, so all twelve line up. */
+const COLUMNS = 31;
+const ROWS = 12;
 
 /** One diamond per day, twelve rows, lit on days with a run (v2 infographic). */
 export function DiamondGrid({ daily, year }: { daily: DayDistance[]; year: number }) {
   const ref = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
-    const cv = ref.current;
-    const g = cv?.getContext("2d");
-    if (!cv || !g) return;
-    const avail = (cv.parentElement?.clientWidth ?? 600) - 8;
-    const cell = Math.max(6, Math.min(24, Math.floor((avail - LABEL_W - 31 * GAP) / 31)));
-    const rowH = cell + GAP;
+    const canvasEl = ref.current;
+    const ctx = canvasEl?.getContext("2d");
+    if (!canvasEl || !ctx) return;
+    const available = (canvasEl.parentElement?.clientWidth ?? 600) - 8;
+    const cell = Math.max(
+      6,
+      Math.min(24, Math.floor((available - LABEL_WIDTH_PX - COLUMNS * GAP) / COLUMNS)),
+    );
+    const rowHeight = cell + GAP;
     const dpr = window.devicePixelRatio || 1;
-    const W = LABEL_W + 31 * (cell + GAP);
-    const H = 12 * rowH;
-    cv.width = W * dpr;
-    cv.height = H * dpr;
-    cv.style.width = `${W}px`;
-    cv.style.height = `${H}px`;
-    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const cssWidth = LABEL_WIDTH_PX + COLUMNS * (cell + GAP);
+    const cssHeight = ROWS * rowHeight;
+    canvasEl.width = cssWidth * dpr;
+    canvasEl.height = cssHeight * dpr;
+    canvasEl.style.width = `${cssWidth}px`;
+    canvasEl.style.height = `${cssHeight}px`;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     const half = cell * 0.42;
-    let doy = 1;
-    monthLengths(year).forEach((days, mi) => {
-      const cy = mi * rowH + rowH / 2;
-      g.font = `600 9px ${FONT_SANS}`;
-      g.fillStyle = TOKENS.muted;
-      g.textBaseline = "middle";
-      g.fillText(MONTHS[mi].toUpperCase(), 0, cy);
-      for (let d = 0; d < days; d++, doy++) {
-        g.save();
-        g.translate(LABEL_W + d * (cell + GAP) + cell / 2, cy);
-        g.rotate(Math.PI / 4);
-        g.fillStyle = daily[doy - 1]?.activityId ? TOKENS.violet : TOKENS.surface2;
-        g.fillRect(-half, -half, half * 2, half * 2);
-        g.restore();
+    let dayOfYear = 1;
+    monthLengths(year).forEach((days, monthIndex) => {
+      const rowCenterY = monthIndex * rowHeight + rowHeight / 2;
+      ctx.font = `600 9px ${FONT_SANS}`;
+      ctx.fillStyle = TOKENS.muted;
+      ctx.textBaseline = "middle";
+      ctx.fillText(MONTHS[monthIndex].toUpperCase(), 0, rowCenterY);
+      for (let dayIndex = 0; dayIndex < days; dayIndex++, dayOfYear++) {
+        ctx.save();
+        ctx.translate(LABEL_WIDTH_PX + dayIndex * (cell + GAP) + cell / 2, rowCenterY);
+        ctx.rotate(Math.PI / 4);
+        ctx.fillStyle = daily[dayOfYear - 1]?.activityId ? TOKENS.violet : TOKENS.surface2;
+        ctx.fillRect(-half, -half, half * 2, half * 2);
+        ctx.restore();
       }
     });
   }, [daily, year]);

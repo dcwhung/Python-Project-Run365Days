@@ -12,10 +12,10 @@ export function SettingsView() {
   const prefs = usePrefs();
   const [form, setForm] = useState<Prefs>(prefs);
   const [msg, setMsg] = useState<string | null>(null);
-  const meta = useMeta();
-  const activities = useActivities();
-  const weight = useWeight();
-  const weather = useWeather();
+  const metaQuery = useMeta();
+  const activitiesQuery = useActivities();
+  const weightQuery = useWeight();
+  const weatherQuery = useWeather();
   const source = useDataSource();
 
   const submit = (e: FormEvent) => {
@@ -31,17 +31,17 @@ export function SettingsView() {
     setForm(resetPrefs());
     setMsg("Reset to defaults");
   };
-  const acts = activities.data ?? [];
-  const gps = acts.filter((a) => a.hasGps).length;
+  const activities = activitiesQuery.data ?? [];
+  const gps = activities.filter((a) => a.hasGps).length;
   const info: [string, string][] = [
     ["Data source", source.mode === "api" ? "GraphQL API" : "static JSON"],
-    ["Year", meta.data ? String(meta.data.year) : "…"],
-    ["Generated", meta.data ? meta.data.generatedAt.replace("T", " ") : "…"],
-    ["Activities", String(acts.length)],
-    ["With GPS", `${gps} (${acts.length - gps} indoor)`],
-    ["Weigh-ins", String(weight.data?.length ?? "…")],
-    ["HKO daily rows", String(weather.data?.length ?? "…")],
-    ["Runs with hourly weather", String(acts.filter((a) => a.weather).length)],
+    ["Year", metaQuery.data ? String(metaQuery.data.year) : "…"],
+    ["Generated", metaQuery.data ? metaQuery.data.generatedAt.replace("T", " ") : "…"],
+    ["Activities", String(activities.length)],
+    ["With GPS", `${gps} (${activities.length - gps} indoor)`],
+    ["Weigh-ins", String(weightQuery.data?.length ?? "…")],
+    ["HKO daily rows", String(weatherQuery.data?.length ?? "…")],
+    ["Runs with hourly weather", String(activities.filter((a) => a.weather).length)],
   ];
 
   return (

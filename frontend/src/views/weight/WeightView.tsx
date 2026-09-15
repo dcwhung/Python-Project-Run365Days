@@ -22,33 +22,36 @@ const upDown = (v: number | null) =>
   (v ?? 0) <= 0 ? alpha(COLORS.accent2, 0.7) : alpha(COLORS.danger, 0.7);
 
 export function WeightView() {
-  const year = useYear();
-  const weight = useWeight();
-  const { weightUnit: u, heightCm } = usePrefs();
-  if (year.isPending || weight.isPending) return <p className="text-muted">Loading…</p>;
-  if (year.isError || weight.isError) return <p className="text-danger">Could not load data.</p>;
-  const y = year.data;
-  const W = weight.data;
-  const k = weightKpis(W, heightCm, y.totals.days);
-  if (!k)
+  const yearQuery = useYear();
+  const weightQuery = useWeight();
+  const { weightUnit, heightCm } = usePrefs();
+  if (yearQuery.isPending || weightQuery.isPending) return <p className="text-muted">Loading…</p>;
+  if (yearQuery.isError || weightQuery.isError)
+    return <p className="text-danger">Could not load data.</p>;
+  const year = yearQuery.data;
+  const weight = weightQuery.data;
+  const kpis = weightKpis(weight, heightCm, year.totals.days);
+  if (!kpis)
     return (
       <Card title="Weight">
         <p className="text-muted">No weight data.</p>
       </Card>
     );
-  const labels = y.dailyDistance.map((d) => d.date);
-  const { series, ma7 } = dailySeries(W, labels);
-  const conv = (v: number | null) => toWeightUnit(v, u);
-  const mChange = monthlyChange(W).map((v) => (v == null ? null : conv(v)));
-  const deltas = dailyDeltas(W);
-  const wdDelta = weekdayDelta(deltas).map((v) =>
-    v == null ? null : Math.round(conv(v)! * 100) / 100,
+  const labels = year.dailyDistance.map((d) => d.date);
+  const { series, ma7: movingAvg7 } = dailySeries(weight, labels);
+  const toDisplayUnit = (v: number | null) => toWeightUnit(v, weightUnit);
+  const monthlyChanges = monthlyChange(weight).map((v) => (v == null ? null : toDisplayUnit(v)));
+  const deltas = dailyDeltas(weight);
+  const weekdayDeltas = weekdayDelta(deltas).map((v) =>
+    v == null ? null : Math.round(toDisplayUnit(v)! * 100) / 100,
   );
-  const wkPts = weeklyKmVsChange(y.weekly, W, y.dailyDistance, y.year).map((p) => ({
-    ...p,
-    y: conv(p.y)!,
-  }));
-  const ends = lastOfMonth(W);
+  const weeklyPoints = weeklyKmVsChange(year.weekly, weight, year.dailyDistance, year.year).map(
+    (p) => ({
+      ...p,
+      y: toDisplayUnit(p.y)!,
+    }),
+  );
+  const monthEndWeights = lastOfMonth(weight);
 
   return (
     <div className="space-y-4" data-testid="weight-view">
@@ -62,42 +65,42 @@ export function WeightView() {
       >
         <KpiCard
           label="Start"
-          value={`${conv(k.first.weightLbs)}`}
-          unit={u}
-          sub={fmtShortDate(k.first.date)}
+          value={`${toDisplayUnit(kpis.first.weightLbs)}`}
+          unit={weightUnit}
+          sub={fmtShortDate(kpis.first.date)}
           accent="accent"
         />
         <KpiCard
           label="End"
-          value={`${conv(k.last.weightLbs)}`}
-          unit={u}
-          sub={fmtShortDate(k.last.date)}
+          value={`${toDisplayUnit(kpis.last.weightLbs)}`}
+          unit={weightUnit}
+          sub={fmtShortDate(kpis.last.date)}
           accent="warn"
         />
         <KpiCard
           label="Lowest"
-          value={`${conv(k.min.weightLbs)}`}
-          unit={u}
-          sub={fmtShortDate(k.min.date)}
+          value={`${toDisplayUnit(kpis.min.weightLbs)}`}
+          unit={weightUnit}
+          sub={fmtShortDate(kpis.min.date)}
           accent="accent2"
         />
         <KpiCard
           label="Total loss"
-          value={`${conv(k.loss)}`}
-          unit={u}
-          sub={`${k.lossPct.toFixed(1)}% · ${(conv(k.lossPerWeek) ?? 0).toFixed(2)} ${u}/week`}
+          value={`${toDisplayUnit(kpis.loss)}`}
+          unit={weightUnit}
+          sub={`${kpis.lossPct.toFixed(1)}% · ${(toDisplayUnit(kpis.lossPerWeek) ?? 0).toFixed(2)} ${weightUnit}/week`}
           accent="accent"
         />
         <KpiCard
           label="BMI"
-          value={k.bmiEnd.toFixed(1)}
-          sub={`from ${k.bmiStart.toFixed(1)} at start`}
+          value={kpis.bmiEnd.toFixed(1)}
+          sub={`from ${kpis.bmiStart.toFixed(1)} at start`}
           accent="violet"
         />
         <KpiCard
           label="Weigh-ins"
-          value={String(k.weighIns)}
-          sub={k.missing === 0 ? "every day" : `${k.missing} days missing`}
+          value={String(kpis.weighIns)}
+          sub={kpis.missing === 0 ? "every day" : `${kpis.missing} days missing`}
           accent="danger"
         />
       </div>
@@ -109,8 +112,8 @@ export function WeightView() {
               labels,
               datasets: [
                 {
-                  label: `Daily (${u})`,
-                  data: series.map(conv),
+                  label: `Daily (${weightUnit})`,
+                  data: series.map(toDisplayUnit),
                   borderColor: alpha(COLORS.warn, 0.45),
                   borderWidth: 1,
                   pointRadius: 0,
@@ -118,7 +121,7 @@ export function WeightView() {
                 },
                 {
                   label: "7-day average",
-                  data: ma7.map(conv),
+                  data: movingAvg7.map(toDisplayUnit),
                   borderColor: COLORS.warn,
                   backgroundColor: alpha(COLORS.warn, 0.08),
                   fill: true,
@@ -137,13 +140,13 @@ export function WeightView() {
                 tooltip: {
                   callbacks: {
                     title: (c) => fmtShortDate(labels[c[0].dataIndex]),
-                    label: (c) => `${c.dataset.label}: ${c.parsed.y} ${u}`,
+                    label: (c) => `${c.dataset.label}: ${c.parsed.y} ${weightUnit}`,
                   },
                 },
               },
               scales: {
                 x: dayAxis(labels),
-                y: { grid: GRID, ticks: { callback: (v) => `${v} ${u}` } },
+                y: { grid: GRID, ticks: { callback: (v) => `${v} ${weightUnit}` } },
               },
             }}
           />
@@ -157,18 +160,24 @@ export function WeightView() {
               data={{
                 labels: MONTHS,
                 datasets: [
-                  { data: mChange, backgroundColor: mChange.map(upDown), borderRadius: 5 },
+                  {
+                    data: monthlyChanges,
+                    backgroundColor: monthlyChanges.map(upDown),
+                    borderRadius: 5,
+                  },
                 ],
               }}
               options={{
                 ...BASE,
                 plugins: {
                   ...NO_LEGEND,
-                  tooltip: { callbacks: { label: (c) => `${fmtSigned(c.parsed.y ?? 0)} ${u}` } },
+                  tooltip: {
+                    callbacks: { label: (c) => `${fmtSigned(c.parsed.y ?? 0)} ${weightUnit}` },
+                  },
                 },
                 scales: {
                   x: { grid: NO_GRID },
-                  y: { grid: GRID, ticks: { callback: (v) => `${v} ${u}` } },
+                  y: { grid: GRID, ticks: { callback: (v) => `${v} ${weightUnit}` } },
                 },
               }}
             />
@@ -180,7 +189,11 @@ export function WeightView() {
               data={{
                 labels: WEEKDAYS,
                 datasets: [
-                  { data: wdDelta, backgroundColor: wdDelta.map(upDown), borderRadius: 5 },
+                  {
+                    data: weekdayDeltas,
+                    backgroundColor: weekdayDeltas.map(upDown),
+                    borderRadius: 5,
+                  },
                 ],
               }}
               options={{
@@ -189,13 +202,13 @@ export function WeightView() {
                   ...NO_LEGEND,
                   tooltip: {
                     callbacks: {
-                      label: (c) => `${fmtSigned(c.parsed.y ?? 0)} ${u} vs previous day`,
+                      label: (c) => `${fmtSigned(c.parsed.y ?? 0)} ${weightUnit} vs previous day`,
                     },
                   },
                 },
                 scales: {
                   x: { grid: NO_GRID },
-                  y: { grid: GRID, ticks: { callback: (v) => `${v} ${u}` } },
+                  y: { grid: GRID, ticks: { callback: (v) => `${v} ${weightUnit}` } },
                 },
               }}
             />
@@ -207,7 +220,7 @@ export function WeightView() {
               data={{
                 datasets: [
                   {
-                    data: wkPts,
+                    data: weeklyPoints,
                     backgroundColor: alpha(COLORS.accent, 0.5),
                     pointRadius: 4,
                     pointHoverRadius: 6,
@@ -221,15 +234,18 @@ export function WeightView() {
                   tooltip: {
                     callbacks: {
                       label: (c) => {
-                        const p = c.raw as (typeof wkPts)[number];
-                        return `week of ${fmtShortDate(p.weekStart)} · ${p.x} km · ${fmtSigned(p.y)} ${u}`;
+                        const p = c.raw as (typeof weeklyPoints)[number];
+                        return `week of ${fmtShortDate(p.weekStart)} · ${p.x} km · ${fmtSigned(p.y)} ${weightUnit}`;
                       },
                     },
                   },
                 },
                 scales: {
                   x: { grid: GRID, title: { display: true, text: "km that week" } },
-                  y: { grid: GRID, title: { display: true, text: `weight change (${u})` } },
+                  y: {
+                    grid: GRID,
+                    title: { display: true, text: `weight change (${weightUnit})` },
+                  },
                 },
               }}
             />
@@ -245,18 +261,20 @@ export function WeightView() {
             { h: "Up", num: true },
             { h: "Down", num: true },
             { h: "Same", num: true },
-            { h: `Net (${u})`, num: true },
+            { h: `Net (${weightUnit})`, num: true },
             { h: "Month end", num: true },
           ]}
-          rows={monthlyUpDown(deltas, W).map((r) => ({
+          rows={monthlyUpDown(deltas, weight).map((r) => ({
             key: String(r.month),
             c: [
               MONTHS[r.month - 1],
               <span className="text-danger">{r.up}</span>,
               <span className="text-accent2">{r.down}</span>,
               r.same,
-              fmtSigned(conv(r.net)!),
-              ends[r.month - 1] != null ? conv(ends[r.month - 1]) : "–",
+              fmtSigned(toDisplayUnit(r.net)!),
+              monthEndWeights[r.month - 1] != null
+                ? toDisplayUnit(monthEndWeights[r.month - 1])
+                : "–",
             ],
           }))}
         />

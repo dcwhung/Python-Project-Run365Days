@@ -23,10 +23,10 @@ export function Heatmap({ daily, year }: { daily: DayDistance[]; year: number })
   const startOffset = weekday(daily[0]?.date ?? `${year}-01-01`);
   const numWeeks = Math.ceil((startOffset + daily.length) / 7);
   const monthWeeks: number[] = [];
-  let acc = 0;
-  for (const n of monthLengths(year)) {
-    monthWeeks.push(Math.floor((acc + startOffset) / 7));
-    acc += n;
+  let daysBefore = 0;
+  for (const daysInMonth of monthLengths(year)) {
+    monthWeeks.push(Math.floor((daysBefore + startOffset) / 7));
+    daysBefore += daysInMonth;
   }
   monthWeeks.push(numWeeks);
 
@@ -41,23 +41,24 @@ export function Heatmap({ daily, year }: { daily: DayDistance[]; year: number })
       </div>
       <div className="flex">
         <div className="mr-1 flex w-8 flex-col text-[10px] text-muted" style={{ gap: GAP }}>
-          {["", "Mon", "", "Wed", "", "Fri", ""].map((l, i) => (
+          {["", "Mon", "", "Wed", "", "Fri", ""].map((label, i) => (
             <span key={i} style={{ height: CELL, lineHeight: `${CELL}px` }}>
-              {l}
+              {label}
             </span>
           ))}
         </div>
         <div className="flex" style={{ gap: GAP }}>
-          {Array.from({ length: numWeeks }, (_, w) => (
-            <div key={w} className="flex flex-col" style={{ gap: GAP }}>
-              {Array.from({ length: 7 }, (_, wd) => {
-                const doy = w * 7 + wd - startOffset + 1;
-                const day = doy >= 1 && doy <= daily.length ? daily[doy - 1] : null;
-                if (!day) return <div key={wd} style={{ width: CELL, height: CELL }} />;
+          {Array.from({ length: numWeeks }, (_, weekIndex) => (
+            <div key={weekIndex} className="flex flex-col" style={{ gap: GAP }}>
+              {Array.from({ length: 7 }, (_, dayIndex) => {
+                const dayOfYear = weekIndex * 7 + dayIndex - startOffset + 1;
+                const day =
+                  dayOfYear >= 1 && dayOfYear <= daily.length ? daily[dayOfYear - 1] : null;
+                if (!day) return <div key={dayIndex} style={{ width: CELL, height: CELL }} />;
                 const text = `${longDate(day.date)} — ${day.distanceKm ? `${fmtKm(day.distanceKm)} km` : "rest day"}`;
                 return (
                   <button
-                    key={wd}
+                    key={dayIndex}
                     type="button"
                     aria-label={text}
                     className={`rounded-[2px] ${LEVEL_CLASS[heatLevel(day.distanceKm)]} ${day.activityId ? "cursor-pointer hover:outline hover:outline-1 hover:outline-text" : ""}`}

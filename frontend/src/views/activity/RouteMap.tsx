@@ -22,87 +22,87 @@ export function RouteMap({
   const { paceFast, paceSlow } = usePrefs();
   const wrap = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
-  const proj = useRef<Projection | null>(null);
+  const projectionRef = useRef<Projection | null>(null);
   const scale = useRef<HTMLDivElement>(null);
 
   const draw = useCallback(() => {
-    const cv = canvas.current;
-    const p = proj.current;
-    const g = cv?.getContext("2d");
-    if (!cv || !p || !g) return;
+    const canvasEl = canvas.current;
+    const projection = projectionRef.current;
+    const ctx = canvasEl?.getContext("2d");
+    if (!canvasEl || !projection || !ctx) return;
     const dpr = window.devicePixelRatio || 1;
-    if (cv.width !== p.w * dpr) {
-      cv.width = p.w * dpr;
-      cv.height = p.h * dpr;
+    if (canvasEl.width !== projection.w * dpr) {
+      canvasEl.width = projection.w * dpr;
+      canvasEl.height = projection.h * dpr;
     }
-    g.setTransform(dpr, 0, 0, dpr, 0, 0);
-    g.clearRect(0, 0, p.w, p.h);
-    g.strokeStyle = TOKENS.surface2;
-    g.lineWidth = 1;
-    g.beginPath();
-    for (let x = 0; x < p.w; x += 40) {
-      g.moveTo(x, 0);
-      g.lineTo(x, p.h);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, projection.w, projection.h);
+    ctx.strokeStyle = TOKENS.surface2;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let x = 0; x < projection.w; x += 40) {
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, projection.h);
     }
-    for (let y = 0; y < p.h; y += 40) {
-      g.moveTo(0, y);
-      g.lineTo(p.w, y);
+    for (let y = 0; y < projection.h; y += 40) {
+      ctx.moveTo(0, y);
+      ctx.lineTo(projection.w, y);
     }
-    g.stroke();
-    g.lineWidth = 3;
-    g.lineJoin = "round";
-    g.lineCap = "round";
-    g.strokeStyle = TOKENS.border;
-    g.beginPath();
-    p.xy.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y)));
-    g.stroke();
-    g.lineWidth = 4;
+    ctx.stroke();
+    ctx.lineWidth = 3;
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+    ctx.strokeStyle = TOKENS.border;
+    ctx.beginPath();
+    projection.xy.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+    ctx.stroke();
+    ctx.lineWidth = 4;
     for (let i = 1; i <= idx; i++) {
-      g.strokeStyle = paceColor(series.pace[i], paceFast, paceSlow);
-      g.beginPath();
-      g.moveTo(p.xy[i - 1][0], p.xy[i - 1][1]);
-      g.lineTo(p.xy[i][0], p.xy[i][1]);
-      g.stroke();
+      ctx.strokeStyle = paceColor(series.pace[i], paceFast, paceSlow);
+      ctx.beginPath();
+      ctx.moveTo(projection.xy[i - 1][0], projection.xy[i - 1][1]);
+      ctx.lineTo(projection.xy[i][0], projection.xy[i][1]);
+      ctx.stroke();
     }
-    g.font = `600 10px ${FONT_SANS}`;
-    g.textBaseline = "middle";
-    const [sx, sy] = p.xy[0];
-    g.beginPath();
-    g.arc(sx, sy, 6, 0, Math.PI * 2);
-    g.fillStyle = TOKENS.surface;
-    g.fill();
-    g.strokeStyle = TOKENS.accent2;
-    g.lineWidth = 2;
-    g.stroke();
-    g.fillStyle = TOKENS.text;
-    g.fillText("START", sx + 11, sy);
-    const [ex, ey] = p.xy[series.n - 1];
-    g.fillStyle = TOKENS.danger;
-    g.fillRect(ex - 5, ey - 5, 10, 10);
-    g.fillStyle = TOKENS.text;
-    g.fillText("FINISH", ex + 11, ey);
-    const [cx, cy] = p.xy[idx];
-    g.fillStyle = alpha(TOKENS.accent, 0.22);
-    g.beginPath();
-    g.arc(cx, cy, 15, 0, Math.PI * 2);
-    g.fill();
-    g.fillStyle = TOKENS.accent;
-    g.beginPath();
-    g.arc(cx, cy, 7, 0, Math.PI * 2);
-    g.fill();
-    g.strokeStyle = MARKER_RING;
-    g.lineWidth = 2;
-    g.stroke();
+    ctx.font = `600 10px ${FONT_SANS}`;
+    ctx.textBaseline = "middle";
+    const [startX, startY] = projection.xy[0];
+    ctx.beginPath();
+    ctx.arc(startX, startY, 6, 0, Math.PI * 2);
+    ctx.fillStyle = TOKENS.surface;
+    ctx.fill();
+    ctx.strokeStyle = TOKENS.accent2;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.fillStyle = TOKENS.text;
+    ctx.fillText("START", startX + 11, startY);
+    const [endX, endY] = projection.xy[series.n - 1];
+    ctx.fillStyle = TOKENS.danger;
+    ctx.fillRect(endX - 5, endY - 5, 10, 10);
+    ctx.fillStyle = TOKENS.text;
+    ctx.fillText("FINISH", endX + 11, endY);
+    const [markerX, markerY] = projection.xy[idx];
+    ctx.fillStyle = alpha(TOKENS.accent, 0.22);
+    ctx.beginPath();
+    ctx.arc(markerX, markerY, 15, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = TOKENS.accent;
+    ctx.beginPath();
+    ctx.arc(markerX, markerY, 7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = MARKER_RING;
+    ctx.lineWidth = 2;
+    ctx.stroke();
   }, [idx, series, paceFast, paceSlow]);
 
   const layout = useCallback(() => {
     const el = wrap.current;
     if (!el) return;
-    proj.current = series.hasGps ? project(series, el.clientWidth, el.clientHeight) : null;
-    if (scale.current && proj.current) {
+    projectionRef.current = series.hasGps ? project(series, el.clientWidth, el.clientHeight) : null;
+    if (scale.current && projectionRef.current) {
       (scale.current.firstElementChild as HTMLElement).style.width =
-        `${proj.current.scaleBarPx.toFixed(0)}px`;
-      scale.current.lastElementChild!.textContent = `${proj.current.scaleBarM} m`;
+        `${projectionRef.current.scaleBarPx.toFixed(0)}px`;
+      scale.current.lastElementChild!.textContent = `${projectionRef.current.scaleBarM} m`;
     }
     draw();
   }, [series, draw]);
@@ -116,17 +116,17 @@ export function RouteMap({
   useEffect(draw, [draw]);
 
   const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    const p = proj.current;
-    if (!p) return;
-    const r = e.currentTarget.getBoundingClientRect();
-    const px = e.clientX - r.left;
-    const py = e.clientY - r.top;
+    const projection = projectionRef.current;
+    if (!projection) return;
+    const box = e.currentTarget.getBoundingClientRect();
+    const pointerX = e.clientX - box.left;
+    const pointerY = e.clientY - box.top;
     let best = -1;
-    let bd = HOVER_RADIUS_PX * HOVER_RADIUS_PX;
-    p.xy.forEach(([x, y], i) => {
-      const d = (x - px) ** 2 + (y - py) ** 2;
-      if (d < bd) {
-        bd = d;
+    let bestDistSq = HOVER_RADIUS_PX * HOVER_RADIUS_PX;
+    projection.xy.forEach(([x, y], i) => {
+      const distSq = (x - pointerX) ** 2 + (y - pointerY) ** 2;
+      if (distSq < bestDistSq) {
+        bestDistSq = distSq;
         best = i;
       }
     });

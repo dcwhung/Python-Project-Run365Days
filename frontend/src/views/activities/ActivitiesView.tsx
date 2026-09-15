@@ -80,19 +80,21 @@ function download(name: string, text: string) {
 
 export function ActivitiesView() {
   const navigate = useNavigate();
-  const all = useActivities();
-  const meta = useMeta();
+  const activitiesQuery = useActivities();
+  const metaQuery = useMeta();
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: "date", dir: -1 });
   const rows = useMemo(
-    () => filterAndSort(all.data ?? [], filters, sort.key, sort.dir),
-    [all.data, filters, sort],
+    () => filterAndSort(activitiesQuery.data ?? [], filters, sort.key, sort.dir),
+    [activitiesQuery.data, filters, sort],
   );
 
-  if (all.isPending) return <p className="text-muted">Loading…</p>;
-  if (all.isError)
-    return <p className="text-danger">Could not load activities: {all.error.message}</p>;
-  const total = all.data.length;
+  if (activitiesQuery.isPending) return <p className="text-muted">Loading…</p>;
+  if (activitiesQuery.isError)
+    return (
+      <p className="text-danger">Could not load activities: {activitiesQuery.error.message}</p>
+    );
+  const total = activitiesQuery.data.length;
   const totalKm = rows.reduce((s, a) => s + a.distanceKm, 0);
   const setSortKey = (key: SortKey) =>
     setSort((s) => (s.key === key ? { key, dir: s.dir === 1 ? -1 : 1 } : { key, dir: -1 }));
@@ -158,7 +160,9 @@ export function ActivitiesView() {
           <button
             type="button"
             className="rounded border border-border px-2 py-1 text-xs hover:bg-surface2"
-            onClick={() => download(`run365days_${meta.data?.year ?? "export"}.csv`, toCsv(rows))}
+            onClick={() =>
+              download(`run365days_${metaQuery.data?.year ?? "export"}.csv`, toCsv(rows))
+            }
           >
             Export CSV
           </button>

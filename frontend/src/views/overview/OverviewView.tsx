@@ -12,39 +12,43 @@ import { WeatherStrip } from "./WeatherStrip";
 import "@/components/charts/theme";
 
 export function OverviewView() {
-  const year = useYear();
-  const activities = useActivities();
-  const weight = useWeight();
-  const weather = useWeather();
-  if (year.isPending || activities.isPending) return <p className="text-muted">Loading…</p>;
-  if (year.isError) return <p className="text-danger">Could not load data: {year.error.message}</p>;
-  if (activities.isError)
-    return <p className="text-danger">Could not load activities: {activities.error.message}</p>;
-  const y = year.data;
-  const acts = activities.data;
+  const yearQuery = useYear();
+  const activitiesQuery = useActivities();
+  const weightQuery = useWeight();
+  const weatherQuery = useWeather();
+  if (yearQuery.isPending || activitiesQuery.isPending)
+    return <p className="text-muted">Loading…</p>;
+  if (yearQuery.isError)
+    return <p className="text-danger">Could not load data: {yearQuery.error.message}</p>;
+  if (activitiesQuery.isError)
+    return (
+      <p className="text-danger">Could not load activities: {activitiesQuery.error.message}</p>
+    );
+  const year = yearQuery.data;
+  const activities = activitiesQuery.data;
   return (
     <div className="space-y-4">
       <h1 className="sr-only">Overview</h1>
-      <KpiRow totals={y.totals} personalBests={y.personalBests} />
+      <KpiRow totals={year.totals} personalBests={year.personalBests} />
       <Card title="Daily Distance">
-        <Heatmap daily={y.dailyDistance} year={y.year} />
+        <Heatmap daily={year.dailyDistance} year={year.year} />
       </Card>
       <div className="grid gap-4 lg:grid-cols-2">
-        <MonthlyDistanceChart monthly={y.monthly} />
-        <MonthlyPaceChart monthly={y.monthly} />
+        <MonthlyDistanceChart monthly={year.monthly} />
+        <MonthlyPaceChart monthly={year.monthly} />
       </div>
       <div className="grid gap-4 lg:grid-cols-[3fr_2fr]">
-        <RecentActivities activities={acts} />
-        <PersonalBestList personalBests={y.personalBests} totals={y.totals} />
+        <RecentActivities activities={activities} />
+        <PersonalBestList personalBests={year.personalBests} totals={year.totals} />
       </div>
       <div className="grid gap-4 lg:grid-cols-2">
-        <TrainingLoadChart load={y.trainingLoad} />
-        <WeightChart weight={weight.data ?? []} daily={y.dailyDistance} />
+        <TrainingLoadChart load={year.trainingLoad} />
+        <WeightChart weight={weightQuery.data ?? []} daily={year.dailyDistance} />
       </div>
       <div className="grid gap-4 lg:grid-cols-2">
-        <TempPaceChart activities={acts} />
+        <TempPaceChart activities={activities} />
         <div>
-          <WeatherStrip activities={acts} weather={weather.data ?? []} />
+          <WeatherStrip activities={activities} weather={weatherQuery.data ?? []} />
         </div>
       </div>
     </div>

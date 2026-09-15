@@ -5,7 +5,7 @@ import { useDataSource } from "@/data/context";
 import { WarningSprite } from "@/components/weather/WarningSprite";
 
 export function Layout() {
-  const meta = useMeta();
+  const metaQuery = useMeta();
   const source = useDataSource();
   return (
     <div className="flex h-full flex-col">
@@ -14,7 +14,7 @@ export function Layout() {
         <div className="text-base font-semibold tracking-wide">
           Run<span className="text-warn">365</span>Days
           <span className="ml-2 rounded bg-surface2 px-2 py-0.5 text-xs text-muted">
-            {meta.data?.year ?? "…"}
+            {metaQuery.data?.year ?? "…"}
           </span>
         </div>
         <nav className="flex flex-wrap gap-1" aria-label="Views">

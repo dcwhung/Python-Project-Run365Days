@@ -5,11 +5,12 @@ import { fmtDuration, fmtPace } from "@/lib/format";
 import { SEC_PER_HOUR, minToSec } from "@/lib/units";
 import { FONT_SANS, TOKENS } from "@/styles/tokens";
 
-const L = 44;
-const R = 8;
-const TOP = 6;
-const BOT = 18;
-const HEIGHT = 120;
+/** Canvas padding: the left gutter holds the value labels, the bottom the clock. */
+const PAD_LEFT = 44;
+const PAD_RIGHT = 8;
+const PAD_TOP = 6;
+const PAD_BOTTOM = 18;
+const CANVAS_HEIGHT_PX = 120;
 
 /** Canvas line chart with a cursor at `idx`; hover moves the cursor via onHover. */
 export function SeriesChart({
@@ -30,98 +31,104 @@ export function SeriesChart({
   const value = Number.isFinite(data[idx]) ? spec.format(data[idx]) : "–";
 
   const draw = useCallback(() => {
-    const cv = canvas.current;
-    const g = cv?.getContext("2d");
-    if (!cv || !g) return;
+    const canvasEl = canvas.current;
+    const ctx = canvasEl?.getContext("2d");
+    if (!canvasEl || !ctx) return;
     const dpr = window.devicePixelRatio || 1;
-    const W = cv.clientWidth;
-    const H = cv.clientHeight;
-    if (!W) return;
-    if (cv.width !== W * dpr) {
-      cv.width = W * dpr;
-      cv.height = H * dpr;
+    const cssWidth = canvasEl.clientWidth;
+    const cssHeight = canvasEl.clientHeight;
+    if (!cssWidth) return;
+    if (canvasEl.width !== cssWidth * dpr) {
+      canvasEl.width = cssWidth * dpr;
+      canvasEl.height = cssHeight * dpr;
     }
-    g.setTransform(dpr, 0, 0, dpr, 0, 0);
-    g.clearRect(0, 0, W, H);
-    const iw = W - L - R;
-    const ih = H - TOP - BOT;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, cssWidth, cssHeight);
+    const plotWidth = cssWidth - PAD_LEFT - PAD_RIGHT;
+    const plotHeight = cssHeight - PAD_TOP - PAD_BOTTOM;
     if (!data.some(Number.isFinite)) {
-      g.fillStyle = TOKENS.muted;
-      g.font = `12px ${FONT_SANS}`;
-      g.textAlign = "center";
-      g.fillText("no data for this run", W / 2, H / 2);
+      ctx.fillStyle = TOKENS.muted;
+      ctx.font = `12px ${FONT_SANS}`;
+      ctx.textAlign = "center";
+      ctx.fillText("no data for this run", cssWidth / 2, cssHeight / 2);
       return;
     }
     const { lo, hi } = seriesRange(data, spec);
-    const X = (i: number) => L + (series.t[i] / series.totalSec) * iw;
-    const Y = (v: number) => {
-      let t = (v - lo) / (hi - lo);
+    const xAt = (i: number) => PAD_LEFT + (series.t[i] / series.totalSec) * plotWidth;
+    const yAt = (sample: number) => {
+      let t = (sample - lo) / (hi - lo);
       if (spec.invert) t = 1 - t;
-      return TOP + ih - t * ih;
+      return PAD_TOP + plotHeight - t * plotHeight;
     };
-    g.strokeStyle = TOKENS.border;
-    g.lineWidth = 1;
-    g.fillStyle = TOKENS.muted;
-    g.font = `500 10px ${FONT_SANS}`;
-    g.textAlign = "right";
-    g.textBaseline = "middle";
-    for (const v of [lo, (lo + hi) / 2, hi]) {
-      const y = Y(v);
-      g.beginPath();
-      g.moveTo(L, y);
-      g.lineTo(W - R, y);
-      g.stroke();
-      g.fillText(
-        spec.key === "pace" ? fmtPace(minToSec(v)) : v.toFixed(spec.key === "temp" ? 1 : 0),
-        L - 6,
+    ctx.strokeStyle = TOKENS.border;
+    ctx.lineWidth = 1;
+    ctx.fillStyle = TOKENS.muted;
+    ctx.font = `500 10px ${FONT_SANS}`;
+    ctx.textAlign = "right";
+    ctx.textBaseline = "middle";
+    for (const gridValue of [lo, (lo + hi) / 2, hi]) {
+      const y = yAt(gridValue);
+      ctx.beginPath();
+      ctx.moveTo(PAD_LEFT, y);
+      ctx.lineTo(cssWidth - PAD_RIGHT, y);
+      ctx.stroke();
+      ctx.fillText(
+        spec.key === "pace"
+          ? fmtPace(minToSec(gridValue))
+          : gridValue.toFixed(spec.key === "temp" ? 1 : 0),
+        PAD_LEFT - 6,
         y,
       );
     }
-    g.textAlign = "center";
-    g.textBaseline = "top";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
     // Ticks every ten minutes on a long run, every five on a short one.
     const step = minToSec(series.totalSec > SEC_PER_HOUR ? 10 : 5);
-    for (let m = 0; m <= series.totalSec; m += step)
-      g.fillText(fmtDuration(m), L + (m / series.totalSec) * iw, H - BOT + 5);
+    for (let tickSec = 0; tickSec <= series.totalSec; tickSec += step)
+      ctx.fillText(
+        fmtDuration(tickSec),
+        PAD_LEFT + (tickSec / series.totalSec) * plotWidth,
+        cssHeight - PAD_BOTTOM + 5,
+      );
     const trace = () => {
-      g.beginPath();
+      ctx.beginPath();
       let started = false;
       for (let i = 0; i < series.n; i++) {
         if (!Number.isFinite(data[i])) continue;
-        const x = X(i);
-        const y = Y(data[i]);
-        if (started) g.lineTo(x, y);
-        else g.moveTo(x, y);
+        const x = xAt(i);
+        const y = yAt(data[i]);
+        if (started) ctx.lineTo(x, y);
+        else ctx.moveTo(x, y);
         started = true;
       }
     };
     if (spec.area) {
       trace();
-      g.lineTo(X(series.n - 1), TOP + ih);
-      g.lineTo(L, TOP + ih);
-      g.closePath();
-      g.fillStyle = `${spec.color}22`;
-      g.fill();
+      ctx.lineTo(xAt(series.n - 1), PAD_TOP + plotHeight);
+      ctx.lineTo(PAD_LEFT, PAD_TOP + plotHeight);
+      ctx.closePath();
+      ctx.fillStyle = `${spec.color}22`;
+      ctx.fill();
     }
     trace();
-    g.strokeStyle = spec.color;
-    g.lineWidth = spec.key === "cad" ? 1 : 1.5;
-    g.stroke();
-    const x = X(idx);
-    g.strokeStyle = TOKENS.text;
-    g.lineWidth = 1;
-    g.beginPath();
-    g.moveTo(x, TOP);
-    g.lineTo(x, TOP + ih);
-    g.stroke();
+    ctx.strokeStyle = spec.color;
+    ctx.lineWidth = spec.key === "cad" ? 1 : 1.5;
+    ctx.stroke();
+    const x = xAt(idx);
+    ctx.strokeStyle = TOKENS.text;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x, PAD_TOP);
+    ctx.lineTo(x, PAD_TOP + plotHeight);
+    ctx.stroke();
     if (Number.isFinite(data[idx])) {
-      g.fillStyle = spec.color;
-      g.beginPath();
-      g.arc(x, Y(data[idx]), 4, 0, Math.PI * 2);
-      g.fill();
-      g.strokeStyle = TOKENS.surface;
-      g.lineWidth = 1.5;
-      g.stroke();
+      ctx.fillStyle = spec.color;
+      ctx.beginPath();
+      ctx.arc(x, yAt(data[idx]), 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = TOKENS.surface;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
     }
   }, [data, idx, series, spec]);
 
@@ -132,8 +139,9 @@ export function SeriesChart({
   }, [draw]);
 
   const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    const r = e.currentTarget.getBoundingClientRect();
-    const sec = ((e.clientX - r.left - L) / (r.width - L - R)) * series.totalSec;
+    const box = e.currentTarget.getBoundingClientRect();
+    const sec =
+      ((e.clientX - box.left - PAD_LEFT) / (box.width - PAD_LEFT - PAD_RIGHT)) * series.totalSec;
     onHover(indexAtTime(series.t, sec));
   };
 
@@ -146,7 +154,7 @@ export function SeriesChart({
       <canvas
         ref={canvas}
         className="block w-full"
-        style={{ height: HEIGHT }}
+        style={{ height: CANVAS_HEIGHT_PX }}
         onPointerMove={onPointerMove}
         aria-label={spec.title}
       />

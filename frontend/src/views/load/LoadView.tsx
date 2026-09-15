@@ -13,25 +13,26 @@ import { DataTable } from "@/components/ui/DataTable";
 import { loadKpis, rollingWeeks, topWeeks, weekChange, weekdayAvgKm } from "./model";
 
 export function LoadView() {
-  const year = useYear();
-  const activities = useActivities();
+  const yearQuery = useYear();
+  const activitiesQuery = useActivities();
   const [selected, setSelected] = useState<WeekWithActivities | null>(null);
-  if (year.isPending || activities.isPending) return <p className="text-muted">Loading…</p>;
-  if (year.isError || activities.isError)
+  if (yearQuery.isPending || activitiesQuery.isPending)
+    return <p className="text-muted">Loading…</p>;
+  if (yearQuery.isError || activitiesQuery.isError)
     return <p className="text-danger">Could not load data.</p>;
-  const y = year.data;
-  const acts = activities.data;
-  const weeks = weeksWithActivities(y.weekly, acts);
-  const k = loadKpis(
-    y.trainingLoad,
+  const year = yearQuery.data;
+  const activities = activitiesQuery.data;
+  const weeks = weeksWithActivities(year.weekly, activities);
+  const kpis = loadKpis(
+    year.trainingLoad,
     weeks,
-    y.totals.distanceKm,
-    y.totals.days,
-    y.totals.activeDays,
+    year.totals.distanceKm,
+    year.totals.days,
+    year.totals.activeDays,
   );
-  const labels = y.trainingLoad.map((p) => p.date);
-  const avg4 = rollingWeeks(weeks);
-  const wdKm = weekdayAvgKm(acts);
+  const labels = year.trainingLoad.map((p) => p.date);
+  const fourWeekAvg = rollingWeeks(weeks);
+  const weekdayKm = weekdayAvgKm(activities);
   const weekRow = (w: WeekWithActivities) => ({
     key: String(w.week),
     c: [
@@ -50,43 +51,45 @@ export function LoadView() {
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6" data-testid="load-kpis">
         <KpiCard
           label="Fitness (CTL)"
-          value={String(k.ctl)}
+          value={String(kpis.ctl)}
           unit="km/d"
-          sub={`year end · peak ${k.peakCtl} on ${fmtShortDate(k.peakDate)}`}
+          sub={`year end · peak ${kpis.peakCtl} on ${fmtShortDate(kpis.peakDate)}`}
           accent="accent"
         />
         <KpiCard
           label="Fatigue (ATL)"
-          value={String(k.atl)}
+          value={String(kpis.atl)}
           unit="km/d"
           sub="year end · 7-day average"
           accent="danger"
         />
         <KpiCard
           label="Form (TSB)"
-          value={fmtSigned(k.tsb)}
-          sub={`year end · ${k.tsb >= 0 ? "fresh" : "fatigued"}`}
+          value={fmtSigned(kpis.tsb)}
+          sub={`year end · ${kpis.tsb >= 0 ? "fresh" : "fatigued"}`}
           accent="accent2"
         />
         <KpiCard
           label="Biggest week"
-          value={k.biggest.distanceKm.toFixed(1)}
+          value={kpis.biggest.distanceKm.toFixed(1)}
           unit="km"
-          sub={`week of ${fmtShortDate(k.biggest.weekStart)}`}
+          sub={`week of ${fmtShortDate(kpis.biggest.weekStart)}`}
           accent="warn"
         />
         <KpiCard
           label="Avg week"
-          value={k.avgWeekKm.toFixed(1)}
+          value={kpis.avgWeekKm.toFixed(1)}
           unit="km"
-          sub={k.avgFullWeekKm != null ? `${k.avgFullWeekKm.toFixed(1)} km over full weeks` : ""}
+          sub={
+            kpis.avgFullWeekKm != null ? `${kpis.avgFullWeekKm.toFixed(1)} km over full weeks` : ""
+          }
           accent="violet"
         />
         <KpiCard
           label="Streak"
-          value={String(k.activeDays)}
+          value={String(kpis.activeDays)}
           unit="days"
-          sub={k.activeDays === k.days ? "no rest days" : "active days"}
+          sub={kpis.activeDays === kpis.days ? "no rest days" : "active days"}
           accent="accent"
         />
       </div>
@@ -99,7 +102,7 @@ export function LoadView() {
               datasets: [
                 {
                   label: "Fitness (CTL)",
-                  data: y.trainingLoad.map((p) => p.ctl),
+                  data: year.trainingLoad.map((p) => p.ctl),
                   borderColor: COLORS.accent,
                   backgroundColor: alpha(COLORS.accent, 0.1),
                   fill: true,
@@ -110,7 +113,7 @@ export function LoadView() {
                 },
                 {
                   label: "Fatigue (ATL)",
-                  data: y.trainingLoad.map((p) => p.atl),
+                  data: year.trainingLoad.map((p) => p.atl),
                   borderColor: COLORS.danger,
                   borderWidth: 1.5,
                   borderDash: [4, 2],
@@ -120,7 +123,7 @@ export function LoadView() {
                 },
                 {
                   label: "Form (TSB)",
-                  data: y.trainingLoad.map((p) => p.tsb),
+                  data: year.trainingLoad.map((p) => p.tsb),
                   borderColor: COLORS.accent2,
                   borderWidth: 1.5,
                   pointRadius: 0,
@@ -165,7 +168,7 @@ export function LoadView() {
                     {
                       type: "line",
                       label: "4-week avg",
-                      data: avg4,
+                      data: fourWeekAvg,
                       borderColor: COLORS.warn,
                       borderWidth: 2,
                       pointRadius: 0,
@@ -218,7 +221,7 @@ export function LoadView() {
               data={{
                 labels: WEEKDAYS,
                 datasets: [
-                  { data: wdKm, backgroundColor: alpha(COLORS.violet, 0.7), borderRadius: 5 },
+                  { data: weekdayKm, backgroundColor: alpha(COLORS.violet, 0.7), borderRadius: 5 },
                 ],
               }}
               options={{

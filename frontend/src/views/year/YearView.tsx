@@ -31,50 +31,52 @@ function Big({
 }
 
 export function YearView() {
-  const year = useYear();
-  const activities = useActivities();
-  const weight = useWeight();
+  const yearQuery = useYear();
+  const activitiesQuery = useActivities();
+  const weightQuery = useWeight();
   const { weightUnit } = usePrefs();
-  if (year.isPending || activities.isPending) return <p className="text-muted">Loading…</p>;
-  if (year.isError) return <p className="text-danger">Could not load data: {year.error.message}</p>;
-  const y = year.data;
-  const t = y.totals;
-  const hours = monthlyHours(activities.data ?? []);
-  const hi = hours.indexOf(Math.max(...hours));
-  const w = weightReview(weight.data ?? []);
-  const labels = y.dailyDistance.map((d) => d.date);
-  const byDate = new Map((weight.data ?? []).map((e) => [e.date, e.weightLbs]));
+  if (yearQuery.isPending || activitiesQuery.isPending)
+    return <p className="text-muted">Loading…</p>;
+  if (yearQuery.isError)
+    return <p className="text-danger">Could not load data: {yearQuery.error.message}</p>;
+  const year = yearQuery.data;
+  const totals = year.totals;
+  const hours = monthlyHours(activitiesQuery.data ?? []);
+  const peakMonth = hours.indexOf(Math.max(...hours));
+  const weightSummary = weightReview(weightQuery.data ?? []);
+  const labels = year.dailyDistance.map((d) => d.date);
+  const byDate = new Map((weightQuery.data ?? []).map((e) => [e.date, e.weightLbs]));
 
   return (
     <div className="space-y-4" data-testid="year-view">
       <div className="rounded-card border border-warn/40 bg-gradient-to-br from-surface to-bg p-6">
         <div className="text-xs uppercase tracking-[0.3em] text-warn">
-          #365DaysChallenge · {y.year}
+          #365DaysChallenge · {year.year}
         </div>
         <h1 className="mt-1 text-3xl font-bold">Year in Review</h1>
         <div className="mt-6 grid gap-6 md:grid-cols-4">
           <Big
-            value={String(t.activeDays)}
-            unit={`/ ${t.days}`}
+            value={String(totals.activeDays)}
+            unit={`/ ${totals.days}`}
             label="Days run"
             color="text-violet"
           />
           <Big
-            value={t.distanceKm.toLocaleString(undefined, { maximumFractionDigits: 1 })}
+            value={totals.distanceKm.toLocaleString(undefined, { maximumFractionDigits: 1 })}
             unit="km"
-            label={`${(t.distanceKm / t.days).toFixed(1)} km/day · ${(t.distanceKm / (t.days / 7)).toFixed(1)} km/week`}
+            label={`${(totals.distanceKm / totals.days).toFixed(1)} km/day · ${(totals.distanceKm / (totals.days / 7)).toFixed(1)} km/week`}
             color="text-accent"
           />
           <Big
-            value={secToHours(t.durationSec).toFixed(1)}
+            value={secToHours(totals.durationSec).toFixed(1)}
             unit="hrs"
-            label={`${Math.round(secToMin(t.durationSec) / t.days)} min/day`}
+            label={`${Math.round(secToMin(totals.durationSec) / totals.days)} min/day`}
             color="text-accent2"
           />
           <Big
-            value={t.calories.toLocaleString()}
+            value={totals.calories.toLocaleString()}
             unit="kcal"
-            label={`${(t.calories / t.days).toFixed(1)} kcal/day`}
+            label={`${(totals.calories / totals.days).toFixed(1)} kcal/day`}
             color="text-danger"
           />
         </div>
@@ -83,15 +85,15 @@ export function YearView() {
       <div className="grid gap-4 lg:grid-cols-2">
         <Card title="Hours per month">
           <div className="space-y-2" data-testid="stairs">
-            {[0, 4, 8].map((s, r) => (
-              <div key={s} className="flex gap-2" style={{ marginLeft: r * 28 }}>
-                {MONTHS.slice(s, s + 4).map((m, i) => (
+            {[0, 4, 8].map((first, row) => (
+              <div key={first} className="flex gap-2" style={{ marginLeft: row * 28 }}>
+                {MONTHS.slice(first, first + 4).map((month, i) => (
                   <div
-                    key={m}
-                    className={`flex-1 rounded border p-2 text-center ${s + i === hi ? "border-warn bg-warn/10" : "border-border bg-surface2"}`}
+                    key={month}
+                    className={`flex-1 rounded border p-2 text-center ${first + i === peakMonth ? "border-warn bg-warn/10" : "border-border bg-surface2"}`}
                   >
-                    <div className="text-[10px] text-muted">{m.toUpperCase()}</div>
-                    <div className="text-lg font-semibold">{hours[s + i].toFixed(1)}</div>
+                    <div className="text-[10px] text-muted">{month.toUpperCase()}</div>
+                    <div className="text-lg font-semibold">{hours[first + i].toFixed(1)}</div>
                   </div>
                 ))}
               </div>
@@ -99,32 +101,32 @@ export function YearView() {
           </div>
         </Card>
         <Card title="Every day of the year">
-          <DiamondGrid daily={y.dailyDistance} year={y.year} />
+          <DiamondGrid daily={year.dailyDistance} year={year.year} />
         </Card>
       </div>
 
-      {w && (
+      {weightSummary && (
         <Card title="Weight">
           <div className="mb-3 grid grid-cols-2 gap-4 md:grid-cols-4" data-testid="year-weight">
             <Big
-              value={String(toWeightUnit(w.first.weightLbs, weightUnit))}
+              value={String(toWeightUnit(weightSummary.first.weightLbs, weightUnit))}
               unit={weightUnit}
-              label={`start · ${fmtShortDate(w.first.date)}`}
+              label={`start · ${fmtShortDate(weightSummary.first.date)}`}
             />
             <Big
-              value={String(toWeightUnit(w.last.weightLbs, weightUnit))}
+              value={String(toWeightUnit(weightSummary.last.weightLbs, weightUnit))}
               unit={weightUnit}
-              label={`end · ${fmtShortDate(w.last.date)}`}
+              label={`end · ${fmtShortDate(weightSummary.last.date)}`}
               color="text-warn"
             />
             <Big
-              value={String(toWeightUnit(w.min.weightLbs, weightUnit))}
+              value={String(toWeightUnit(weightSummary.min.weightLbs, weightUnit))}
               unit={weightUnit}
-              label={`lowest · ${fmtShortDate(w.min.date)}`}
+              label={`lowest · ${fmtShortDate(weightSummary.min.date)}`}
               color="text-accent2"
             />
             <Big
-              value={w.lossPct.toFixed(1)}
+              value={weightSummary.lossPct.toFixed(1)}
               unit="%"
               label="lost over the year"
               color="text-accent"
