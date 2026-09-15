@@ -1010,6 +1010,57 @@ def test_a_field_that_overruns_the_points_budget_leaves_it_for_the_next_one(year
     assert len(data["after"]["track"]) == half, "the refusal must not have spent the remainder"
 
 
+def _track_field(points: int) -> str:
+    """One ``track`` field asking for *points* samples."""
+    return f"track(points: {points}) {{ sec }}"
+
+
+def test_a_field_refused_on_points_leaves_the_field_budget_untouched_too(year_client):
+    # The other half of "neither counter is written back on a refusal": the
+    # test above pins the points counter, and until now nothing pinned the
+    # field one -- moving ``info.context[TRACK_FIELDS_KEY] = fields_left``
+    # above the points check left the whole file green (W-021). So a field
+    # refused on points must not have spent a field slot either: every slot
+    # the served fields left over has to still be serviceable behind it.
+    half = MAX_TRACK_POINTS // 2
+    spend = (MAX_TRACK_POINTS_PER_REQUEST - half) // half
+    slots_left = MAX_TRACK_FIELDS_PER_REQUEST - spend
+    assert slots_left > 0, "the points spend must not exhaust the field budget by itself"
+    # `track` is non-null, so a refused child nulls its whole parent. Keeping
+    # the slots under one parent makes that all-or-nothing, and leaving the
+    # boundary probe a separate root field makes it null only itself.
+    cheap_tracks = " ".join(f"t{n}: {CHEAP_TRACK}" for n in range(slots_left))
+    fields = (
+        _page_field(spend, _track_field(half)),
+        f'over: activity(id: "{TRACKED_ACTIVITY_ID}") {{ {_track_field(MAX_TRACK_POINTS)} }}',
+        f'rest: activity(id: "{TRACKED_ACTIVITY_ID}") {{ {cheap_tracks} }}',
+    )
+
+    body = gql_partial(year_client, _document(*fields))
+    data = body["data"]
+
+    assert len(data["activities"]) == spend
+    assert data["over"] is None, f"{MAX_TRACK_POINTS} points must not fit in the {half} left"
+    # The gate: had the refusal charged a field, the last of these would be
+    # refused and null its parent.
+    assert data["rest"] is not None, f"the refusal must leave all {slots_left} field slots"
+    assert [n for n in range(slots_left) if data["rest"][f"t{n}"] is None] == []
+    messages = [e["message"] for e in body["errors"]]
+    # Named, not counted: only the points budget may have refused anything
+    # here, and a bare count cannot tell the two budgets apart.
+    assert all(str(MAX_TRACK_POINTS_PER_REQUEST) in m for m in messages), messages
+
+    # The boundary is exact, so the assertion above is not slack: one slot past
+    # what the refusal left over is refused, and by the *field* budget.
+    past = gql_partial(
+        year_client,
+        _document(*fields, f'past: activity(id: "{TRACKED_ACTIVITY_ID}") {{ {CHEAP_TRACK} }}'),
+    )
+    assert past["data"]["rest"] is not None, "the slots before the boundary are still served"
+    assert past["data"]["past"] is None
+    assert str(MAX_TRACK_FIELDS_PER_REQUEST) in " ".join(e["message"] for e in past["errors"])
+
+
 # ── AU-047: the charge follows the resolved field, not the syntax ──────────
 CHEAP_TRACK_FRAGMENT = f"fragment CheapTrack on Activity {{ {CHEAP_TRACK} }}"
 
