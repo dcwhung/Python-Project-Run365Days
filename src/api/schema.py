@@ -67,9 +67,11 @@ a wide fan-out actually lands.
 MAX_TRACK_FIELDS_PER_REQUEST = 64
 """``track`` fields one operation may resolve, however few points each asks for.
 
-Every ``track`` field costs one fixed round trip -- today a COUNT plus a
-SELECT, see :func:`run365days.api.service._even_sample_filter` -- and that
-count does not move with ``points``. So the points budget cannot bound it:
+Every ``track`` field costs a fixed round trip, and that cost does not move
+with ``points``. Since AU-050 a field either joins a batch a sibling already
+opened, for nothing, or opens one itself -- a grouped COUNT and a SELECT, see
+:func:`run365days.api.service.tracks` -- and the worst case is still one batch
+per field. So the points budget cannot bound it:
 ``track(points: 1)`` buys the most expensive thing in the request (two
 statements) for the cheapest charge the budget can levy (one point). That is
 AU-047 C-001, found as 27 aliases of ``activities(limit: 365)`` each taking
@@ -82,13 +84,14 @@ that figure rounded down to the power of two below it. Stating the cap
 outright costs legal traffic close to nothing -- the flood worked only by
 pushing ``points`` down to 1 to slip out from under that implicit ceiling.
 
-What this bounds is ``track`` statements, and only those: at most 64 x 2 = 128
-of them, however the fields are spread over the document. It is not a bound on
-the statements a request issues, because every parent field carrying a
-``track`` costs about two statements of its own first -- a list plus its
-warnings for ``activities``, a get plus its warnings for ``activity(id:)`` --
-and it pays them whether the ``track`` under it is served or refused. That
-half of the cost is bounded by :data:`MAX_QUERY_TOKENS` alone.
+What this bounds is ``track`` statements, and only those: at most 64 batches
+of 2 = 128 of them, reached only when no two fields share a batch, however the
+fields are spread over the document. It is not a bound on the statements a
+request issues, because every parent field carrying a ``track`` costs about two
+statements of its own first -- a list plus its warnings for ``activities``, a
+get plus its warnings for ``activity(id:)`` -- and it pays them whether the
+``track`` under it is served or refused. That half of the cost is bounded by
+:data:`MAX_QUERY_TOKENS` alone.
 
 Measured through the Flask client against the ``year_db`` fixture in
 ``tests/test_api.py``: 365 activities, of which one carries a full 600-point
@@ -98,18 +101,23 @@ reading rather than a bound:
 
 * The shortest way to saturate this cap is one list field -- not the only
   way. ``activities(limit: 64) { track(points: 1) }`` is 19 tokens and issues
-  130 statements (2 + 64 x 2) in ~0.03 s, and ``limit: 65`` issues the same
-  130 before refusing the 65th -- the cap holds on a refused request, which
-  is the point of charging before the SQL. Aliasing 64 ``track`` fields under
-  a single parent reaches the same 130 for 714 tokens, and its 65th field is
-  refused by this cap too: that route is longer in tokens, not out of reach.
+  4 statements (2 for the list, 2 for the one batch its 64 tracks share) in
+  ~0.01 s, and ``limit: 65`` issues the same 4 before refusing the 65th --
+  the cap holds on a refused request, which is the point of charging before
+  the SQL. Aliasing 64 ``track`` fields of one activity under a single parent
+  reaches the same 4 for 714 tokens, and its 65th field is refused by this cap
+  too: that route is longer in tokens, not out of reach.
 * Spending the document on *parents* instead reaches further. Of the two
   shapes that carry one track each, ``activity(id:)`` and
   ``activities(limit: 1)``, the token limit admits 52 -- 990 of
   :data:`MAX_QUERY_TOKENS`, where 53 lexes to 1009 and no longer parses. Both
-  are legal, fully served, and issue 208 statements (52 x 2 + 52 x 2) in
-  0.13-0.21 s: more than the cap alone would suggest, and still some 70x
-  inside the 15 s Vercel function at the slowest reading.
+  are legal and fully served. What they cost turns on whether their tracks can
+  share a batch: 52 parents naming *one* activity issue 106 statements
+  (52 x 2 + 2) in 0.07-0.08 s, while 52 parents naming 52 *different*
+  activities cannot share and issue 208 (52 x 2 + 52 x 2) in 0.17-0.21 s --
+  more than the cap alone would suggest, and still some 70x inside the 15 s
+  Vercel function at the slowest reading. AU-050 flattened the fan-out under
+  one parent; it does not flatten a document that spends itself on parents.
 
 A document that takes no ``track`` at all spends neither budget and is not
 bounded here at all: 166 aliased ``activities`` fields fit the token limit at
@@ -124,8 +132,13 @@ turns those red rather than leaving this prose quietly wrong. The wall-clock
 figures are the exception: they are one machine's reading, not a bound,
 because asserting a wall time in CI buys a flaky test rather than a guarantee.
 
-Batching the per-activity queries (AU-050) would let this number be raised on
-its own, without reopening the points budget.
+AU-050 has since made a page of tracks cost two statements however wide it is,
+which weakens the round-trip argument for keeping this number where it is --
+but not to nothing, because the worst case above is unshared batches, still two
+statements per field. Raising it stays a separate decision with its own
+measurement: it is the points budget and :data:`MAX_QUERY_TOKENS` that would
+then be doing the bounding, and a cap at or above :data:`MAX_PAGE_SIZE` breaks
+the fan-out the tests reach it with.
 """
 
 TRACK_BUDGET_KEY = "track_points_remaining"
@@ -133,6 +146,17 @@ TRACK_BUDGET_KEY = "track_points_remaining"
 
 TRACK_FIELDS_KEY = "track_fields_remaining"
 """``info.context`` key holding how many ``track`` fields this request may still resolve."""
+
+TRACK_ROWS_KEY = "track_rows_read"
+"""``info.context`` key holding the track rows this request has already read.
+
+Keyed by ``(activity_id, points)`` -- both halves, because two fields asking
+different ``points`` of one activity are two different samples of it.
+
+Seeded lazily by :func:`_track_rows` rather than by :class:`_TrackBudget`,
+since a request that reads no ``track`` should carry no cache. Its size is
+bounded by the same budgets that bound the reads which fill it.
+"""
 
 DEFAULT_PAGE_SIZE = 500
 """Rows a list field returns when the client asks for no window.
@@ -291,6 +315,66 @@ def _charge_track_field(info: Info, points: int) -> int:
     return points
 
 
+def _batch_ids(
+    context: MutableMapping, activity_id: str, page: tuple[str, ...], points: int, read: dict
+) -> list[str]:
+    """Return the ids to read together: this activity, plus the siblings still afforded.
+
+    A batch is a prefetch. It reads tracks for fields that have not been
+    charged yet -- they are charged as they resolve, afterwards -- so reading
+    the whole page would materialise exactly the rows the budgets exist to
+    refuse, and undo AU-047's "refuse before the SQL goes out". Instead the
+    batch stops where the budgets do: what is left of them after this field's
+    own charge is what it may read ahead into, so the rows a batch fetches
+    never exceed the rows the budgets were going to allow anyway.
+
+    Siblings already in *read* are skipped rather than counted, so a second
+    pass over the same page widens the batch instead of re-reading rows.
+
+    Args:
+        context: This request's context, read after this field has been charged.
+        activity_id: The activity whose ``track`` field is resolving.
+        page: Ids the parent list field put on the page, ``activity_id`` among
+            them. Empty for an activity that arrived on its own.
+        points: Samples per track, at least 1.
+        read: The request's track cache, keyed by ``(activity_id, points)``.
+
+    Returns:
+        ``activity_id`` first, then the affordable siblings in page order.
+    """
+    spare = min(context[TRACK_FIELDS_KEY], context[TRACK_BUDGET_KEY] // points)
+    ids = [activity_id]
+    for sibling in page:
+        if len(ids) > spare:
+            break
+        if sibling != activity_id and (sibling, points) not in read:
+            ids.append(sibling)
+    return ids
+
+
+def _track_rows(info: Info, activity_id: str, page: tuple[str, ...], points: int) -> list[dict]:
+    """Return one activity's sampled track, reading its whole page in one batch.
+
+    Args:
+        info: Resolver info, whose context carries the session and the budgets.
+        activity_id: The activity whose ``track`` field is resolving.
+        page: Ids the parent list field put on the page.
+        points: Already charged sample count.
+
+    Returns:
+        Rows in :data:`run365days.export.records.TRACK_COLUMNS` shape.
+    """
+    # Reached only after _charge_track_field has read both budget keys, so the
+    # context is a mapping that was seeded and can be written to.
+    read = info.context.setdefault(TRACK_ROWS_KEY, {})
+    key = (activity_id, points)
+    if key not in read:
+        ids = _batch_ids(info.context, activity_id, page, points, read)
+        for batched_id, rows in service.tracks(info.context["session"], ids, points).items():
+            read[(batched_id, points)] = rows
+    return read[key]
+
+
 TRACK_DESCRIPTION = (
     "GPS track, evenly downsampled to at most `points` samples. "
     f"One request may read at most {MAX_TRACK_FIELDS_PER_REQUEST} `track` fields, "
@@ -399,12 +483,21 @@ class Activity:
     num_points: int
     weather: RunWeather | None
     warnings: list[str]
+    page: strawberry.Private[tuple[str, ...]] = ()
+    """Ids this activity shares a list field with, so ``track`` can read them together.
+
+    ``Private``, so it stays out of the SDL: it is how the resolver found the
+    activity, not a fact about the run. Empty for an activity that arrived on
+    its own, which makes that a batch of one rather than a separate path.
+    """
 
     @strawberry.field(description=TRACK_DESCRIPTION)
     def track(self, info: Info, points: int = DEFAULT_TRACK_POINTS) -> list[TrackPoint]:
         # Spend first: the budgets exist to stop the query being issued at all.
+        # The batch below reads no further than what is left of them, so
+        # charging before reading still means refusing before the SQL goes out.
         wanted = _charge_track_field(info, _track_points(points))
-        rows = service.track(info.context["session"], str(self.id), wanted)
+        rows = _track_rows(info, str(self.id), self.page, wanted)
         return [TrackPoint(**row) for row in rows]
 
 
@@ -533,6 +626,19 @@ def _activity(rec: dict | None) -> Activity | None:
     )
 
 
+def _page_of(recs: list[dict]) -> list[Activity]:
+    """Build a list field's activities, each knowing the page it came on.
+
+    One shared tuple rather than a copy per row: it is the same page, and
+    ``track`` reads it to batch its siblings' tracks into one statement.
+    """
+    activities = [_activity(rec) for rec in recs]
+    ids = tuple(str(a.id) for a in activities)
+    for activity in activities:
+        activity.page = ids
+    return activities
+
+
 # ── root ───────────────────────────────────────────────────────────────────
 @strawberry.type
 class Query:
@@ -558,7 +664,7 @@ class Query:
         rows = service.activities(
             info.context["session"], _iso(from_date), _iso(to_date), min_km, has_gps, limit, offset
         )
-        return [_activity(r) for r in rows]
+        return _page_of(rows)
 
     @strawberry.field(description=COUNT_DESCRIPTION)
     def activities_count(
