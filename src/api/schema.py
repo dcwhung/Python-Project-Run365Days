@@ -97,7 +97,12 @@ Measured through the Flask client against the ``year_db`` fixture in
 ``tests/test_api.py``: 365 activities, of which one carries a full 600-point
 track -- 600 track rows in the database, not 365 x 600. Statement counts do
 not depend on that; the wall-clock readings below do, and are one machine's
-reading rather than a bound:
+reading rather than a bound. They are quoted to one significant figure on
+purpose: an earlier revision wrote two of them as two-figure intervals
+(``0.07-0.08``, ``0.17-0.21``) and both were narrower than the same machine
+produced on a re-run, which reads as a measured bound when it is not one
+(S-033). If a figure here ever needs to be tight enough to matter, it needs an
+assertion, and a wall time in CI buys a flaky test rather than a guarantee:
 
 * The shortest way to saturate this cap is one list field -- not the only
   way. ``activities(limit: 64) { track(points: 1) }`` is 19 tokens and issues
@@ -113,9 +118,9 @@ reading rather than a bound:
   :data:`MAX_QUERY_TOKENS`, where 53 lexes to 1009 and no longer parses. Both
   are legal and fully served. What they cost turns on whether their tracks can
   share a batch: 52 parents naming *one* activity issue 106 statements
-  (52 x 2 + 2) in 0.07-0.08 s, while 52 parents naming 52 *different*
-  activities cannot share and issue 208 (52 x 2 + 52 x 2) in 0.17-0.21 s --
-  more than the cap alone would suggest, and still some 70x inside the 15 s
+  (52 x 2 + 2) in ~0.08 s, while 52 parents naming 52 *different*
+  activities cannot share and issue 208 (52 x 2 + 52 x 2) in ~0.2 s --
+  more than the cap alone would suggest, and still some 60x inside the 15 s
   Vercel function at the slowest reading. AU-050 flattened the fan-out under
   one parent; it does not flatten a document that spends itself on parents.
 
