@@ -2158,3 +2158,129 @@ Lane 指出：**static export 唔係 run-to-run byte-reproducible** —— `meta
 |---|---|---|
 | **CUI-0060** | 🟡 Medium | `src/api/service.py::_even_positions` 係取樣算術嘅**第三份**手寫拷貝，佢自己 docstring 都咁講；今日同 Python 一致（同語言）但**冇任何嘢比對佢**。同 AU-009 同一缺陷類別，低一層。純函數 `(total, points)`，好平就可以摺入現有 harness |
 | **CUI-0061** | 🟢 Low | `frontend/src/data/stats.ts:13-15` 嘅註釋仍然寫住「a line-for-line port of `src/dashboard/stats.py`」—— AU-005 已將該路徑改名做 `src/analytics/`。同類過時註釋已修兩處，呢處因為 lane scope 限制而留低 |
+
+---
+
+## AU-009 方案 A 修復摘要（2026-09-15）—— TypeScript 改用 Python 語義
+
+| 指標 | 前 | 後 |
+|---|---|---|
+| Python tests | 550 | 550（Python 側一行未改） |
+| Frontend tests | 126（24 files） | **138（25 files）** |
+| Coverage | 95.08% | 95.08% |
+| Static export | 6,850,876 / 370 | **未變** |
+| CSS bundle sha256 | `74a1a510…7ecad` | **未變** |
+| `tests/golden/divergences.tsv` | 8 行 | **檔案已刪** |
+| `tests/golden/expected.tsv` | 5,479 key | **5,487**（+8，全部由工具生成，值係 Python 嗰邊） |
+
+---
+
+## ⚠️ 我報俾用戶嗰個「今日零改變」係錯 —— 而且錯得重要
+
+我同 AU-009 lane 都量過真實資料話「冇一個值會改變」，以此作為「代價等於零」嘅根據。
+**兩次量度都只覆蓋 stats 值同預設 limit。**
+
+**Main agent 重新實測 365 條真實 track：**
+
+```
+limit=3     會降採樣: 365   新舊 TS 取樣點唔同:  96   ⚠️
+limit=50    會降採樣: 365   唔同:   0
+limit=150   會降採樣: 365   唔同:   0        ← API 預設
+limit=600   會降採樣:   0   唔同:   0        ← export 上限
+limit=900   會降採樣:   0   唔同:   0
+```
+
+即係話**一個傳 `points: 3` 嘅 caller，喺 365 條真實跑入面有 96 條會由 api mode 同 static mode 攞到唔同嘅 GPS 取樣點**。
+呢個唔係潛伏，係**一直生效緊嘅分歧**。
+
+**呢點令個決定更有理由而唔係更冇** —— 修復關咗 96 個真實嘅 live 分歧，而「預設 limit 上冇嘢郁」呢個判斷仍然完全成立。
+
+> **教訓**：「量過真實資料」唔等於「量過真實資料嘅所有入口」。
+> 兩次量度都只試咗預設參數，而個 bug 就住喺非預設參數嗰邊。
+
+---
+
+## `roundHalfEven` —— 唔係一行嘢，而佢冇當佢係一行
+
+`round(v, ndigits)` 喺 Python **對十進制表示做正確捨入**，唔係對 `v * 10**ndigits` 做整數捨入。
+
+新 `frontend/src/lib/rounding.ts`（121 行）**由頭到尾冇乘過 10 嘅次方**：
+讀 IEEE bits → 精確 `mantissa * 2**exponent` → 砌成 BigInt 分數 → 整數除 →
+`2*remainder` 同 denominator 比較（下 / 上 / **精確 tie** → tie 歸偶）→ 輸出數字串俾 `Number()` parse。
+即 CPython 嗰對 `_Py_dg_dtoa` / `_Py_dg_strtod` 嘅同一條路。
+
+### Main agent 用**自己嘅 seed 同自己生成嘅輸入**獨立驗證
+
+19,944 個 `(value, ndigits) → CPython repr(round(...))` 樣本，涵蓋隨機 double、原始 64-bit pattern、
+dyadic 有理數 `k/2^j`（**唯一可以係精確十進制 tie 嘅輸入**）、`a.bbb5` 形態、負數半數：
+
+```
+rows=19944   新 helper 唔一致: 0   舊做法 Math.round(v*10**n)/10**n 唔一致: 688
+```
+
+### 一個佢自己捉返嘅事實錯誤
+
+佢第一版 docstring 寫 `2.675 * 100` 係 `267.50000000000006`。**實測係精確 `267.5`** ——
+即係話個乘法**向上 round 咗落半數位，憑空製造咗一個原值冇嘅 tie**，然後 `Math.round(267.5)/100` 出 `2.68`
+（Python 出 `2.67`，因為 `2.675` 實際係 `2.674999999999999822…`）。已改成實測值。
+
+### 負數處理咗而唔係拒絕
+
+`tsb`（ctl − atl）**經常係負數**而且經 `round(v, 2)`。`roundHalfEven(-2.5) === -2`、`(-1.5) → -2`、`(-0.5) → 0`，
+對比 `Math.round(-1.5) === -1`、`Math.round(-0.5) === -0`。
+Signed-zero 亦精確對齊（一參數形式回 Python `int` 冇 `-0`；兩參數形式回 Python `float` 保留 `-0`）。
+負 `ndigits` **掟 `RangeError`** 而唔係靜靜咁採用 Python 嘅十位/百位語義。
+
+---
+
+## 只改三處，而且證明冇第四處
+
+`Math.round` 喺 `frontend/src` 共 **53 處**，改咗 **3 處**（正是 golden 覆蓋嗰三個）。
+**34 個 production 存活者逐個對過 Python 側 `grep -rn "round("`** —— Python 只喺
+`records.py` / `service.py` / `time.py` / `numeric.py` / `weight/analysis.py` / `tcx.py` / `stats.py` / `builder.py` round，
+全部冇 `stats.ts`/`downsample.ts` 以外嘅 TS 孿生。34 個存活者全部係 view 層顯示格式化，冇 Python 對應物。
+
+**一個存活者佢冇假設而係證明**：`stats.ts:42 dayOfYear` 同 `lib/dates.ts:22` 都係
+`Math.round((utcMidnight − jan1) / 86400000)`。掃過 **1600–2400 年每一日共 292,560 個商數**：
+**0 個非整數、0 個精確 tie** —— 所以冇任何 rounding 規則喺嗰度可觀察。
+
+---
+
+## 我劃嘅 lane 邊界令目標達唔到，佢越界咗 13 行而且係啱嘅
+
+我寫「刪走已修好嗰啲行 → 兩邊綠」。**實測做唔到**：兩邊 harness 都斷言
+`assert divergences, "the divergence ledger is empty -- delete it rather than leave a stub"`。
+刪走 8 行之後檔案只剩註釋 → **兩邊都紅**（TS 2 failed、pytest 2 failed）。
+
+而個斷言自己寫住嘅解法係「delete it rather than leave a stub」—— 即刪成個檔案。但咁樣 `read_tsv` 冇嘢讀，
+個「非空」斷言仍然紅。**所以兩邊 harness 都要被告知「檔案唔存在係合法嘅」。**
+
+佢改咗 `tests/test_cross_language_golden.py`（我標明嚴禁碰）13 行：
+一個斷言由 `assert divergences` 放寬成 `assert divergences or not DIVERGENCES_FILE.exists()`
+（**present-but-empty 嘅 stub 仍然被拒絕**，即守住咗原本意圖），加一段 docstring 記錄現況。
+`src/**` 一行未改。
+
+**佢刻意保留咗整套 ledger 機械** —— 拆走會令下一個分歧冇地方記錄，
+正正就係 AU-009 個設計要避免嘅失敗模式。
+
+---
+
+## Main agent 獨立驗證
+
+| Claim | 結果 |
+|---|---|
+| `roundHalfEven` 對得住 CPython | ✅ 自己 19,944 樣本：0 唔一致（舊做法 688） |
+| 真實 track 喺 limit 3 有 96 條分歧 | ✅ 自己重量：96/365，其餘 limit 全部 0 |
+| Golden 會紅 | ✅ 自己 mutate `roundHalfEven` 回 `Math.round` → **8 個 key 紅**；還原 → 138 passed |
+| 越界改動最小且合理 | ✅ 讀過 diff：一個斷言 + 一段 docstring |
+| `divergences.tsv` 已刪 | ✅ `ls tests/golden/` 只剩 `cases.json` `expected.tsv` |
+
+---
+
+## 新開
+
+| ID | 級別 | 標題 |
+|---|---|---|
+| **CUI-0062** | 🟢 Low | Ledger 機械而家零行，`test_every_ledgered_divergence_still_diverges`（兩邊）斷言唔到嘢、永遠唔會紅。實證：我個 mutation 令 golden 紅但呢條測試**通過**。應加一條寫 temp ledger 入 tmpdir 嘅測試 |
+| **CUI-0063** | 🟢 Low | 真實資料 cross-check（4,921 key、api-vs-static、365 條真跑）係 scratch 建完就刪。佢比 constructed golden 對「可達性」問題強得多，而且**正正係佢揭發咗 ledger 漏咗嘅 limit-3 分歧**。要 `data/raw/` + 生成 export，所以要 opt-in / 標記為 slow |
+| **CUI-0064** | 🟢 Low | `frontend/src/lib/dates.ts:22` 同 `stats.ts:42` 嘅 `dayOfYear` 係兩份同樣公式，兩份都唔喺 golden 覆蓋內。已證明 tie-free（292,560 日），所以係重複而唔係 bug |
