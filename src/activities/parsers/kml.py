@@ -69,24 +69,8 @@ class KMLParser(BaseActivityParser):
         root = ET.parse(file_path).getroot()  # noqa: S314
 
         activity_id = file_path.stem.rsplit("_", 1)[-1]
-        folder = root.find("ns:Folder", _NS)
-
-        if folder is None or _RUNNING_NAME not in (element_text(folder, "ns:name", _NS) or ""):
-            raise ActivitySkipped(f"Not a running activity: {activity_id}")
-
-        lap_rows: list[dict] = []
-        track_points: list[TrackPoint] = []
-        act_time: datetime | None = None
-
-        for subfolder in folder.findall("ns:Folder", _NS):
-            name = element_text(subfolder, "ns:name", _NS)
-            if name == _LAPS_FOLDER:
-                lap_rows.extend(_parse_laps(subfolder))
-            elif name == _TRACK_POINTS_FOLDER:
-                folder_points, folder_start = _parse_track_points(subfolder)
-                track_points.extend(folder_points)
-                if act_time is None:
-                    act_time = folder_start
+        folder = _running_folder(root, activity_id)
+        lap_rows, track_points, act_time = _collect_laps_and_points(folder)
 
         # A KML carries no timestamp outside its track points, so a file with
         # none of them has no start time at all and cannot become an Activity.
@@ -116,6 +100,68 @@ class KMLParser(BaseActivityParser):
             num_track_points=num_pts,
             track_points=track_points,
         )
+
+
+def _running_folder(root: ET.Element, activity_id: str) -> ET.Element:
+    """Return the activity's top-level ``Folder``, if it holds a run.
+
+    A missing folder and a folder naming some other sport are the same
+    outcome to the caller -- there is no run here to parse -- so both leave
+    through one exception rather than making ``parse`` re-test for ``None``.
+
+    Args:
+        root: Root element of the KML document.
+        activity_id: Id used in the skip message.
+
+    Returns:
+        The folder holding the ``Laps`` and ``Track Points`` subfolders.
+
+    Raises:
+        ActivitySkipped: If the document has no folder, or its name does not
+            mark it as a running activity.
+    """
+    folder = root.find("ns:Folder", _NS)
+    if folder is None or _RUNNING_NAME not in (element_text(folder, "ns:name", _NS) or ""):
+        raise ActivitySkipped(f"Not a running activity: {activity_id}")
+    return folder
+
+
+def _collect_laps_and_points(
+    folder: ET.Element,
+) -> tuple[list[dict], list[TrackPoint], datetime | None]:
+    """Read the ``Laps`` and ``Track Points`` subfolders into three results.
+
+    Subfolders are visited in document order and unrecognised ones ignored.
+    The start time is the first one any track-point subfolder yields, so a
+    leading subfolder with no usable placemark does not stop a later one from
+    supplying it.
+
+    Args:
+        folder: The running activity's top-level folder.
+
+    Returns:
+        The lap rows, the track points, and the activity start time, which is
+        ``None`` when no subfolder yielded a usable placemark.
+
+    Raises:
+        ActivityParseError: Propagated from the track point reader when a
+            coordinate is present but not a finite number.
+    """
+    lap_rows: list[dict] = []
+    track_points: list[TrackPoint] = []
+    act_time: datetime | None = None
+
+    for subfolder in folder.findall("ns:Folder", _NS):
+        name = element_text(subfolder, "ns:name", _NS)
+        if name == _LAPS_FOLDER:
+            lap_rows.extend(_parse_laps(subfolder))
+        elif name == _TRACK_POINTS_FOLDER:
+            folder_points, folder_start = _parse_track_points(subfolder)
+            track_points.extend(folder_points)
+            if act_time is None:
+                act_time = folder_start
+
+    return lap_rows, track_points, act_time
 
 
 def _parse_laps(subfolder: ET.Element) -> list[dict]:

@@ -139,7 +139,7 @@ def activity(session: Session, activity_id: str) -> dict | None:
 def _even_positions(total: int, points: int) -> list[int]:
     """Return *points* zero-based row positions spread evenly over *total* rows.
 
-    Same arithmetic as :func:`run365days.dashboard.builder.downsample`, so the
+    Same arithmetic as :func:`run365days.analytics.builder.downsample`, so the
     SQL-side thinning picks exactly the samples the in-Python one would.
 
     Args:
@@ -153,7 +153,7 @@ def _even_positions(total: int, points: int) -> list[int]:
     Note:
         ``points < 2`` leaves no room for both ends, and returns the final row
         alone rather than the first. That is not an oversight to tidy up:
-        :func:`~run365days.dashboard.builder.downsample` resolves the same tie
+        :func:`~run365days.analytics.builder.downsample` resolves the same tie
         the same way, and this function exists to agree with it sample for
         sample. Changing it here alone would split the two data modes apart.
     """

@@ -16,9 +16,9 @@ import pytest
 import requests
 from bs4 import BeautifulSoup
 
+from run365days.analytics.builder import hourly_at, load_jsonl, warnings_by_date
 from run365days.cli.collect_weather import _write_jsonl
 from run365days.common import config
-from run365days.dashboard.builder import hourly_at, load_jsonl, warnings_by_date
 from run365days.export.records import daily_weather_record, warning_record
 from run365days.weather.collectors import hko_daily, hourly, sun_moon, warnings
 from run365days.weather.collectors.html_reads import child_attr, child_string

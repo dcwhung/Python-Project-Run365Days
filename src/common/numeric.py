@@ -2,7 +2,7 @@
 
 Four byte-identical copies of the float coercion and two spellings of the same
 rounding guard had drifted apart (AU-024): ``export.records`` screened out
-``±inf`` while ``dashboard.builder`` let it through. Keeping one copy is what
+``±inf`` while ``analytics.builder`` let it through. Keeping one copy is what
 stops the two from diverging again.
 
 Base layer, standard library only: ``run365days.export.records`` sits on the

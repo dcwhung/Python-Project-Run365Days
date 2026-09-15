@@ -9,8 +9,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 from run365days.activities.models import Activity
-from run365days.common.numeric import finite, round_or_none
-from run365days.dashboard.builder import (
+from run365days.analytics.builder import (
     TRACK_POINT_LIMIT,
     downsample,
     hourly_at,
@@ -19,6 +18,7 @@ from run365days.dashboard.builder import (
     track_rows,
     warnings_by_date,
 )
+from run365days.common.numeric import finite, round_or_none
 from run365days.weather.models import (
     RAW_WARNING_SIGNAL_COLUMN,
     SUN_MOON_SUNRISE_COLUMN,

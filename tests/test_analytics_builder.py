@@ -4,8 +4,7 @@ import re
 import pytest
 
 from run365days.activities.models import Activity, TrackPoint
-from run365days.common import config
-from run365days.dashboard.builder import (
+from run365days.analytics.builder import (
     TRACK_POINT_LIMIT,
     downsample,
     hourly_at,
@@ -13,6 +12,7 @@ from run365days.dashboard.builder import (
     track_rows,
     warnings_by_date,
 )
+from run365days.common import config
 from run365days.weight.analysis import parse_weight_file
 
 
@@ -201,7 +201,7 @@ class TestOneOwnerPerConstant:
         [
             (config.BODY_HEIGHT_CM, "common/config.py"),
             (config.LBS_TO_KG, "common/config.py"),
-            (TRACK_POINT_LIMIT, "dashboard/builder.py"),
+            (TRACK_POINT_LIMIT, "analytics/builder.py"),
             (config.EXPORT_TRACK_POINTS, "common/config.py"),
         ],
         ids=["body height cm", "pounds to kilograms", "samples served", "samples stored"],

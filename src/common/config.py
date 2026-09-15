@@ -76,8 +76,8 @@ them is simply wrong."""
 # for no particular count, and how many the export writes to disk -- but they
 # are not independent: the export cannot serve a default it never stored, so
 # the stored count must stay at or above the served one. The served default is
-# owned by dashboard/builder.py, next to the downsampler that applies it;
-# tests/test_dashboard_builder.py holds the pair in order. This one lives here
+# owned by analytics/builder.py, next to the downsampler that applies it;
+# tests/test_analytics_builder.py holds the pair in order. This one lives here
 # rather than in cli/export_data.py because the GraphQL schema publishes it in
 # the track(points:) description, and the API must not import the CLI's
 # parsing stack to read a number (tests/test_api_imports.py).
