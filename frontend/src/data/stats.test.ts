@@ -17,7 +17,7 @@ describe("stats (port of src/analytics/stats.py; parity is enforced by tests/gol
     expect(t.distanceKm).toBe(23);
     expect(t.durationSec).toBe(7120);
     expect(t.calories).toBe(1400);
-    expect(t.avgPaceSecPerKm).toBe(Math.round(7120 / 23));
+    expect(t.avgPaceSecPerKm).toBe(310); // Python: round(7120 / 23)
     expect(t.avgCadence).toBeCloseTo((170 + 180 + 170) / 3);
     expect(t.avgDistanceKm).toBe(5.75);
   });
@@ -52,7 +52,7 @@ describe("stats (port of src/analytics/stats.py; parity is enforced by tests/gol
     expect(weeks[0].distanceKm).toBe(17);
     expect(weeks[0].longestKm).toBe(10);
     expect(weeks[0].activityIds).toEqual(["a", "b", "c"]);
-    expect(weeks[0].avgPaceSecPerKm).toBe(Math.round(5500 / 17));
+    expect(weeks[0].avgPaceSecPerKm).toBe(324); // Python: round(5500 / 17)
     expect(weeks[1].runs).toBe(0);
     expect(weeks[52].weekStart).toBe("2021-12-27");
   });
@@ -71,7 +71,7 @@ describe("stats (port of src/analytics/stats.py; parity is enforced by tests/gol
     const daily = [0, 1, 2].map((i) => ({ date: `d${i}`, distanceKm: 42, activityId: null }));
     const load = stats.trainingLoad(daily);
     expect(load[0]).toEqual({ date: "d0", ctl: 1, atl: 6, tsb: -5 });
-    expect(load[1].ctl).toBe(Math.round((1 + (42 - 1) / 42) * 100) / 100);
+    expect(load[1].ctl).toBe(1.98); // Python: round(1 + (42 - 1) / 42, 2)
   });
 
   it("personalBests", () => {
