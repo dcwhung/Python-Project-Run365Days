@@ -1722,3 +1722,124 @@ CI 亦係咁叫。已修正。
 收斂會令 Windows 上 Segoe UI 贏，係真改動。已具名為 `SIGNAL_DIGIT_FONT` 並加註釋。
 
 **問題本質係：呢啲係「我哋揀嘅顏色」定「人哋俾我哋嘅顏色」。** 五個都係一行改動，只等一句話。
+
+---
+
+## 🔴 BLOCKER — AU-005 改名未完成，`pyproject.toml` 仍然宣告舊 package 名
+
+**狀態：未修。呢條 branch 目前唔可以 merge 入 `develop`。**
+
+`pyproject.toml` 用**手寫 package 清單**（冇 auto-discovery），而 `run365days.dashboard` 呢一行冇跟住改名：
+
+```
+[tool.setuptools]
+packages = [ ..., "run365days.dashboard", ... ]     ← 應為 run365days.analytics
+```
+
+### 點解全部 gate 都捉唔到
+
+| 入口 | 安裝方式 | 會唔會撞到 |
+|---|---|---|
+| CI `pages.yml:51` | `pip install -e ".[dev]"` | ❌ editable，path hook 直接指去 `src/` |
+| CI `pages.yml:150` | `pip install -e "."` | ❌ 同上 |
+| Lane 嘅 `.pkgroot` | `PYTHONPATH` symlink | ❌ 完全繞過 packaging |
+| **Vercel `scripts/vercel-build.sh:23,25`** | **`pip install "."`（真安裝）** | ✅ **會爆** |
+
+### Main agent 實測（乾淨 venv，唔受 editable `.pth` 污染）
+
+```
+改名後：pip install --no-deps . -> run365days/ 入面有
+        activities api cli common export weather weight     ← 冇 analytics
+        python -c "import run365days.analytics.stats"
+          ModuleNotFoundError: No module named 'run365days.analytics'
+
+改名前：同一個測試
+        python -c "import run365days.dashboard.stats"  -> 成功
+```
+
+⚠️ **第一次測試我用 `PYTHONPATH` 指向 target 目錄，結果 import 成功 —— 呢個係假結果**：
+editable install 個 `.pth` 裝咗一個 meta-path finder，佢蓋過 `PYTHONPATH`。**要喺乾淨 venv 度驗先算數。**
+呢個同本 session 嘅 worktree PYTHONPATH 陷阱係同一個機制嘅另一面。
+
+### 影響
+
+Vercel 部署會裝到一個冇 `run365days.analytics` 嘅 distribution，
+`api/graphql.py` → `run365days.api.schema` → `run365days.analytics.stats` **喺 import 階段就爆**，
+GraphQL API 全掛 —— 而 CI 由頭到尾綠。
+
+### 修法（一行）
+
+```diff
+-    "run365days.dashboard",
++    "run365days.analytics",
+```
+
+### 點解未修
+
+執行 lane 嘗試改呢一行時**被權限系統拒絕**（`Modify Shared Resources`），然後要求 main agent 代佢改。
+Main agent **拒絕代做** —— 代一個被拒絕嘅 subagent 執行佢做唔到嘅改動，就係繞過用戶嘅權限決定。
+已交返俾用戶決定。
+
+### 順帶：呢個清單值得有 gate
+
+`grep -rn "packages" tests/` 零結果 —— **冇任何測試守住呢個手寫清單**。
+一條「真安裝之後每個 `src/` 子 package 都 import 得到」嘅測試會令呢類錯誤唔可能再靜默發生。已開 **CUI-0052**。
+
+---
+
+## AU-005 / AU-021 修復摘要（2026-09-15）
+
+| 指標 | 前 | 後 |
+|---|---|---|
+| Python tests | 544 | 544 |
+| Coverage | 95.07% | 95.08% |
+| Static export | 6,850,876 / 370 | **未變** |
+| `activities_kml.jsonl` md5 | `fd5e260f…` | **未變**（357 records） |
+
+### AU-005 —— rename commit 係純 rename
+
+`17 files changed, 30 insertions(+), 30 deletions(-)`，完全對稱。`git mv` 保住 history（rename 偵測 100%/100%/100%/98%/98%）。
+唯一非替換改動係 6 個檔案嘅 isort 重排 —— 因為 `analytics` 排喺 `api`/`common`/`export` **之前**，
+而 `dashboard` 本來排喺後面。
+
+**Import site 數目更正**：我報 8 個檔案，實際係 **8 個 import statement 分佈喺 7 個檔案**（`schema.py` 有兩個），
+另加 3 處 docstring 交叉引用喺 2 個檔案。Audit 報「4 個」係只計 `src/` 而且**包括咗 `service.py`——
+但佢根本冇 import，只有 docstring 提及**。
+
+指「真正 v2/React 前端」嗰啲 "dashboard" 字眼**刻意保留**（9 處），`docs/CHANGELOG.md:46` 亦保留 ——
+佢記錄嘅係 v2.0.0 當時用嗰個名。
+
+### AU-021 —— 「36 個 function >30 行」係 docstring 造成嘅假象
+
+Lane 用 AST 量度：**36 個 function 嘅 span >30 行，但扣走 docstring 之後只有 5 個嘅實際代碼 >30 行。**
+
+| 代碼行 | span | function |
+|---|---|---|
+| 51 | 70 | `tcx.py:43 parse` |
+| **50** | **69** | **`kml.py:50 parse`** ← 已拆 |
+| 46 | 65 | `gpx.py:44 parse` |
+| 43 | 44 | `cli/export_data.py:50 main` |
+| 31 | 33 | `cli/check_ci_docs.py:142 render` |
+
+**呢個指標本身應該改為量度代碼行而唔係 span** —— 用 span 會獎勵刪 docstring。已開 **CUI-0053**。
+
+#### 我對 `kml.py:parse()` 嘅描述有兩處過時
+
+我寫佢「一個 method 做四件事：XML 導航、BeautifulSoup HTML table 解析、track point 抽取、pandas lap 聚合」。實際：
+- HTML table 解析**早就抽咗出去**（`_lap_table_cells`，經 `_parse_laps`）
+- **`kml.py` 完全冇 import pandas** —— pandas 喺 `tcx.py:87`
+
+拆完之後代碼行 **50 → 34**。Lane 冇夾硬壓到 30 以下，理由：剩返嗰啲係 9 行 WHY 註釋
+（S314 suppression 理由、W-004 界線）同 11 行 `Activity(...)` constructor ——
+**constructor 就係呢個 function 嘅產物**，收埋入 `_build_activity()` 只會搬走行數而唔會加一個值得讀嘅名。
+
+---
+
+## 新開
+
+| ID | 級別 | 標題 |
+|---|---|---|
+| **CUI-0052** | 🟡 Medium | `pyproject.toml` 嘅手寫 package 清單**零測試守住**；一條「真安裝後每個子 package 都 import 得到」嘅測試會令 AU-005 呢類錯誤唔可能靜默 |
+| **CUI-0053** | 🟢 Low | AU-021 嘅「>30 行」指標用 span 量度，會獎勵刪 docstring；應改為量度代碼行（36 → 5） |
+| **CUI-0054** | 🟢 Low | `tcx.py:parse`（51 代碼行）同 `gpx.py:parse`（46）係 AU-021 剩返嘅真正工作，結構同啱啱拆咗嗰個平行 |
+| **CUI-0055** | 🟢 Low | 三處前端註釋指住已經唔存在嘅路徑：`data/stats.ts:14`、`stats.test.ts:5`（→ `src/dashboard/stats.py`）、`test/fixtures.ts:25`（→ `tests/test_dashboard_stats.py`） |
