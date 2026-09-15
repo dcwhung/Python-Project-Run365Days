@@ -42,3 +42,8 @@ export function fmtKm(km: number, digits = 2): string {
 export function fmtThousands(n: number): string {
   return `${Math.round(n / 1000)}k`;
 }
+
+/** Signs a number the way a delta reads: "+2", "0", "-3". */
+export function fmtSigned(value: number): string {
+  return `${value > 0 ? "+" : ""}${value}`;
+}

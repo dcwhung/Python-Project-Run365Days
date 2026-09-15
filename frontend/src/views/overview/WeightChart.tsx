@@ -1,7 +1,7 @@
 import { Line } from "react-chartjs-2";
 import type { DayDistance, WeightEntry } from "@/data/types";
 import { BASE, COLORS, GRID, NO_GRID, alpha, dayAxis } from "@/components/charts/theme";
-import { Card } from "@/components/Card";
+import { Card } from "@/components/ui/Card";
 import { fmtShortDate } from "@/lib/format";
 import { toWeightUnit, usePrefs } from "@/lib/prefs";
 import { rolling7 } from "./model";

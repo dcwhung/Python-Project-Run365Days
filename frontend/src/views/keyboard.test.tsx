@@ -3,7 +3,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { QueryClient } from "@tanstack/react-query";
 import { DataProvider } from "@/data/DataProvider";
-import { DataTable } from "@/components/DataTable";
+import { DataTable } from "@/components/ui/DataTable";
 import { router } from "@/app/router";
 import { act, fakeSource } from "@/test/fixtures";
 import type { DataSource } from "@/data/types";

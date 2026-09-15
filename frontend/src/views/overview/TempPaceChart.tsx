@@ -2,7 +2,7 @@ import { useNavigate } from "react-router-dom";
 import { Scatter } from "react-chartjs-2";
 import type { Activity } from "@/data/types";
 import { BASE, COLORS, GRID, NO_LEGEND, alpha } from "@/components/charts/theme";
-import { Card } from "@/components/Card";
+import { Card } from "@/components/ui/Card";
 import { fmtPace, fmtShortDate } from "@/lib/format";
 import { minToSec, paceToPlotMin } from "@/lib/units";
 import { actTemp } from "@/lib/weather";

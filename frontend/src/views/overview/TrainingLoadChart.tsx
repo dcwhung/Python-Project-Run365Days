@@ -1,7 +1,7 @@
 import { Line } from "react-chartjs-2";
 import type { TrainingLoadPoint } from "@/data/types";
 import { BASE, COLORS, GRID, alpha, dayAxis } from "@/components/charts/theme";
-import { Card } from "@/components/Card";
+import { Card } from "@/components/ui/Card";
 
 export function TrainingLoadChart({ load }: { load: TrainingLoadPoint[] }) {
   const labels = load.map((p) => p.date);
