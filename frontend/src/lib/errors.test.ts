@@ -29,6 +29,23 @@ describe("readableError", () => {
     expect(readableError(clientError([], "boom"))).toBe("boom");
   });
 
+  // `undefined` alone cannot pin `Array.isArray`, since indexing it is a no-op
+  // either way. An array-like object can: without the check, `errors[0]` finds
+  // "x" and the caller is handed a message the response never really carried.
+  it("should fall back to the error message when errors is an array-like object", () => {
+    expect(readableError(clientError({ 0: { message: "x" } }, "boom"))).toBe("boom");
+  });
+
+  // Likewise, a string first entry cannot pin `isRecord(first)` -- reading
+  // `.message` off it is merely undefined. `null` can: it is the one JSON value
+  // that throws when read through, and throwing inside the component that
+  // renders the error message trades a bad sentence for a blank page. (A
+  // null-safe rewrite of the guard stays green here, and correctly so: for every
+  // value a parsed response can hold, `first?.message` and this guard agree.)
+  it("should fall back to the error message when the first entry is null", () => {
+    expect(readableError(clientError([null], "boom"))).toBe("boom");
+  });
+
   it("should fall back to the error message when the first entry is not an object", () => {
     expect(readableError(clientError(["oops"], "boom"))).toBe("boom");
   });
