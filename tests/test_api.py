@@ -747,14 +747,20 @@ def _parent_flood(parents: int, activity_id: str = TRACKED_ACTIVITY_ID) -> str:
     return _document(fields)
 
 
-def _distinct_parent_flood(parents: int) -> str:
+def _distinct_parent_flood(parents: int, points: int = 1) -> str:
     """*parents* aliased ``activity(id:)`` fields, each naming a different activity.
 
     The same shape as ``_parent_flood`` and the same token cost -- an id is one
     STRING token whatever it spells -- but no two of these tracks can share a
     batch, so this is the shape that still pays two statements per track.
+
+    *points* does not move the token cost either (an INT is one token however
+    many digits it spells), so raising it turns the same document from one the
+    points budget serves whole into one it refuses most of, without letting the
+    parser answer instead.
     """
-    fields = " ".join(f'a{n}: activity(id: "r{n}") {{ {CHEAP_TRACK} }}' for n in range(parents))
+    track = f"track(points: {points}) {{ sec }}"
+    fields = " ".join(f'a{n}: activity(id: "r{n}") {{ {track} }}' for n in range(parents))
     return _document(fields)
 
 
@@ -946,6 +952,56 @@ def test_the_alias_flood_issues_no_more_statements_than_the_field_cap_allows(
     sql_count[0] = 0
     gql_errors(year_client, _alias_flood())
     assert sql_count[0] <= ALIAS_FLOOD_MAX_SQL
+
+
+PARENT_FLOOD_WIDTH = 52
+"""Aliased ``activity(id:)`` parents MAX_QUERY_TOKENS admits, one cheap track each.
+
+990 of the 1000 tokens; 53 lexes to 1009 and no longer parses. Written down so
+the ceiling below can be read, but derived rather than trusted -- see
+``_widest_parent_flood``.
+"""
+
+
+def _widest_parent_flood() -> int:
+    """The most aliased ``activity(id:)`` parents MAX_QUERY_TOKENS lets through."""
+    parents = 1
+    while _token_count(_distinct_parent_flood(parents + 1)) <= MAX_QUERY_TOKENS:
+        parents += 1
+    return parents
+
+
+def test_a_flood_of_aliased_parents_issues_more_statements_than_the_field_cap_bounds(
+    year_client, sql_count
+):
+    # CUI-0017, and the companion to the test above: the same question asked of
+    # the shape that one does not reach -- aliased `activity(id:)` parents
+    # rather than aliased `activities`. What it pins is the sentence in
+    # MAX_TRACK_FIELDS_PER_REQUEST's docstring that says the cap is not a bound
+    # on the statements a request issues. A parent pays about two statements
+    # for itself before its track is weighed at all, and nothing but
+    # MAX_QUERY_TOKENS says how many parents a document may carry, so the
+    # request-level ceiling is the two limits together and is the larger number.
+    parents = _widest_parent_flood()
+    assert parents == PARENT_FLOOD_WIDTH, "the token limit moved; so does the ceiling below"
+
+    track_statements = MAX_TRACK_FIELDS_PER_REQUEST * SQL_PER_TRACK_BATCH
+    ceiling = parents * SQL_PER_ACTIVITY_FIELD + track_statements
+
+    assert gql(year_client, _distinct_parent_flood(parents)), "the widest flood is served whole"
+    assert sql_count[0] > track_statements, "the cap alone would under-count this request"
+    assert sql_count[0] <= ceiling
+
+    # The parents are paid for whether their tracks are served or refused. At
+    # MAX_TRACK_POINTS each the points budget turns away all but the first few
+    # -- the document is the same width and the same token cost, so nothing
+    # else can be doing the refusing -- and the parent half is charged anyway.
+    sql_count[0] = 0
+    body = gql_partial(year_client, _distinct_parent_flood(parents, MAX_TRACK_POINTS))
+    messages = [e["message"] for e in body["errors"]]
+    assert all(str(MAX_TRACK_POINTS_PER_REQUEST) in m for m in messages), messages
+    assert sql_count[0] >= parents * SQL_PER_ACTIVITY_FIELD
+    assert sql_count[0] <= ceiling
 
 
 def test_the_field_cap_is_per_request_and_does_not_leak_across_requests(year_client):
