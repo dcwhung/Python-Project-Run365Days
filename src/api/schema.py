@@ -100,14 +100,12 @@ Measured through the Flask client against the ``year_db`` fixture in
 ``tests/test_api.py``: 365 activities, of which one carries a full 600-point
 track -- 600 track rows in the database, not 365 x 600. Statement counts do
 not depend on that; the wall-clock readings below do, and are one machine's
-reading of this fixture rather than a bound. They do not carry to
-production: the real export holds 134,041 track rows, 223x what this fixture
-holds, and since AU-050 the batch read is the one path here whose cost
-follows that total. QA measured both on 2026-09-15 -- the 64-track page
-below read 10.4 ms against the fixture and 165.6 ms against the real export,
-16x, while the two 52-parent shapes, which open only single-track batches,
-moved by under 1.4x. Restating these readings against a production-sized
-fixture is CUI-0020; none of them is asserted, so none of them goes red on
+reading rather than a bound. The real export holds 134,041 track rows, 223x
+what this fixture holds, and since AU-050 the batch read is the one path here
+whose cost follows that total -- so a fixture reading of a *wide* batch does
+not carry to production, while a reading of anything else roughly does. QA
+measured both scales on 2026-09-15 (CUI-0020) and every figure below names the
+scale it came from; none of them is asserted, so none of them goes red on
 its own. They are quoted to one significant figure on purpose: an earlier
 revision wrote two of them as two-figure intervals (``0.07-0.08``,
 ``0.17-0.21``) and both were narrower than the same machine produced on a
@@ -118,30 +116,46 @@ and a wall time in CI buys a flaky test rather than a guarantee:
 * The shortest way to saturate this cap is one list field -- not the only
   way. ``activities(limit: 64) { track(points: 1) }`` is 19 tokens and issues
   4 statements (2 for the list, 2 for the one batch its 64 tracks share) in
-  ~0.01 s, and ``limit: 65`` issues the same 4 before refusing the 65th --
-  the cap holds on a refused request, which is the point of charging before
-  the SQL. Aliasing 64 ``track`` fields of one activity under a single parent
-  reaches the same 4 for 714 tokens, and its 65th field is refused by this cap
-  too: that route is longer in tokens, not out of reach.
+  ~0.01 s on the fixture but ~0.2 s on the export (10.4 ms and 165.6 ms) --
+  the 16x above, and the only reading here that moves with the export's size
+  at all, since this is the one shape whose batch is wide. ``limit: 65``
+  issues the same 4 before refusing the 65th -- the cap holds on a refused
+  request, which is the point of charging before the SQL -- in ~0.01 s on the
+  fixture, unmeasured on the export and bounded there by the served case
+  beside it. Aliasing 64 ``track`` fields of one activity under a single
+  parent reaches the same 4 for 714 tokens in ~0.02 s at either scale
+  (20.8 ms fixture, 21.7 ms export: that batch reads one activity's track, so
+  what it scans is that track's rows and not the export's), and its 65th field
+  is refused by this cap too: that route is longer in tokens, not out of
+  reach.
 * Spending the document on *parents* instead reaches further. Of the two
   shapes that carry one track each, ``activity(id:)`` and
   ``activities(limit: 1)``, the token limit admits 52 -- 990 of
   :data:`MAX_QUERY_TOKENS`, where 53 lexes to 1009 and no longer parses. Both
   are legal and fully served. What they cost turns on whether their tracks can
   share a batch: 52 parents naming *one* activity issue 106 statements
-  (52 x 2 + 2) in ~0.08 s, while 52 parents naming 52 *different*
-  activities cannot share and issue 208 (52 x 2 + 52 x 2) in ~0.2 s --
-  more than the cap alone would suggest, and still some 60x inside the 15 s
-  Vercel function at the slowest reading *of this fixture*. The worst legal
-  shape QA measured against the real export on 2026-09-15 came to 390 ms,
-  some 38x, so the headroom is tens of times over, not sixty. AU-050
-  flattened the fan-out under one parent; it does not flatten a document that
-  spends itself on parents.
+  (52 x 2 + 2) in ~0.07 s on the fixture and ~0.08 s on the export (68.7 ms
+  and 78.2 ms), while 52 parents naming 52 *different* activities cannot
+  share and issue 208 (52 x 2 + 52 x 2) in ~0.1 s on the fixture and ~0.2 s
+  on the export (141.4 ms and 194.8 ms) -- more than the cap alone would
+  suggest. Neither moved by as much as 1.4x between the two scales, because
+  every batch these open is a single-track batch and scans one track whatever
+  else the export holds. The Vercel headroom is therefore read off the export
+  rather than off any fixture figure: the worst legal shape QA measured there
+  on 2026-09-15 came to 390 ms, some 38x inside the 15 s function, so the
+  headroom is tens of times over and not the sixty an earlier revision
+  inferred from fixture readings. AU-050 flattened the fan-out under one
+  parent; it does not flatten a document that spends itself on parents.
 
 A document that takes no ``track`` at all spends neither budget and is not
 bounded here at all: 166 aliased ``activities`` fields fit the token limit at
-998 tokens and are served, issuing 332 statements in ~2 s. That cost belongs
-to the list fan-out, and wants its own answer; it is not what this cap is for.
+998 tokens and are served, issuing 332 statements in ~2 s on the fixture. That
+is the one reading here with no export figure beside it: QA has not measured
+this shape at production scale. What it would cost there follows the activity
+and warning rows a list field returns rather than the track rows the export is
+large in, and the export holds the same 365 activities this fixture does, so
+the gap is expected to be small -- expected, not measured. That cost belongs to
+the list fan-out, and wants its own answer; it is not what this cap is for.
 
 Every token and statement count above is asserted in ``tests/test_api.py``: the
 served worst cases by
