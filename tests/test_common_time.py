@@ -95,6 +95,61 @@ class TestParseDateTimeWallClockOfZonedInputs:
         )
 
 
+class TestParseDateTimeOffsetIsReturnedAsWritten:
+    """An ISO string with an offset keeps that offset, whatever *timezone* says.
+
+    The branch returns ``dateutil.parser.parse(rec_time)`` untouched: no
+    ``astimezone``, and no check that the offset matches the requested zone. The
+    ``Returns`` contract used to read "a timezone-aware datetime in *timezone*",
+    which is simply false here (W-019), and nothing tested it -- the only offset
+    the callers ever feed is ``+08:00``, where being wrong is invisible.
+
+    These pin the behaviour, not an endorsement of it. Converting the offset is a
+    behaviour change across three parsers and belongs to its own ticket; until
+    then the documented contract and the tests have to say the same thing.
+    """
+
+    def test_a_foreign_offset_survives_the_hong_kong_default(self):
+        dt = parse_datetime("2021-10-17T06:10:56+09:00")
+
+        assert dt.utcoffset() == timedelta(hours=9)
+        # The wall clock is untouched too: this is not a conversion that happens
+        # to land on +09:00, it is the input handed back.
+        assert (dt.hour, dt.minute, dt.second) == (6, 10, 56)
+
+    def test_the_timezone_argument_does_not_reach_this_branch(self):
+        # Two zones eight hours apart, one input: identical results. Any
+        # conversion at all -- to the argument or to a default -- would separate
+        # these, so this is what a future .astimezone() would turn red.
+        hong_kong = parse_datetime("2021-10-17T06:10:56+09:00", timezone="Asia/Hong_Kong")
+        new_york = parse_datetime("2021-10-17T06:10:56+09:00", timezone="America/New_York")
+
+        assert hong_kong.isoformat() == new_york.isoformat() == "2021-10-17T06:10:56+09:00"
+
+    def test_the_only_offset_the_callers_feed_is_the_one_that_hides_this(self):
+        # Why the false contract cost nothing in practice, stated where it can
+        # go red: at +08:00 "returned as written" and "converted to Hong Kong"
+        # agree on the instant, so no caller could tell them apart.
+        as_written = parse_datetime("2021-10-17T06:10:56+08:00")
+        converted = parse_datetime("2021-10-16T22:10:56.000Z")
+
+        assert as_written.timestamp() == converted.timestamp()
+        assert as_written.utcoffset() == converted.utcoffset() == timedelta(hours=8)
+
+    @pytest.mark.parametrize(
+        "rec_time",
+        ["2021-10-16T22:10:56Z", "2021-10-17T06:10:56-05:00"],
+        ids=["utc-without-millis", "negative-offset"],
+    )
+    def test_neighbouring_iso_shapes_are_not_supported(self, rec_time):
+        # The ``Z`` branch requires a ``.``, and the offset branch tests for
+        # ``"+"``, so both of these fall through to the naive branch and fail
+        # there. Unreachable from the data in hand, and pinned so that stays a
+        # measured fact rather than an assumption.
+        with pytest.raises(ValueError):
+            parse_datetime(rec_time)
+
+
 class TestParseDateTimeAbsoluteInstantInputs:
     """UTC ``Z`` strings and epoch milliseconds name an instant, not a wall clock.
 
@@ -145,6 +200,19 @@ class TestParseDateTimeEpochMilliseconds:
         dt = parse_datetime(GARMIN_START_TIME_LOCAL_MS)
         assert dt.isoformat() == "2021-10-17T14:10:56+08:00"
         assert dt - parse_datetime(GARMIN_BEGIN_TIMESTAMP_MS) == timedelta(hours=8)
+
+    def test_a_millisecond_residue_is_rounded_to_a_tenth_of_a_second(self):
+        # The `round(..., 1)` in the epoch branch, which had no comment and no
+        # test (S-031). It is coarser than its own input: 092ms becomes .100000,
+        # 8ms this timestamp never carried. Pinned rather than corrected --
+        # every value that actually reaches this path is a whole second, so
+        # dropping the round changes nothing in the data and would still change
+        # a parser three callers share. This is what makes that a decision.
+        assert parse_datetime("1634422256092").isoformat() == "2021-10-17T06:10:56.100000+08:00"
+        # A residue under 50ms goes the other way, to no sub-second part at all.
+        assert parse_datetime("1634422256040").isoformat() == "2021-10-17T06:10:56+08:00"
+        # And the whole-second case every tracked activity but one actually has.
+        assert parse_datetime(GARMIN_BEGIN_TIMESTAMP_MS).microsecond == 0
 
     def test_ten_digit_epoch_seconds_are_not_treated_as_epoch_milliseconds(self):
         # Only 13-digit strings take the epoch path; anything else falls through to

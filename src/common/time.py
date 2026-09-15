@@ -7,14 +7,29 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import dateutil.parser
 
-_UNIX_MS_DIGITS = 13
-_MS_PER_SECOND = 1000
+_UNIX_MS_DIGITS: Final[int] = 13
+"""Digits an epoch-millisecond timestamp has, and the only length that path accepts.
+
+Exact, not a minimum: it is what separates epoch milliseconds from the
+10-digit epoch *seconds* and the float-formatted ``1634422256000.0`` that
+Garmin also emits, both of which must be rejected rather than mis-parsed.
+Good until 2286, when epoch milliseconds reach 14 digits.
+"""
+
+_MS_PER_SECOND: Final[int] = 1000
+"""Milliseconds in a second, for the epoch-ms to epoch-seconds conversion."""
+
 _MISSING_TZ_DATA_MESSAGE: Final[str] = (
     "No IANA time zone database entry for {timezone!r}. zoneinfo carries no data of "
     "its own: it reads the host database (usually /usr/share/zoneinfo) and falls back "
     "to the 'tzdata' PyPI package, and neither is available here. Install the "
     "declared dependency with `pip install tzdata`, or provide a host tz database."
 )
+"""Body of :class:`MissingTimeZoneDataError`, formatted with the zone that was asked for.
+
+Names the remedy rather than the symptom: the failure is an environment one and
+the reader needs to know that zoneinfo carries no data of its own.
+"""
 
 
 class MissingTimeZoneDataError(RuntimeError):
@@ -56,15 +71,31 @@ def parse_datetime(rec_time: str, timezone: str = "Asia/Hong_Kong") -> datetime:
     - ``1634422256000`` (Unix timestamp in milliseconds, exactly 13 digits)
     - ``2021-10-17 06:10:56`` (naive local time)
 
-    The first and third are absolute instants and are converted into *timezone*; the
-    other two already carry that zone's wall clock and keep it.
+    The first and third are absolute instants and are converted into *timezone*.
+    The naive one is read as a wall clock already in *timezone* and is labelled
+    with it. The offset one is returned exactly as written -- see ``Returns``.
 
     Args:
         rec_time: The timestamp string.
         timezone: IANA zone name used for the result and for naive inputs.
 
     Returns:
-        A timezone-aware ``datetime`` in ``timezone``.
+        An aware ``datetime``, whose zone depends on which form came in:
+
+        - UTC ISO, epoch milliseconds, naive local: a ``datetime`` in
+          *timezone*.
+        - ISO with an offset: the offset **as written**, as a fixed-offset
+          zone. It is never converted to *timezone* and never checked against
+          it, so ``parse_datetime("2021-10-17T06:10:56+09:00")`` returns
+          ``+09:00``, not Hong Kong. The four supported inputs are all
+          ``+08:00`` in practice, which is why the callers see no difference;
+          that this is a property of the data and not of this function is what
+          ``TestParseDateTimeOffsetIsReturnedAsWritten`` pins.
+
+        Two neighbouring shapes are not supported at all and raise
+        ``ValueError`` through the naive branch: a ``Z`` string without
+        milliseconds, and a *negative* offset (the branch tests for ``"+"``).
+        Neither occurs in the data this parses.
 
     Raises:
         MissingTimeZoneDataError: If no tz database is reachable on this host.
@@ -78,6 +109,15 @@ def parse_datetime(rec_time: str, timezone: str = "Asia/Hong_Kong") -> datetime:
         elif "+" in rec_time:
             return dateutil.parser.parse(rec_time)
     elif rec_time.isdigit() and len(rec_time) == _UNIX_MS_DIGITS:
+        # Quantised to a tenth of a second, which is coarser than the input:
+        # a millisecond residue is rounded rather than carried, so 1634422256092
+        # comes back as .100000 -- 8ms this timestamp never had. Kept because it
+        # predates AU-048 and every value that reaches it is a whole second
+        # (residues across the 660 tracked activities are 659 x 0 and 1 x 92), so
+        # changing it would alter no output while changing a shared parser. The
+        # fabrication is pinned by test_a_millisecond_residue_is_rounded_to_a
+        # _tenth_of_a_second so removing the round is a deliberate act, not a
+        # silent one. `fromtimestamp` takes the unrounded float perfectly well.
         epoch_seconds = round(int(rec_time) / _MS_PER_SECOND, 1)
         # Epoch milliseconds name an absolute instant (Garmin's beginTimestamp, equal to
         # its startTimeGmt), so the instant is converted into *timezone* rather than
