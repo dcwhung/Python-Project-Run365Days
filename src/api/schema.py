@@ -98,19 +98,19 @@ Measured through the Flask client against the ``year_db`` fixture in
 track -- 600 track rows in the database, not 365 x 600. Statement counts do
 not depend on that; the wall-clock readings below do, and are one machine's
 reading of this fixture rather than a bound. They do not carry to
-production: the real export holds 134,041 track rows, 224x what this fixture
+production: the real export holds 134,041 track rows, 223x what this fixture
 holds, and since AU-050 the batch read is the one path here whose cost
 follows that total. QA measured both on 2026-09-15 -- the 64-track page
 below read 10.4 ms against the fixture and 165.6 ms against the real export,
-16x, while the two 52-parent shapes, which open no batch, moved by under
-1.4x. Restating these readings against a production-sized fixture is
-CUI-0020; none of them is asserted, so none of them goes red on its own.
-They are quoted to one significant figure on purpose: an earlier revision
-wrote two of them as two-figure intervals (``0.07-0.08``, ``0.17-0.21``) and
-both were narrower than the same machine produced on a re-run, which reads
-as a measured bound when it is not one (S-033). If a figure here ever needs
-to be tight enough to matter, it needs an assertion, and a wall time in CI
-buys a flaky test rather than a guarantee:
+16x, while the two 52-parent shapes, which open only single-track batches,
+moved by under 1.4x. Restating these readings against a production-sized
+fixture is CUI-0020; none of them is asserted, so none of them goes red on
+its own. They are quoted to one significant figure on purpose: an earlier
+revision wrote two of them as two-figure intervals (``0.07-0.08``,
+``0.17-0.21``) and both were narrower than the same machine produced on a
+re-run, which reads as a measured bound when it is not one (S-033). If a
+figure here ever needs to be tight enough to matter, it needs an assertion,
+and a wall time in CI buys a flaky test rather than a guarantee:
 
 * The shortest way to saturate this cap is one list field -- not the only
   way. ``activities(limit: 64) { track(points: 1) }`` is 19 tokens and issues
