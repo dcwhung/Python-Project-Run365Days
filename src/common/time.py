@@ -1,11 +1,21 @@
 """Timestamp parsing and formatting helpers (Hong Kong local time)."""
 
+import re
 from datetime import datetime, timedelta
 from datetime import timezone as dt_timezone
 from typing import Final
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import dateutil.parser
+
+_ISO_OFFSET_PATTERN: Final[re.Pattern[str]] = re.compile(r"[+-]\d{2}:?\d{2}$")
+"""Trailing UTC offset of an ISO 8601 timestamp: ``+08:00``, ``-05:00``, ``+0800``.
+
+Anchored at the end of the string because that is the only place an offset can be
+told apart from the rest of the timestamp: a plain ``"-" in rec_time`` test matches
+the date separators of every input, which is why the condition this replaces could
+only look for ``"+"`` and dropped negative offsets into the naive branch (CUI-0006).
+"""
 
 _UNIX_MS_DIGITS: Final[int] = 13
 """Digits an epoch-millisecond timestamp has, and the only length that path accepts.
@@ -71,31 +81,31 @@ def parse_datetime(rec_time: str, timezone: str = "Asia/Hong_Kong") -> datetime:
     - ``1634422256000`` (Unix timestamp in milliseconds, exactly 13 digits)
     - ``2021-10-17 06:10:56`` (naive local time)
 
-    The first and third are absolute instants and are converted into *timezone*.
-    The naive one is read as a wall clock already in *timezone* and is labelled
-    with it. The offset one is returned exactly as written -- see ``Returns``.
+    The first three all name an absolute instant and are converted into *timezone*.
+    The naive one carries no instant of its own: it is read as a wall clock already
+    in *timezone* and is labelled with it.
 
     Args:
         rec_time: The timestamp string.
         timezone: IANA zone name used for the result and for naive inputs.
 
     Returns:
-        An aware ``datetime``, whose zone depends on which form came in:
+        A timezone-aware ``datetime`` in *timezone*, for every supported form.
 
-        - UTC ISO, epoch milliseconds, naive local: a ``datetime`` in
-          *timezone*.
-        - ISO with an offset: the offset **as written**, as a fixed-offset
-          zone. It is never converted to *timezone* and never checked against
-          it, so ``parse_datetime("2021-10-17T06:10:56+09:00")`` returns
-          ``+09:00``, not Hong Kong. The four supported inputs are all
-          ``+08:00`` in practice, which is why the callers see no difference;
-          that this is a property of the data and not of this function is what
-          ``TestParseDateTimeOffsetIsReturnedAsWritten`` pins.
+        For the three instant-carrying forms this is a conversion: the instant is
+        preserved and only the wall clock and offset change, so
+        ``parse_datetime("2021-10-17T06:10:56+09:00")`` returns
+        ``2021-10-17T05:10:56+08:00`` -- the same moment, stated in Hong Kong.
+        The offset an ISO string carries is therefore read and then discarded;
+        it decides which instant was meant, never how the result is labelled.
+        Any ``±HH:MM`` or ``±HHMM`` offset is accepted, negative ones included.
 
-        Two neighbouring shapes are not supported at all and raise
-        ``ValueError`` through the naive branch: a ``Z`` string without
-        milliseconds, and a *negative* offset (the branch tests for ``"+"``).
-        Neither occurs in the data this parses.
+        One neighbouring shape is not supported and raises ``ValueError``
+        through the naive branch: a ``Z`` string *without* milliseconds, since
+        the UTC branch requires a ``"."``. It does not occur in the data this
+        parses -- every ``Z`` timestamp in the GPX and TCX exports has them --
+        and ``TestParseDateTimeIsoOffsetIsConvertedToTimezone`` pins it as a
+        measured fact rather than leaving it fixed in passing.
 
     Raises:
         MissingTimeZoneDataError: If no tz database is reachable on this host.
@@ -106,8 +116,14 @@ def parse_datetime(rec_time: str, timezone: str = "Asia/Hong_Kong") -> datetime:
     if "T" in rec_time:
         if "." in rec_time and rec_time.endswith("Z"):
             return dateutil.parser.parse(rec_time).replace(tzinfo=dt_timezone.utc).astimezone(tz)
-        elif "+" in rec_time:
-            return dateutil.parser.parse(rec_time)
+        elif _ISO_OFFSET_PATTERN.search(rec_time):
+            # An offset names an instant just as surely as a Z does, so it is
+            # converted into *timezone* rather than handed back as written
+            # (CUI-0006). The three exports of one run disagree about format --
+            # GPX and TCX write Z, KML writes the local offset -- and only a
+            # conversion here keeps them on the same wall clock once that offset
+            # is something other than the +08:00 every tracked file carries.
+            return dateutil.parser.parse(rec_time).astimezone(tz)
     elif rec_time.isdigit() and len(rec_time) == _UNIX_MS_DIGITS:
         # Quantised to a tenth of a second, which is coarser than the input:
         # a millisecond residue is rounded rather than carried, so 1634422256092
