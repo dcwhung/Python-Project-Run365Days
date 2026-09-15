@@ -4,6 +4,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { act as activity } from "@/test/fixtures";
 import type { Activity, TrackPoint } from "@/data/types";
 import { useActivities, useActivity, useTrack } from "@/data/hooks";
+import { GENERIC_ERROR } from "@/lib/errors";
 import { ActivityView } from "./ActivityView";
 
 vi.mock("@/data/hooks", () => ({
@@ -48,6 +49,11 @@ function succeeded(data: unknown): QueryStub {
 
 function failed(message: string): QueryStub {
   return { data: undefined, isPending: false, isError: true, error: new Error(message), refetch: vi.fn(async () => undefined) };
+}
+
+/** In flight: no data yet, and — crucially — no error to describe either. */
+function pending(): QueryStub {
+  return { data: undefined, isPending: true, isError: false, error: null, refetch: vi.fn(async () => undefined) };
 }
 
 /** The GraphQL error the API really returns when the track budget is exceeded. */
@@ -110,6 +116,20 @@ describe("ActivityView", () => {
     expect(screen.getByTestId("elapsed")).toBeInTheDocument();
     for (const label of CHART_LABELS) expect(screen.getByLabelText(label)).toBeInTheDocument();
     expect(screen.queryByTestId("track-error")).not.toBeInTheDocument();
+  });
+
+  // Guards the `track.isPending` term in the view's top-level loading gate. A
+  // pending track has `data === undefined` *and* `error === null`, so the moment
+  // it stops short-circuiting, `series` is null and the track region renders
+  // TrackError with `readableError(null)` — i.e. it invents "unknown error"
+  // during an ordinary load. That is the very failure mode CUI-0016 fixed, so
+  // dropping the term to "finish the per-region degradation" must turn this red.
+  it("should show the loading text and no track error while the track is still pending", () => {
+    wire({ track: pending() });
+    renderView();
+    expect(screen.getByText("Loading…")).toBeInTheDocument();
+    expect(screen.queryByTestId("track-error")).not.toBeInTheDocument();
+    expect(screen.queryByText(new RegExp(GENERIC_ERROR))).not.toBeInTheDocument();
   });
 
   it("should show a track-specific error instead of \"Activity not found.\" when the track query fails", () => {
