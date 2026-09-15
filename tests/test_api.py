@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from graphql import GraphQLObjectType, get_introspection_query, get_named_type
 from graphql import build_schema as build_sdl_schema
+from run365days.analytics.builder import downsample
 from run365days.api import db, service
 from run365days.api.app import GRAPHQL_PATH, HEALTH_PATH, create_app
 from run365days.api.schema import (
@@ -18,7 +19,6 @@ from run365days.api.schema import (
     MAX_TRACK_POINTS,
     build_schema,
 )
-from run365days.dashboard.builder import downsample
 from run365days.export import models
 from run365days.export.sqlite import sqlite_url, write_sqlite
 

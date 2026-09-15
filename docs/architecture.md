@@ -23,13 +23,13 @@ models, its readers and its derived calculations:
 | `run365days.activities` | `Activity` / `TrackPoint` dataclasses, `parsers/` for TCX, GPX and KML | `common` |
 | `run365days.weather` | `HourlyWeather`, `WeatherWarning`, `DailyWeather`, `SunMoon` dataclasses and `collectors/` that scrape HKO and freemeteo | `common` |
 | `run365days.weight` | `WeightRecord` and the year table / summaries built from the text log | `common` |
-| `run365days.dashboard` | `builder` (pure per-run calculations shared by export and API) and `stats` (year aggregates) | `activities`, `weight` |
-| `run365days.export` | `records` (one intermediate structure), `models` (SQLAlchemy), `sqlite` and `static_json` writers | `dashboard.builder`, `activities`, `weight` |
-| `run365days.api` | `app` (Flask factory), `schema` (Strawberry types and `Query`), `service` (SQLAlchemy queries), `db` (engine and session helpers) | `export.models`, `export.records`, `export.sqlite`, `dashboard.stats` |
+| `run365days.analytics` | `builder` (pure per-run calculations shared by export and API) and `stats` (year aggregates) | `activities`, `weight` |
+| `run365days.export` | `records` (one intermediate structure), `models` (SQLAlchemy), `sqlite` and `static_json` writers | `analytics.builder`, `activities`, `weight` |
+| `run365days.api` | `app` (Flask factory), `schema` (Strawberry types and `Query`), `service` (SQLAlchemy queries), `db` (engine and session helpers) | `export.models`, `export.records`, `export.sqlite`, `analytics.stats` |
 | `run365days.cli` | Five console scripts that wire the features together | everything above |
 
 Dependencies only point downwards in that table. Nothing under `activities`,
-`weather` or `weight` knows the dashboard exists, which keeps each feature
+`weather` or `weight` knows the analytics layer exists, which keeps each feature
 testable on its own and leaves room for a second consumer (see
 [roadmap.md](roadmap.md)).
 
@@ -76,8 +76,8 @@ comes through one interface, `DataSource` (`frontend/src/data/types.ts`):
 
 | Mode | Source | Aggregates |
 |---|---|---|
-| `api` (default) | `src/data/api/source.ts`: graphql-request against `/api/graphql`; documents in `src/data/api/queries.ts` are type-checked by GraphQL Codegen against `schema.graphql` | computed by the API (`dashboard.stats`) |
-| `static` | `src/data/static/source.ts`: fetches the JSON written by `run365-export --static-dir` and maps snake_case to the same types | computed in the browser by `src/data/stats.ts`, a port of `dashboard.stats` pinned to the same test values |
+| `api` (default) | `src/data/api/source.ts`: graphql-request against `/api/graphql`; documents in `src/data/api/queries.ts` are type-checked by GraphQL Codegen against `schema.graphql` | computed by the API (`analytics.stats`) |
+| `static` | `src/data/static/source.ts`: fetches the JSON written by `run365-export --static-dir` and maps snake_case to the same types | computed in the browser by `src/data/stats.ts`, a port of `analytics.stats` pinned to the same test values |
 
 Views live in `src/views/<view>/` with a pure `model.ts` (filtering,
 sorting, derived numbers) beside the components, so the logic is tested
@@ -100,10 +100,10 @@ the sub-resources a future API will expose.
 
 ### Pure builder functions
 
-Everything in `dashboard.builder` takes plain Python values and returns
+Everything in `analytics.builder` takes plain Python values and returns
 plain Python values; the only one that touches the filesystem is
 `load_jsonl`. That is what makes them unit-testable without
-fixtures on disk (`tests/test_dashboard_builder.py`).
+fixtures on disk (`tests/test_analytics_builder.py`).
 
 ### One front end, two data modes
 

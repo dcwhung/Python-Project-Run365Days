@@ -3,7 +3,7 @@
 Types mirror the export record shape (snake_case in Python, camelCase in
 GraphQL via Strawberry's auto conversion). Resolvers pull a SQLAlchemy
 session from ``info.context["session"]`` and delegate to
-:mod:`run365days.api.service` and :mod:`run365days.dashboard.stats`.
+:mod:`run365days.api.service` and :mod:`run365days.analytics.stats`.
 """
 
 from __future__ import annotations
@@ -21,10 +21,10 @@ from strawberry.extensions import (
 )
 from strawberry.types import Info
 
+from run365days.analytics import stats
+from run365days.analytics.builder import TRACK_POINT_LIMIT
 from run365days.api import service
 from run365days.common.config import BODY_HEIGHT_CM, EXPORT_TRACK_POINTS, LBS_TO_KG
-from run365days.dashboard import stats
-from run365days.dashboard.builder import TRACK_POINT_LIMIT
 from run365days.export.records import TRACK_COLUMNS
 
 DEFAULT_TRACK_POINTS = TRACK_POINT_LIMIT

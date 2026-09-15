@@ -76,7 +76,7 @@ src/                           Python package, imported as `run365days`, one sub
   activities/                  Activity / TrackPoint models, parsers/ (tcx, gpx, kml)
   weather/                     weather models, collectors/ (hko_daily, hourly, warnings)
   weight/                      daily weight parsing, year table, summaries
-  dashboard/                   builder (shared run calculations), stats (year aggregates)
+  analytics/                   builder (shared run calculations), stats (year aggregates)
   common/                      config (all paths and constants), geo, time
   cli/                         process_activities, collect_weather, export_data, export_schema
 tests/                         pytest suite, one file per feature module
@@ -197,7 +197,7 @@ weather JSONL    ──► (loaded as rows)                       ─┘        
 TCX is the primary source for every run. GPX is joined by activity id for
 its per-point ambient temperature. For each run the export attaches the
 hourly observation nearest to the start time and the HKO warning signals in
-force that day, using the pure helpers in `dashboard/builder.py`. One
+force that day, using the pure helpers in `analytics/builder.py`. One
 intermediate structure, `ExportRecords`, is written both as SQLite (for the
 API) and as split JSON (for the static build), so the two modes always agree. The full account, including the
 quirks of each source, is in [docs/data-pipeline.md](docs/data-pipeline.md)
@@ -214,7 +214,7 @@ ruff format --check src tests
 
 - The Python suite covers the geo and time helpers, the three activity
   parsers, the weather collectors and their CLI, weight parsing (including
-  the undated-last-line quirk), every dashboard builder function, the export
+  the undated-last-line quirk), every analytics builder function, the export
   records, SQLite and JSON writers, the GraphQL API and the CLI entry points.
 - Front end: Vitest covers the TypeScript stats port (pinned to the Python
   numbers), the static JSON mappers and source, the API source, data-mode

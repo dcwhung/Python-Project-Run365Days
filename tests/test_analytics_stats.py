@@ -1,4 +1,4 @@
-from run365days.dashboard import stats
+from run365days.analytics import stats
 
 
 def _act(id, date, km, sec, kcal=300, cad=170.0, pace=None) -> dict:

@@ -17,9 +17,9 @@ from pathlib import Path
 
 from run365days.activities.parsers.gpx import GPXParser
 from run365days.activities.parsers.tcx import TCXParser
+from run365days.analytics.builder import load_jsonl
 from run365days.common import config
 from run365days.common.config import EXPORT_TRACK_POINTS
-from run365days.dashboard.builder import load_jsonl
 from run365days.export.records import build_records
 from run365days.export.sqlite import write_sqlite
 from run365days.export.static_json import write_static_json

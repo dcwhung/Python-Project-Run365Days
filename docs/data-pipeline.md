@@ -82,7 +82,7 @@ names produced by the original v1 scrapers. The collectors in
 | `weather_warning_history.json` | HKO warning database (`warndb_ea.pl`) | 461 warnings | type, signal, start / end time, icon |
 | `sun_moon_rise_set_history.json` | HKO astronomical data | 365 days | sunrise, solar noon, sunset, day length, moonrise, moon transit, moonset, illumination |
 
-**Joining weather to runs.** `dashboard.builder.hourly_at()` picks the
+**Joining weather to runs.** `analytics.builder.hourly_at()` picks the
 hourly row on the same date whose time is closest to the run's start; there
 is no interpolation. Warnings are grouped per date, so a run is tagged with
 every signal that was in force at any point that day, not only during the
