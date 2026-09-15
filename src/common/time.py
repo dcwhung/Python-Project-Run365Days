@@ -7,14 +7,29 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import dateutil.parser
 
-_UNIX_MS_DIGITS = 13
-_MS_PER_SECOND = 1000
+_UNIX_MS_DIGITS: Final[int] = 13
+"""Digits an epoch-millisecond timestamp has, and the only length that path accepts.
+
+Exact, not a minimum: it is what separates epoch milliseconds from the
+10-digit epoch *seconds* and the float-formatted ``1634422256000.0`` that
+Garmin also emits, both of which must be rejected rather than mis-parsed.
+Good until 2286, when epoch milliseconds reach 14 digits.
+"""
+
+_MS_PER_SECOND: Final[int] = 1000
+"""Milliseconds in a second, for the epoch-ms to epoch-seconds conversion."""
+
 _MISSING_TZ_DATA_MESSAGE: Final[str] = (
     "No IANA time zone database entry for {timezone!r}. zoneinfo carries no data of "
     "its own: it reads the host database (usually /usr/share/zoneinfo) and falls back "
     "to the 'tzdata' PyPI package, and neither is available here. Install the "
     "declared dependency with `pip install tzdata`, or provide a host tz database."
 )
+"""Body of :class:`MissingTimeZoneDataError`, formatted with the zone that was asked for.
+
+Names the remedy rather than the symptom: the failure is an environment one and
+the reader needs to know that zoneinfo carries no data of its own.
+"""
 
 
 class MissingTimeZoneDataError(RuntimeError):
