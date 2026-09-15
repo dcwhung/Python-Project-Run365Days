@@ -1,7 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import type { PersonalBests, Totals } from "@/data/types";
 import { fmtShortDate } from "@/lib/format";
-import { Card } from "@/components/Card";
+import { Card } from "@/components/ui/Card";
 import { personalBestRows } from "./model";
 
 const BAR = {

@@ -5,10 +5,10 @@ import { fmtKm, fmtPace, fmtShortDate } from "@/lib/format";
 import { minToSec, paceToPlotMin } from "@/lib/units";
 import { actTemp, wxEmoji } from "@/lib/weather";
 import { BASE, COLORS, GRID, NO_GRID, NO_LEGEND, alpha, dayAxis } from "@/components/charts/theme";
-import { Card } from "@/components/Card";
-import { KpiCard } from "@/components/KpiCard";
-import { DataTable } from "@/components/DataTable";
-import { WarningIcons } from "@/components/WarningIcons";
+import { Card } from "@/components/ui/Card";
+import { KpiCard } from "@/components/ui/KpiCard";
+import { DataTable } from "@/components/ui/DataTable";
+import { WarningIcons } from "@/components/weather/WarningIcons";
 import {
   conditions,
   extremes,

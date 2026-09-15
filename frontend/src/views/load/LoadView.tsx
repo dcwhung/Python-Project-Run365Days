@@ -7,9 +7,9 @@ import { WEEKDAYS } from "@/lib/dates";
 import { paceOf, weeksWithActivities, type WeekWithActivities } from "@/lib/analytics";
 import { actTemp, wxEmoji } from "@/lib/weather";
 import { BASE, COLORS, GRID, NO_GRID, NO_LEGEND, alpha, dayAxis } from "@/components/charts/theme";
-import { Card } from "@/components/Card";
-import { KpiCard } from "@/components/KpiCard";
-import { DataTable } from "@/components/DataTable";
+import { Card } from "@/components/ui/Card";
+import { KpiCard } from "@/components/ui/KpiCard";
+import { DataTable } from "@/components/ui/DataTable";
 import { loadKpis, rollingWeeks, topWeeks, weekChange, weekdayAvgKm } from "./model";
 
 const signed = (v: number) => `${v > 0 ? "+" : ""}${v}`;

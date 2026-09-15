@@ -4,7 +4,7 @@ import { MONTHS, fmtShortDate } from "@/lib/format";
 import { secToHours, secToMin } from "@/lib/units";
 import { toWeightUnit, usePrefs } from "@/lib/prefs";
 import { BASE, COLORS, GRID, NO_LEGEND, alpha, dayAxis } from "@/components/charts/theme";
-import { Card } from "@/components/Card";
+import { Card } from "@/components/ui/Card";
 import { DiamondGrid } from "./DiamondGrid";
 import { monthlyHours, weightReview } from "./model";
 

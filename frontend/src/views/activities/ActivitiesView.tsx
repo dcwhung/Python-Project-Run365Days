@@ -5,7 +5,7 @@ import type { Activity } from "@/data/types";
 import { MONTHS, fmtDuration, fmtKm, fmtPace, fmtShortDate } from "@/lib/format";
 import { activateOnKey } from "@/lib/a11y";
 import { actTemp, wxEmoji } from "@/lib/weather";
-import { WarningIcons } from "@/components/WarningIcons";
+import { WarningIcons } from "@/components/weather/WarningIcons";
 import { DEFAULT_FILTERS, filterAndSort, toCsv, type Filters, type SortKey } from "./model";
 
 interface Column {

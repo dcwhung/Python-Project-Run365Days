@@ -4,9 +4,9 @@ import { MONTHS, fmtShortDate } from "@/lib/format";
 import { WEEKDAYS } from "@/lib/dates";
 import { toWeightUnit, usePrefs } from "@/lib/prefs";
 import { BASE, COLORS, GRID, NO_GRID, NO_LEGEND, alpha, dayAxis } from "@/components/charts/theme";
-import { Card } from "@/components/Card";
-import { KpiCard } from "@/components/KpiCard";
-import { DataTable } from "@/components/DataTable";
+import { Card } from "@/components/ui/Card";
+import { KpiCard } from "@/components/ui/KpiCard";
+import { DataTable } from "@/components/ui/DataTable";
 import {
   dailyDeltas,
   dailySeries,

@@ -1,5 +1,5 @@
 import { useActivities, useWeather, useWeight, useYear } from "@/data/hooks";
-import { Card } from "@/components/Card";
+import { Card } from "@/components/ui/Card";
 import { KpiRow } from "./KpiRow";
 import { Heatmap } from "./Heatmap";
 import { MonthlyDistanceChart, MonthlyPaceChart } from "./MonthlyCharts";

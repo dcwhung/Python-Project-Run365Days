@@ -4,7 +4,7 @@ import { useDataSource } from "@/data/context";
 import { DEFAULT_PREFS, resetPrefs, savePrefs, usePrefs, type Prefs } from "@/lib/prefs";
 import { VIEWS } from "@/app/views";
 import { SPEEDS } from "@/views/activity/usePlayback";
-import { Card } from "@/components/Card";
+import { Card } from "@/components/ui/Card";
 
 const input = "w-full rounded border border-border bg-surface2 px-2 py-1 text-sm";
 

@@ -3,7 +3,7 @@ import type { MonthSummary } from "@/data/types";
 import { MONTHS, fmtPace } from "@/lib/format";
 import { minToSec, secToMin } from "@/lib/units";
 import { BASE, COLORS, GRID, NO_GRID, NO_LEGEND, alpha } from "@/components/charts/theme";
-import { Card } from "@/components/Card";
+import { Card } from "@/components/ui/Card";
 
 export function MonthlyDistanceChart({ monthly }: { monthly: MonthSummary[] }) {
   return (

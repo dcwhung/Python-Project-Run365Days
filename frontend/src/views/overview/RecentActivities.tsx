@@ -2,9 +2,9 @@ import { useNavigate } from "react-router-dom";
 import type { Activity } from "@/data/types";
 import { activateOnKey } from "@/lib/a11y";
 import { fmtDuration, fmtKm, fmtPace, fmtShortDate } from "@/lib/format";
-import { Card } from "@/components/Card";
-import { WarningIcons } from "@/components/WarningIcons";
-import { WeatherTag } from "@/components/WeatherTag";
+import { Card } from "@/components/ui/Card";
+import { WarningIcons } from "@/components/weather/WarningIcons";
+import { WeatherTag } from "@/components/weather/WeatherTag";
 
 const RECENT_COUNT = 8;
 

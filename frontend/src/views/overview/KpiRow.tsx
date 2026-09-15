@@ -1,7 +1,7 @@
 import type { PersonalBests, Totals } from "@/data/types";
 import { fmtPace, fmtShortDate, fmtThousands } from "@/lib/format";
 import { secToHours, secToMin } from "@/lib/units";
-import { KpiCard } from "@/components/KpiCard";
+import { KpiCard } from "@/components/ui/KpiCard";
 
 export function KpiRow({
   totals,

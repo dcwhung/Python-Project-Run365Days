@@ -2,7 +2,7 @@ import { NavLink, Outlet } from "react-router-dom";
 import { VIEWS } from "./views";
 import { useMeta } from "@/data/hooks";
 import { useDataSource } from "@/data/context";
-import { WarningSprite } from "@/components/WarningSprite";
+import { WarningSprite } from "@/components/weather/WarningSprite";
 
 export function Layout() {
   const meta = useMeta();

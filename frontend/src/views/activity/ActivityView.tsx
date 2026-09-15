@@ -1,8 +1,8 @@
 import { useEffect, useMemo } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useActivities, useActivity, useTrack } from "@/data/hooks";
-import { KpiCard } from "@/components/KpiCard";
-import { WarningIcons } from "@/components/WarningIcons";
+import { KpiCard } from "@/components/ui/KpiCard";
+import { WarningIcons } from "@/components/weather/WarningIcons";
 import { fmtDuration, fmtKm, fmtPace, fmtShortDate } from "@/lib/format";
 import { longDate } from "@/lib/dates";
 import { mean } from "@/lib/stats-helpers";
