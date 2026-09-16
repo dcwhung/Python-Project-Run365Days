@@ -2244,6 +2244,15 @@ a decimal digit or at ``""`` they build the same string. The ``IN`` in
 collision does not raise -- the loser's rows simply come back as well, and the
 track is thinned to the wrong rows in silence. That pair is live in this
 fixture: ``"05"`` comes back with 10 rows instead of 7.
+
+These ids are not the ones CUI-0028 was filed with, and the reason is coverage
+rather than correctness: the ticket's own ``("1","01","10","2","20","002")``
+collides too, ``"01"`` coming back with 10 rows instead of 7 under both ``"0"``
+and ``""``, exactly as the ticket recorded. An execution note claiming that
+shape did not collide was wrong and has been withdrawn (W-029). What this
+fixture adds over it is the degenerate 0- and 1-row tracks and a different
+length per id, so the batch exercises the whole-track arm and the sampled arm
+at once.
 """
 
 COLLIDING_TRACK_LENGTHS = (0, 1, 60, 101, 121, 201)
