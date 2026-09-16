@@ -25,6 +25,7 @@ from run365days.api import db, service
 from run365days.api.app import GRAPHQL_PATH, HEALTH_PATH, create_app
 from run365days.api.schema import (
     DEFAULT_PAGE_SIZE,
+    LIST_ROWS_NOTE,
     MAX_LIST_ROWS_PER_REQUEST,
     MAX_PAGE_SIZE,
     MAX_QUERY_DEPTH,
@@ -172,9 +173,19 @@ Derived rather than spelled out so the two cannot drift: the value that matters
 is "longer than the ceiling", and CUI-0033 (a) is only testable at all because
 one length above it exists. ``1250`` was already in
 :data:`VARIED_TRACK_LENGTHS` -- put there for the sampler, not for this -- and
-is what a real ``run365-export --points 1200`` produces, so this needs no
-fixture of its own. Tests using it assert the inequality rather than assume it,
-since shortening the fixture would otherwise turn them green and empty.
+is a length a real export can hold, so this needs no fixture of its own. Tests
+using it assert the inequality rather than assume it, since shortening the
+fixture would otherwise turn them green and empty.
+
+How a track gets that long, since an earlier revision of this docstring had it
+wrong: ``run365-export --points N`` writes at most N rows per track, because
+:func:`run365days.export.records.build_records` passes every track through
+``downsample(rows, point_limit)``. So ``--points 1200`` -- the run that opened
+CUI-0033 -- writes 1200, not 1250; 1250 rows takes ``--points 1250``. The
+figure comes from the raw data rather than from either run: exactly one
+activity in the export parses to more than 1000 track rows, and it holds 1250
+of them. To re-take it, count ``track_rows`` per activity before the
+downsample rather than reading the exported file, which is already capped.
 """
 
 OVER_CAP_ID = VARIED_IDS[VARIED_TRACK_LENGTHS.index(OVER_CAP_LENGTH)]
@@ -616,7 +627,14 @@ def test_the_year_description_does_not_mention_a_limit_it_has_no_argument_for():
 def test_every_field_that_spends_the_row_budget_says_so(field):
     # The half of S-053 that must survive splitting the note in two: `year`
     # loses the `limit` sentence but keeps the shared budget one.
-    assert str(MAX_LIST_ROWS_PER_REQUEST) in _field_descriptions()[field]
+    #
+    # Held against LIST_ROWS_NOTE itself rather than against the bare number in
+    # it. `str(MAX_LIST_ROWS_PER_REQUEST) in description` passes on any
+    # description that happens to contain those digits -- including one where
+    # the budget sentence has decayed to a stray 4000 -- and it is the shape
+    # 72dfcb5, one commit earlier in the same lane, spent a commit message
+    # explaining why the `(1-1000)` assertions do not use (S-065).
+    assert LIST_ROWS_NOTE.strip() in _field_descriptions()[field]
 
 
 # ── AU-001: query depth and token limits ───────────────────────────────────
@@ -2517,8 +2535,13 @@ apart only by the separator: at ``":"`` they build ``"10:5"`` and ``"1:05"``, at
 a decimal digit or at ``""`` they build the same string. The ``IN`` in
 :func:`~run365days.api.service._sample_filter` compares keys whole, so a
 collision does not raise -- the loser's rows simply come back as well, and the
-track is thinned to the wrong rows in silence. That pair is live in this
-fixture: ``"05"`` comes back with 10 rows instead of 7.
+track is thinned to the wrong rows in silence. That pair is one of three live
+in this fixture, which is what makes the count below 10 and not 8: at
+``points=7`` the sampled positions 10, 20 and 30 on ``"5"`` build the keys that
+rows 1, 2 and 3 of ``"05"`` build too, so ``"05"`` comes back with 10 rows
+instead of 7. The same three pairs are why the ticket's own shape collides;
+that table is on CUI-0028 and this names its counterpart here rather than
+leaving the count to stand for it.
 
 These ids are not the ones CUI-0028 was filed with, and the reason is coverage
 rather than correctness: the ticket's own ``("1","01","10","2","20","002")``
@@ -2641,3 +2664,14 @@ def test_duplicate_ids_in_a_batch_collapse_to_one_entry(varied_session, sql_para
         "a repeated id is paying for itself again: the batch binds parameters "
         "per copy rather than per distinct track"
     )
+
+
+def test_an_empty_batch_reads_nothing_and_returns_nothing(varied_session, sql_params):
+    # The early return in `service.tracks`, which was the module's only
+    # uncovered statement (S-078). It is the one path that does not issue the
+    # grouped COUNT CUI-0033 (a) added, so what it is worth pinning is the cost,
+    # not the value: the empty mapping falls out of the comprehension above it
+    # either way, while removing the return sends an empty batch into SQL.
+    sql_params.clear()
+    assert service.tracks(varied_session, [], 7) == {}
+    assert list(sql_params) == [], "an empty batch must not reach the database"

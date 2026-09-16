@@ -345,16 +345,22 @@ illustrative (CUI-0027 W-028):
 * ``activity(id:)`` does not pay. It reads one row by primary key, and
   :data:`MAX_QUERY_TOKENS` admits at most 90 of them -- 90 being the count for
   the narrowest selection, ``{ id }``; a wider one costs tokens and buys fewer
-  fields, 76 at three scalars and 30 under the full ``ActivityFields``. At that
-  widest: ~95 ms on the export (91.6-95.9 over five runs), some 160x inside the
-  15 s function, so charging it would buy noise.
+  fields, 76 at three scalars and 30 under the full ``ActivityFields``. At the
+  widest fan-out -- the 90 aliases of ``{ id }``, not the 30 of
+  ``ActivityFields``, which is the cheaper document: ~95 ms on the export
+  (91.6-95.9 over five runs), some 160x inside the 15 s function, so charging
+  it would buy noise.
 
   The figures this replaces -- ~0.05 s and some 300x -- were measured down a
   path that never reaches the row. An id matching nothing returns before the
   ``selectinload`` fires: 48-50 ms, 0 rows, 90 statements rather than 180
-  (S-058). Roughly half the reading either way is fixed cost, per-field
-  dispatch over 90 aliases rather than anything the database does, which is
-  why the miss is not much cheaper than the hit.
+  (S-058). The miss is half the hit rather than a tenth of it because it still
+  issues 90 of those 180 statements -- not, as an earlier revision of this
+  paragraph said, because roughly half of either reading is per-field dispatch.
+  Swept over 10, 30, 45 and 90 aliases both paths come out linear in their
+  statement count, at much the same cost per statement, and what does not scale
+  with the statements is a few percent of the 90-alias reading rather than half
+  of it (S-064).
 
   Rows, likewise, are not 90. ``service.activity`` carries
   ``selectinload(warnings)``, so each field costs two statements and pulls its
@@ -394,10 +400,17 @@ illustrative (CUI-0027 W-028):
   started process -- 332 aliased ``activitiesCount`` reads 84.6 ms against
   83.2 ms warm, and the other three are within 3% of their warm figures too.
   The reason is that these documents are not I/O bound: a count touches a
-  handful of pages of an 11 MB file, and what the 80-odd ms buys is 332
-  resolver dispatches. What a cold *process* costs is real and much larger --
-  ~330 ms of imports before the first query, and a first execution some 7%
-  above the second while SQLAlchemy compiles the statement -- but that is a
+  handful of pages of an 11 MB file, and what the 80-odd ms buys is its 332
+  counting statements. Their cost per statement is about half the
+  ``activity(id:)`` readings above, which is why it is read as what each
+  statement does rather than as a dispatch every field pays alike (S-064).
+
+  What a cold *process* costs is real and much larger -- several hundred
+  milliseconds of imports before the first query, and a first execution some
+  way above the second while SQLAlchemy compiles the statement. Those two are
+  given as orders rather than as readings on purpose: unlike every figure above
+  they are properties of the interpreter and the machine rather than of this
+  schema, and both moved when re-measured on another one. They are also a
   per-invocation cost the whole function pays, not something this budget bounds
   or that aliasing multiplies.
 
@@ -573,7 +586,16 @@ class BudgetExceededError(GraphQLError):
         # ``GraphQLResolveInfo`` rather than from two sources that could
         # drift. If this attribute is ever renamed,
         # ``test_a_budget_refusal_still_tells_the_client_where_it_happened``
-        # is what goes red.
+        # is what goes red -- on its ``message`` assertion specifically, and
+        # only on that one. Measured: rename this attribute and the client
+        # still gets both ``locations`` and ``path``, because graphql-core
+        # rebuilds them around the resulting ``AttributeError`` at the very
+        # field the refusal came from, so they are identical either way. Only
+        # the message changes, from the budget sentence to the AttributeError.
+        # That is also why there is no way to make the other two assertions
+        # carry this tripwire; the message assertion is load-bearing here even
+        # though it reads as the redundant one beside the other budget tests
+        # (S-075).
         raw = info._raw_info
         super().__init__(message, nodes=raw.field_nodes, path=raw.path.as_list())
 
