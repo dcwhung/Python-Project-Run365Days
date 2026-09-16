@@ -86,6 +86,24 @@ describe("static source", () => {
     await expect(src.track("a", 2.5)).rejects.toThrow("points must be between 1 and 1000, got 2.5");
   });
 
+  // CUI-0033 (c). The bounds check runs before the fetch, so an id that does
+  // not exist cannot mask an illegal `points` -- the RangeError arrives instead
+  // of the 404 the id would have earned. api mode reads the same call the other
+  // way round: a null `activity` means the `track` resolver never runs, so it
+  // answers `{ activity: null }` with no error.
+  // `test_an_unknown_activity_swallows_an_illegal_points_that_static_mode_refuses`
+  // in tests/test_api.py is the other half of this pair.
+  it("refuses an illegal points before the fetch, even for an id that does not exist", async () => {
+    const { src, fetcher } = source();
+    await expect(src.track("no-such-activity", 0)).rejects.toThrow(
+      "points must be between 1 and 1000, got 0",
+    );
+    // The assertion that carries the claim: asserting only the throw would
+    // pass just as well against a check that ran after the request went out,
+    // and "costs no request" is the property worth keeping.
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
   it("still returns the whole stored track when points is omitted", async () => {
     const { src } = source();
     // Pinned deliberately: `undefined` is not `0`. api mode has no such state

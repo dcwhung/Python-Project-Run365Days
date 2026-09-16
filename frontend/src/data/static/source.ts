@@ -41,11 +41,28 @@ export const MAX_TRACK_POINTS = 1000;
 /**
  * Bounds-check `points` the way api mode's `_track_points` does, or throw.
  *
- * Rejects the same values and says the same sentence, so a client writes one
- * error path rather than one per mode. Non-integers are refused too: api mode
- * cannot even express one (its SDL argument is `Int!`), and `downsample`'s
- * contract explicitly does not cover a non-integer `limit` -- Python raises on
- * `range(2.5)` where this side would quietly return two items.
+ * Rejects the same values, so a client writes one error path rather than one
+ * per mode -- and says the same sentence for every value the GraphQL `Int`
+ * scalar can carry, which is where that promise ends (CUI-0033 (b)).
+ *
+ * Outside that range the two modes still agree on the *decision* and differ
+ * only in wording, because api mode never reaches `_track_points`: `Int!`
+ * coercion runs during execution set-up and refuses the value first. Measured
+ * against a real Flask + Strawberry app:
+ *
+ * | `points`     | this side                          | api mode                                              |
+ * | ------------ | ---------------------------------- | ----------------------------------------------------- |
+ * | `-1`/`0`/`1001` | `points must be between 1 and 1000, got N` | same sentence                                  |
+ * | `2.5`        | same sentence                      | `Int cannot represent non-integer value: 2.5`         |
+ * | `2147483648` | same sentence                      | `Int cannot represent non 32-bit signed integer value` |
+ *
+ * Non-integers are refused here rather than passed through because
+ * `downsample`'s contract does not cover a non-integer `limit`: Python raises
+ * on `range(2.5)` where this side would quietly return two items. A coercion
+ * failure also nulls the whole api-mode response rather than just `track`,
+ * since it is not a field error.
+ * `test_a_points_the_int_scalar_cannot_carry_is_refused_before_the_resolver`
+ * in tests/test_api.py is what holds the right-hand column.
  */
 function checkPoints(points: number): number {
   if (!Number.isInteger(points) || points < 1 || points > MAX_TRACK_POINTS) {
@@ -96,6 +113,21 @@ export function createStaticSource(base: string, fetcher: Fetcher = defaultFetch
       // api mode has no way to ask for (`points: Int! = 150` is NonNull with a
       // default) and so has no answer to disagree with. `0` used to land here
       // too, because it is falsy; that is the divergence CUI-0025 closed.
+      //
+      // Checking first is also why an unknown `id` reads differently in the
+      // two modes (CUI-0033 (c)): `track("no-such-activity", 0)` throws the
+      // bounds error here, having sent no request, while api mode answers
+      // `{ activity: null }` with no error at all -- `track` is a field on
+      // `Activity`, so a null parent means this resolver, bounds check
+      // included, never runs. Deliberately left alone rather than aligned:
+      // reaching that state means asking for an activity the `activities`
+      // list did not hand out, and making api mode raise instead would trade a
+      // real property (an illegal argument costs no round trip) for a symmetry
+      // nothing asks for. The divergence is narrower than it looks -- a
+      // `points` the `Int` scalar cannot carry is refused in both modes even
+      // for an unknown id, because coercion precedes every resolver.
+      // `test_an_unknown_activity_swallows_an_illegal_points_that_static_mode_refuses`
+      // in tests/test_api.py holds the api-mode side of this.
       const limit = points === undefined ? undefined : checkPoints(points);
       const rows = mapTrack(await load<StaticTrack>(`tracks/${id}.json`));
       return limit === undefined ? rows : downsample(rows, limit);
