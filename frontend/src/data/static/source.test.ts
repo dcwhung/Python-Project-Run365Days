@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { createStaticSource } from "./source";
+import { buildSchema, type GraphQLObjectType } from "graphql";
+// `?raw` rather than fs: Vite resolves the path at transform time, so this
+// keeps pointing at frontend/schema.graphql no matter what directory the
+// runner was started from.
+import schemaSdl from "../../../schema.graphql?raw";
+import { createStaticSource, MAX_TRACK_POINTS } from "./source";
 import { STATIC_ACTIVITY } from "@/test/fixtures";
 
 const FILES: Record<string, unknown> = {
@@ -101,6 +106,32 @@ describe("static source", () => {
     // CUI-0004's semantics, pinned here so the new bounds check cannot be
     // mistaken for a reason to reject 1 as well.
     expect((await src.track("a", 1)).map((p) => p.sec)).toEqual([24]);
+  });
+
+  // CUI-0034. `MAX_TRACK_POINTS` is written down twice, once per language, and
+  // until now only one direction was guarded. Editing the constant below turns
+  // three assertions red because they spell `1000` out; editing
+  // src/api/schema.py turns `run365-schema --check` red, but regenerating the
+  // SDL clears that -- and nothing downstream compares the regenerated file to
+  // this side, so the two modes could enforce different ceilings with every
+  // gate green.
+  //
+  // frontend/schema.graphql closes that direction because it sits between the
+  // two: run365-schema holds it equal to the Python constant, and this holds
+  // the TypeScript constant equal to it. Reading the number back out of the
+  // file is the whole point -- an assertion spelling `1000` here would be a
+  // fourth copy rather than a link (S-062, and S-065 on the same mistake).
+  it("agrees with the ceiling the generated SDL publishes", () => {
+    const sdl = buildSchema(schemaSdl);
+    const track = (sdl.getType("Activity") as GraphQLObjectType).getFields().track;
+
+    // CUI-0025 put the range into the description precisely so a client could
+    // read it without tripping over it first. If that phrasing ever moves,
+    // this fails loudly rather than skipping the comparison and going green
+    // on a description it could no longer find the number in.
+    const range = /\(1-(\d+)\)/.exec(track.description ?? "");
+    expect(range, `Activity.track description states no (1-N) range: ${track.description}`).not.toBeNull();
+    expect(Number(range![1])).toBe(MAX_TRACK_POINTS);
   });
 
   it("applies date ranges to weight, weather and warnings", async () => {
