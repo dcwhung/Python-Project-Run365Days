@@ -245,7 +245,11 @@ class TestMissingStringColumnsReadAsEmptyText:
         record = HourlyWeather.from_raw_row(row)
 
         assert record.description == ""
-        assert record.description is not None
+        # `is not None` here could not fail once the line above passed. What the
+        # class docstring actually claims is that the `str` annotation stays
+        # honest, so assert that: this goes red on None, and on anything else
+        # that compares equal to "" without being a string.
+        assert isinstance(record.description, str), record.description
 
     def test_warning_from_raw_row_reads_a_missing_string_column_as_empty_text(self):
         row = {RAW_DATE_COLUMN: "2021-01-08", RAW_WARNING_SIGNAL_COLUMN: "AMBER"}
@@ -256,4 +260,7 @@ class TestMissingStringColumnsReadAsEmptyText:
         assert record.start_time == ""
         assert record.end_time == ""
         assert record.icon_url == ""
-        assert None not in (record.warning_type, record.start_time, record.end_time)
+        # Same as above: `None not in (...)` could not fail after those four
+        # equalities. The annotation is what is being defended, so check it.
+        text_fields = (record.warning_type, record.start_time, record.end_time, record.icon_url)
+        assert all(isinstance(value, str) for value in text_fields), text_fields
