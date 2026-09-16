@@ -1,5 +1,6 @@
 import { useActivities, useWeather, useWeight, useYear } from "@/data/hooks";
 import { Card } from "@/components/Card";
+import { readableError } from "@/lib/errors";
 import { KpiRow } from "./KpiRow";
 import { Heatmap } from "./Heatmap";
 import { MonthlyDistanceChart, MonthlyPaceChart } from "./MonthlyCharts";
@@ -17,8 +18,8 @@ export function OverviewView() {
   const weight = useWeight();
   const weather = useWeather();
   if (year.isPending || activities.isPending) return <p className="text-muted">Loading…</p>;
-  if (year.isError) return <p className="text-danger">Could not load data: {year.error.message}</p>;
-  if (activities.isError) return <p className="text-danger">Could not load activities: {activities.error.message}</p>;
+  if (year.isError) return <p className="text-danger">Could not load data: {readableError(year.error)}</p>;
+  if (activities.isError) return <p className="text-danger">Could not load activities: {readableError(activities.error)}</p>;
   const y = year.data;
   const acts = activities.data;
   return (
