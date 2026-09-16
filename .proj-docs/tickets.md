@@ -9,7 +9,7 @@
 
 ## 📋 CUI ticket census（權威總覽）
 
-**核實日期**：2026-09-16 ｜ **總數**：40 張（CUI-0001 … CUI-0040）
+**核實日期**：2026-09-16 ｜ **總數**：41 張（CUI-0001 … CUI-0041）
 
 > 呢個 section 係 CUI ticket 狀態嘅**權威快照**：每一行嘅狀態同「檔案實際位置」都經逐張核實，
 > 而唔係照抄下面各個 section 嘅敘述。下面有日期 heading 嘅 section 係**歷史紀錄，永不修改**；
@@ -21,7 +21,7 @@
 |---|---:|---|
 | ✅ completed | **29** | `.tickets/completed/0001-0200/` |
 | 🔄 in-progress | **0** | `.tickets/in-progress/0001-0200/`（空） |
-| ⏳ pending | **11** | `.tickets/pending/0001-0200/` |
+| ⏳ pending | **12** | `.tickets/pending/0001-0200/` |
 | | **40** | |
 
 ### 編號完整性核實
@@ -76,6 +76,7 @@
 | **CUI-0038** | 🟡 Medium | `REFUSAL_LOG_LEVEL` 改成 `WARNING` 可以殺死 CUI-0029 嘅頭號性質而 418 條測試全綠 | ⏳ pending | `pending/` |
 | **CUI-0039** | 🟡 Medium | 冇測試行過「同一 operation 同時帶 refusal 同 fault」，`process_errors` filter 係活 mutant | ⏳ pending | `pending/` |
 | **CUI-0040** | 🟢 Low | `service.tracks()` 收到負數 `points` 靜靜回 1 行，同 CUI-0033(a) 立嘅原則相反 | ⏳ pending | `pending/` |
+| **CUI-0041** | 🟢 Low | `finite_float()` 喺 `src/` 零 caller —— CUI-0011 方案 C 把 cast 收歸 `from_raw_row()`、有限性 gate 搬去 `finite()` 之後佢變死代碼；docstring 仍然宣稱佢守住九個 weather call site | ⏳ pending | `pending/` |
 
 ### ⚠️ 核實過程發現
 
