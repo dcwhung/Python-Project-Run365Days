@@ -586,7 +586,16 @@ class BudgetExceededError(GraphQLError):
         # ``GraphQLResolveInfo`` rather than from two sources that could
         # drift. If this attribute is ever renamed,
         # ``test_a_budget_refusal_still_tells_the_client_where_it_happened``
-        # is what goes red.
+        # is what goes red -- on its ``message`` assertion specifically, and
+        # only on that one. Measured: rename this attribute and the client
+        # still gets both ``locations`` and ``path``, because graphql-core
+        # rebuilds them around the resulting ``AttributeError`` at the very
+        # field the refusal came from, so they are identical either way. Only
+        # the message changes, from the budget sentence to the AttributeError.
+        # That is also why there is no way to make the other two assertions
+        # carry this tripwire; the message assertion is load-bearing here even
+        # though it reads as the redundant one beside the other budget tests
+        # (S-075).
         raw = info._raw_info
         super().__init__(message, nodes=raw.field_nodes, path=raw.path.as_list())
 
