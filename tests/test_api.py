@@ -926,8 +926,18 @@ def _alias_flood(aliases: int = ALIAS_FLOOD_ALIASES, points: int = 1) -> str:
 
 
 @pytest.fixture
-def sql_count():
-    """Count statements every engine issues while the fixture is alive."""
+def sql_count(year_client):
+    """Count statements every engine issues while the fixture is alive.
+
+    Takes ``year_client`` for the ordering rather than for the value: building
+    that fixture issues ~393 statements of its own, so a test that starts
+    counting first reads the setup instead of its request. Depending on it here
+    makes pytest build the client first whatever order a test lists its
+    arguments in, which is the difference between the invariant being stated and
+    the invariant holding -- every consumer of this fixture uses that client
+    anyway. A second kind of client would want a ``sql_count_for(client)``
+    factory rather than a loosening of this.
+    """
     counter = [0]
 
     def tally(*_args, **_kwargs):
@@ -1103,11 +1113,12 @@ def test_a_flood_of_aliased_parents_issues_more_statements_than_the_field_cap_bo
     track_statements = MAX_TRACK_FIELDS_PER_REQUEST * SQL_PER_TRACK_BATCH
     ceiling = parents * SQL_PER_ACTIVITY_FIELD + track_statements
 
-    # Reset before the first half as well as the second: what this counts is
-    # the request, not whatever the fixtures issued setting themselves up.
-    # Without this the half below is safe only because `year_client` happens to
-    # be built before `sql_count` starts listening, which is an argument-order
-    # invariant nothing states or holds.
+    # Reset before the first half as well as the second, so both halves read
+    # the same way: each counts one request rather than a request plus whatever
+    # came before it. What keeps the fixtures' own ~393 statements out of the
+    # first half is `sql_count` depending on `year_client`, which builds the
+    # client before the listener attaches whatever order these arguments are
+    # in; this line no longer carries that on its own.
     sql_count[0] = 0
     assert gql(year_client, _distinct_parent_flood(parents)), "the widest flood is served whole"
     assert sql_count[0] > track_statements, "the cap alone would under-count this request"
