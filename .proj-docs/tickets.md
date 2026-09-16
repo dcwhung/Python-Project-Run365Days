@@ -1020,3 +1020,48 @@ CUI-0021 補回嘅「2..1000 任何一個 cap 最高只到 21.91%」            
 > 註：QA 嘅量度仍然有效 —— `git diff a0de0cd..HEAD -- src/export/ src/dashboard/ src/activities/ src/common/`
 > 為空，export pipeline 由量度嗰刻至今零改動，所以嗰份 `run365.db`（134,041 rows / 123 個長度）
 > 仍然係現時 HEAD 會產生嘅同一份。
+
+---
+
+## 2026-09-16 Batch Review Round 1 — CUI-0029 / 0030 / 0031 / 0033 / 0034
+
+報告：[`reviews/2026-09-16_review_CUI-0029_batch.md`](reviews/2026-09-16_review_CUI-0029_batch.md)
+Delta `a494513..HEAD`，20 files，+1427 / −299。**86/100 ⚠️ warn** —— 0 🔴 / 0 🟡 / 7 🟢。
+Hard gates 6/6 pass（417 pytest / 141 vitest / coverage 95% / SDL in sync / ruff clean /
+`npm audit --omit=dev` = 0 vulnerabilities）。五張票逐張 pass；`warn` 完全由累積嘅
+documentation suggestion 債驅動（7 條舊 open + 7 條新開），**冇一條阻 merge 或 QA**。
+
+### 新開 Suggestion（S-073 … S-079）
+
+| ID | 類別 | 內容 | 狀態 |
+|---|---|---|---|
+| **S-073** | 🟢 Suggestion | `tests/test_api.py:173-175` `OVER_CAP_LENGTH` docstring 話 1250 係 `run365-export --points 1200` 嘅產物；export 實際會 downsample 到 limit（`src/export/records.py:230`），1250 係 activity `7264441638` 嘅**原始**取樣數，`--points 1200` 只會寫 1200。同源錯法亦見於 `frontend/src/data/static/source.test.ts:26`（將 `--points 1250` 叫做「開票嗰個實測」，實測係 `--points 1200`）。票上 (a) 段本身寫得啱 | pending |
+| **S-074** | 🟢 Suggestion | `OverviewView.test.tsx:31-35` / `YearView.test.tsx:29-33` fixture 聲稱「Captured from a real run against the Flask API」，但真 `YearQuery`（`frontend/src/data/api/queries.ts:46`）**冇 variables**，而 `year` 根本掟唔出 list-row budget refusal。同一個 1247 字元數字被引畀三個唔同 document。**測試本身冇問題**，錯嘅只係 provenance 句 | pending |
+| **S-075** | 🟢 Suggestion | `src/api/schema.py` `BudgetExceededError.__init__` —— 個 tripwire 測試喺 `_raw_info` 改名時確實會紅，但係經 `budget exhausted` message assertion 而紅；佢命名所指嘅 `locations` / `path` assertion 其實**捱得住**改名（graphql-core 會圍住由此而生嘅 `AttributeError` 重建佢哋）| pending |
+| **S-076** | 🟢 Suggestion | `docs/deployment.md:55` —— budget refusal 而家低過 logging 預設 threshold，Vercel log 預設**見唔到**；冇任何 operator-facing 文件講要將 `strawberry.execution` 調落 INFO 先睇到 | pending |
+| **S-077** | 🟢 Suggestion | `src/api/schema.py:25` `from graphql import GraphQLError` 排喺 first-party block —— 實測**係被迫嘅**（搬去第三方 block 會被 ruff `I001` 拒），因為 `[tool.ruff] src` 包含 `api/` 而 Vercel 規定 `api/graphql.py`，令 graphql-core 個名被遮。production 入面 inert。建議加 `known-third-party = ["graphql"]` + CLAUDE.md §6 trap-table 一行；本 repo 已經為呢個遮蔽輸過一個 deploy cycle（`fd252a3`）。⚠️ 同 **S-028** 同源，S-028 當時只係觀察，本條有實證 | pending |
+| **S-078** | 🟢 Suggestion | `src/api/service.py:382` empty-batch early return 係成個 module 唯一未覆蓋嘅 statement（99%）；`tracks(session, [])` 一行測試就到 100% | pending |
+| **S-079** | 🟢 Suggestion | `docs/CHANGELOG.md` —— v3.1.1 已 tag，其後 develop 上已落兩個 production 行為改動（CUI-0029 log level、CUI-0033(a) output cap）加一個 user-visible 文案改動，但檔案聲稱跟 Keep a Changelog 而**冇 `[Unreleased]` section**。同本 repo「bump 時先寫」嘅慣例一致，所以**唔算本批缺陷** —— 留畀下次 bump | pending |
+
+### Reviewer 獨立重做、推翻或確認咗嘅講法
+
+| 講法 | 裁決 |
+|---|---|
+| CUI-0029 票上建議嘅 Option A（掟 `GraphQLError`）| ❌ **唔 work** —— 實測 bare `GraphQLError` 一樣出 9 個絕對路徑 frame。機制係 `StrawberryLogger.error` 用 `exc_info=error.original_error`，同 exception type 無關 |
+| INFO-over-WARNING 嘅取捨 | ✅ 重現 —— bare deployment：INFO 0 bytes、WARNING 541 bytes |
+| `RefusalAwareSchema.process_errors` 會唔會吞錯 | ✅ 冇 —— validation / syntax / Int coercion / depth limiter / monkeypatch 出嘅 resolver fault 全部維持 ERROR，fault 仲保住 `RuntimeError` exc_info |
+| CUI-0033(a) 行為中立 | ✅ 重建被刪嘅 `else` 分支，**365 activity / 134,041 行 track 逐點比對零差異**（max stored 600，冇一條過 1000）|
+| CUI-0034 個 gate 係咪真係雙向 | ✅ 兩個方向連 `__pycache__` 清空重做：TS 1000→999 出 5 條紅；Python 999 + 重生 SDL（正正係嗰個逃生門）之後新 SDL 測試仍然紅 |
+| CUI-0030 `error.message` 洩漏面 | ✅ blob ~911–1247 字元 → `readableError()` 65 字元；**variable 嘅值都會洩**（票上寫 false，錯）|
+| `npm audit`（本 repo 首次執行）| 14 vulnerabilities 全屬 dev chain（`@graphql-codegen/*` → `lodash`、`vitest` → `@vitest/mocker`）；`--omit=dev` → **0 vulnerabilities**；本批零新增依賴 ⇒ gate pass |
+
+### 未清 Suggestion 總數：14
+
+新開 7 條（S-073 … S-079）＋ 繼承未清 7 條（S-063 / S-064 / S-065 / S-068 / S-069 / S-070 / S-071）。
+
+> ⚠️ **更正**：report 全篇寫「7 + 7 = 12 條」，係 reviewer 自己一個算術錯 —— 實數係 **14**。
+> 評分入面兩組**都逐條計過** −1（可維護性 −7 舊 + −3 新、測試覆蓋 −4 新），所以 **86/100 呢個分數唔受影響**，
+> 錯嘅只係嗰句總結。報告按 protocol 原文保留，更正記喺呢度。
+
+全部係一至兩行 docstring / 註釋 / config 改動。Reviewer 建議**一個 documentation-only lane 一次過清晒**，
+之後 re-review 預期直上 ~99。

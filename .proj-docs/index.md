@@ -1,6 +1,6 @@
 # 項目文件索引 — Run365Days
 
-**最後更新**：2026-09-16（**P0 + P1 全部結案**：CUI-0019 / 0020 / 0022 / 0023 / 0024 / 0025 / 0027 / 0028 / 0032 標 completed；review 三輪 84→95、88→90 pass，QA 兩輪 0 Critical；Python 402 tests / 前端 131 tests / coverage 95%；新開 CUI-0029 至 CUI-0036 八張 follow-up）
+**最後更新**：2026-09-16（**CUI-0029 / 0030 / 0031 / 0033 / 0034 Round 1 code review 完成**：86/100 warn，0 🔴 / 0 🟡 / 7 🟢（S-073…S-079），hard gates 6/6 pass；Python 417 tests / 前端 141 tests / coverage 95%（`api/schema.py` 100%）；`npm audit` 首次執行 —— prod 0 vuln，14 條全屬 dev toolchain；warn 純由 12 條未清 documentation suggestion 驅動，功能上唔阻 merge 或 QA）
 
 > 本目錄為 ai-dev-team 產出文件嘅 Single Source of Truth。
 > 每次有新文件輸出，必須喺此更新條目同頂部日期。
@@ -65,6 +65,7 @@
 | 類型 | 位置 | 狀態 |
 |---|---|---|
 | Ticket registry（AU / C-W-S / CUI 全部） | [`tickets.md`](tickets.md) | ✅ 現行 SSoT |
+| Code review 報告（2026-09-16 CUI-0029 批次 Round 1：CUI-0029 / 0030 / 0031 / 0033 / 0034）| [`reviews/2026-09-16_review_CUI-0029_batch.md`](reviews/2026-09-16_review_CUI-0029_batch.md)（**86/100 warn**，0 🔴 / 0 🟡 / 7 🟢（S-073…S-079）；hard gates 6/6 pass；417 py / 141 fe tests、coverage 95%、SDL in sync；每個 lane 講法獨立重做：票上 Option A 實測**唔 work**（bare `GraphQLError` 一樣出 9 個絕對路徑 frame）、INFO-over-WARNING 重現（bare deployment INFO 0 bytes / WARNING 541 bytes）、`process_errors` 冇吞任何錯、CUI-0033(a) 用重建 `else` 分支比對 **365 activity / 134,041 行 track 逐點零差異**、CUI-0034 gate 兩個方向連 `__pycache__` 清空重做；`npm audit --omit=dev` = **0 vulnerabilities**（14 條全屬 dev chain）；warn 完全嚟自 documentation suggestion 債，非本批代碼質素）| ✅ 已建立 |
 | Code review 報告（2026-09-16 Round 2 batch：CUI-0025 / CUI-0028 / CUI-0032 + S-053 / S-058 / S-059 / S-060）| [`reviews/2026-09-16_review_CUI-0025_batch.md`](reviews/2026-09-16_review_CUI-0025_batch.md)（**88/100 warn**，0 🔴 / 1 🟡 / 7 🟢；hard gates 10/10 pass；CUI-0025 五個決定三個 mutant 一對一驗過；**S-060 裁決 lane 推翻 briefing 係啱嘅**，cold cache 只貴 3–8%、query 只掂 10/2865 版，上一輪 S-060 premise 正式更正為錯；W-029 = CUI-0028 一句假「實測」，票上原 repro 其實會撞）<br>⚠️ **§W-029 嘅成因歸因同 `python -B` 補救已被 Round 3 delta 證偽 —— 以 [`reviews/2026-09-16_review_CUI-0025_delta.md`](reviews/2026-09-16_review_CUI-0025_delta.md) §3 為準**| ✅ 已建立（部分 superseded）|
 | Code review 報告（2026-09-16 Round 3 delta：W-029 / S-067，重新評分整批）| [`reviews/2026-09-16_review_CUI-0025_delta.md`](reviews/2026-09-16_review_CUI-0025_delta.md)（**90/100 pass**，0 🔴 / 0 🟡 / 4 🟢；hard gates 10/10 pass；88 → 90 = W-029 +5、S-067 +1、新 S-068…S-071 各 −1；`-B` 同 stale-`.pyc` 兩個 Round 2 講法被 developer 更正，reviewer 獨立重做後**兩個更正都採納**；production 行為 AST 證明零改動）| ✅ 已建立 |
 | Code review 報告（2026-09-16 CUI-0027 批次，2 輪）| [`reviews/2026-09-16_review_CUI-0027_batch.md`](reviews/2026-09-16_review_CUI-0027_batch.md)（84/100 **warn**，0 🔴 / 2 🟡 / 6 🟢）<br>[`reviews/2026-09-16_review_CUI-0027_delta.md`](reviews/2026-09-16_review_CUI-0027_delta.md)（**95/100 pass**，0 🔴 / 0 🟡 / 3 🟢；W-027 / W-028 mutation 獨立重做；S-057 更正咗上一輪一個事實錯誤；production 行為 AST 證明零改動）| ✅ 已建立 |
