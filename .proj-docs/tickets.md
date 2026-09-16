@@ -1121,7 +1121,7 @@ documentation suggestion 債驅動（7 條舊 open + 7 條新開），**冇一�
 | **S-076** ✅ | 🟢 Suggestion | `docs/deployment.md:55` —— budget refusal 而家低過 logging 預設 threshold，Vercel log 預設**見唔到**；冇任何 operator-facing 文件講要將 `strawberry.execution` 調落 INFO 先睇到 | ✅ **Done** (`7fb32e4`) |
 | **S-077** | 🟢 Suggestion | `src/api/schema.py:25` `from graphql import GraphQLError` 排喺 first-party block —— 實測**係被迫嘅**（搬去第三方 block 會被 ruff `I001` 拒），因為 `[tool.ruff] src` 包含 `api/` 而 Vercel 規定 `api/graphql.py`，令 graphql-core 個名被遮。production 入面 inert。建議加 `known-third-party = ["graphql"]` + CLAUDE.md §6 trap-table 一行；⚠️ reviewer 寫「本 repo 已經為呢個遮蔽輸過一個 deploy cycle（`fd252a3`）」係**講唔準**：`fd252a3`（→`api/index.py`）同 `e506531`（→`api/graphql_api.py`）兩次改名都被 Vercel functions pattern 拒，最後 `5aa1b2f` 改返，而 `5aa1b2f` 查明**真正嘅 crash 由頭到尾係欠 Flask 依賴**（`12c31fe` 修）—— 遮蔽從未喺 runtime 咬過人，兩個 deploy cycle 蝕喺誤診。⚠️ 同 **S-028** 同源，S-028 當時只係觀察，本條有實證 | ✅ **Done** `3f86245` |
 | **S-078** ✅ | 🟢 Suggestion | `src/api/service.py:382` empty-batch early return 係成個 module 唯一未覆蓋嘅 statement（99%）；`tracks(session, [])` 一行測試就到 100% | ✅ **Done** (`ce7ac78`) |
-| **S-079** | 🟢 Suggestion | `docs/CHANGELOG.md` —— v3.1.1 已 tag，其後 develop 上已落兩個 production 行為改動（CUI-0029 log level、CUI-0033(a) output cap）加一個 user-visible 文案改動，但檔案聲稱跟 Keep a Changelog 而**冇 `[Unreleased]` section**。同本 repo「bump 時先寫」嘅慣例一致，所以**唔算本批缺陷** —— 留畀下次 bump | pending |
+| **S-079** | 🟢 Suggestion | `docs/CHANGELOG.md` —— v3.1.1 已 tag，其後 develop 上已落兩個 production 行為改動（CUI-0029 log level、CUI-0033(a) output cap）加一個 user-visible 文案改動，但檔案聲稱跟 Keep a Changelog 而**冇 `[Unreleased]` section**。同本 repo「bump 時先寫」嘅慣例一致，所以**唔算本批缺陷** —— 留畀下次 bump | ✅ **Done** —— v3.2.0 嘅 release notes 一寫入就關咗（`[Unreleased]` 從來唔係本 repo 嘅慣例，「bump 時先寫」先係）|
 
 ### Reviewer 獨立重做、推翻或確認咗嘅講法
 
@@ -1182,7 +1182,7 @@ clean、`run365-schema --check` up to date、frontend `eslint` / `typecheck` / `
 | **S-077** | 涉及 `pyproject.toml` ruff section 同 `CLAUDE.md`，係 user decision，本 lane 明確 out-of-scope。**User 已批准，main agent 喺 `3f86245` 做咗** —— 加 `known-third-party = ["graphql"]`（移走佢兩個檔案即刻 `I001` 紅，gate 有牙）＋ CLAUDE.md §6 兩行陷阱（`graphql` 名字遮蔽、mutation testing 用 stale `.pyc`）|
 | **S-079** | 依本 repo「bump 時先寫」嘅慣例，留畀下次 release |
 
-### 未清 Suggestion 總數：1（S-079，留畀下次 bump）
+### 未清 Suggestion 總數：0
 
 
 ---

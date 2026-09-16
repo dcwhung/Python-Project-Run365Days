@@ -4,6 +4,104 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Release branches
 are named `release/vX` and tags `vX.Y.Z`.
 
+## [3.2.0] - 2026-09-16 - `develop`
+
+Twelve tickets and twenty-seven review items, in four batches. Three of the
+changes are breaking: two of them close a cost a public unauthenticated
+endpoint was paying, and the third makes a ceiling bound what a request
+receives rather than only what it may ask for.
+
+### Breaking
+- A single request may now read at most 4,000 list rows across every list
+  field it names, `MAX_LIST_ROWS_PER_REQUEST`. Nothing bounded the list
+  fan-out before: 166 aliased `activities` fields carrying no track at all
+  took about 3.1 s on the real export, eleven times the worst legal track
+  shape and within 4.9x of the 15 s function limit, on a public endpoint
+  that needs no authentication. The budget is charged before the SQL runs
+  and counts rows materialised rather than rows scanned, so a refusal costs
+  nothing. A document that reads more than 4,000 rows, legal until now, is
+  refused with a readable sentence (CUI-0027).
+- `track(points: 0)` is refused in both deployment modes, with the same
+  sentence. The static mode returned every stored point for `0` while the
+  API refused it -- the API's bound is what closed AU-001's denial-of-service
+  vector, so the static mode is what moves. Non-integer and beyond-`Int32`
+  values are likewise refused on both sides now; their two messages differ,
+  which the source records deliberately, because the API refuses them in
+  `Int` coercion before any resolver sees them (CUI-0025).
+- `track()` with `points` omitted returns at most `MAX_TRACK_POINTS` rows.
+  `track(id, 1200)` was refused while `track(id)` returned 1,200, so the
+  constant bounded what could be asked for and not what came back. No
+  currently exported track exceeds 600 rows, so today's data is unchanged --
+  verified point for point over 134,041 track rows across all 365
+  activities, and again against the static writer, which this change does
+  not touch. An export built with `--points` above 1,000 would be capped
+  where it previously was not (CUI-0033).
+
+### Fixed
+- A budget refusal no longer writes a traceback to the server log. Strawberry
+  logged the `ValueError` these budgets raised as an unexpected error, at
+  `ERROR` with `exc_info`, which put nine frames of absolute source paths --
+  the repository layout and the interpreter's `site-packages` directory among
+  them -- into the log for every refused request, on a public endpoint, under
+  no authentication and in a deployment's default logging configuration. The
+  refusal now carries the GraphQL error itself and is logged at `INFO`, below
+  the threshold an unconfigured deployment applies, so what the log gains per
+  refused request goes to zero rather than to one line. The client is told
+  exactly what it was told before (CUI-0029).
+- Every view routes a failed query through `readableError()` instead of
+  rendering `error.message`. Four views put the raw message on the page: a
+  serialised blob of up to about 1,250 characters carrying the whole GraphQL
+  document and its variables' values (CUI-0030).
+
+### Added
+- `MAX_TRACK_POINTS` is now held across both languages in both directions.
+  Changing the TypeScript copy already went red; changing the Python one and
+  regenerating the SDL went green with the two sides disagreeing. The
+  generated `schema.graphql` is the link that closes it (CUI-0034).
+- `SAMPLE_KEY_SEPARATOR`'s load-bearing invariant has tests. It could be set
+  to a decimal digit, or dropped entirely, with the whole suite still green
+  (CUI-0028).
+- `pytest-cov` is in the `dev` extra with its coverage configuration, rather
+  than being assumed present (CUI-0032).
+- `docs/deployment.md` says how to see budget refusals in a deployment's log,
+  with a snippet that works as written -- they are below the default
+  threshold by design (S-076).
+
+### Documented
+- The test inventory in `README.md` and `docs/architecture.md` reads as the
+  partial list it is, and points at `tests/` as the source of truth rather
+  than repeating counts that drift (CUI-0031, CUI-0024).
+- Twenty-two review items, almost all of them a sentence that explained why
+  correct code was correct and got the reason wrong: a wall clock bound to
+  the wrong document, a cost attributed to per-field dispatch that the
+  measurements put at 2% rather than half, a byte size quoted from a minimal
+  reproduction as though it were the real file, a fixture described as
+  captured from a real run that was built by hand (S-053 through S-060,
+  S-063 through S-082, W-027 through W-029).
+- `graphql-core` is declared third-party so its import sorts with the other
+  packages. Ruff read a bare `graphql` import as this repository's own module,
+  because `api/` is on its source path and Vercel matches only
+  `api/graphql.py` as a function (S-077).
+
+### Known
+- The budget refusals are fixed; the bounds refusals beside them are not.
+  `_page` and `_track_points` still raise a bare `ValueError`, so
+  `{ activities(offset: -1) { id } }` -- 33 bytes, seven tokens, no
+  authentication -- still writes 2,016 bytes of traceback with the same nine
+  absolute paths. That is 140 times cheaper to trigger than the request
+  CUI-0029 measured (CUI-0037).
+- Two mutants survive the whole suite behind 100% line coverage on
+  `api/schema.py`: raising `REFUSAL_LOG_LEVEL` to `WARNING` undoes what
+  CUI-0029 buys in an unconfigured deployment, and handing `process_errors`
+  the unfiltered list puts refusals back on `ERROR`. No test names an
+  operation carrying a refusal and a fault at once, which is the only shape
+  that tells the two lists apart (CUI-0038, CUI-0039).
+- The Vercel entry's start-up failure path has no tests and is outside the
+  coverage source, so the code that explains a broken deploy is unguarded
+  (CUI-0035). `npm audit` runs in no gate; the fourteen advisories it reports
+  today are all in the build toolchain, and `--omit=dev` reports none
+  (CUI-0036).
+
 ## [3.1.1] - 2026-09-16 - `develop`
 
 Nine tickets from the pending queue, cleared in three batches. Two behaviour
