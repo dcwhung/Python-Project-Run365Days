@@ -141,6 +141,12 @@ def _even_positions(total: int, points: int) -> list[int]:
     Same arithmetic as :func:`run365days.dashboard.builder.downsample`, so the
     SQL-side thinning picks exactly the samples the in-Python one would.
 
+    Static mode thins the same tracks in the browser, so ``downsample`` in
+    ``frontend/src/lib/downsample.ts`` is held to this arithmetic too --
+    including the rounding. It rounds half to even by hand rather than calling
+    ``Math.round``, which rounds half up and so would land one index away on
+    any step that falls exactly on .5 (CUI-0021).
+
     Args:
         total: Rows stored for the track.
         points: Samples wanted, assumed to be below *total*.
