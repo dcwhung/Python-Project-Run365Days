@@ -24,6 +24,8 @@ from graphql import build_schema as build_schema_from_sdl
 from run365days.api import db, service
 from run365days.api.app import GRAPHQL_PATH, HEALTH_PATH, create_app
 from run365days.api.schema import (
+    DEFAULT_PAGE_SIZE,
+    MAX_LIST_ROWS_PER_REQUEST,
     MAX_PAGE_SIZE,
     MAX_QUERY_DEPTH,
     MAX_QUERY_TOKENS,
@@ -988,7 +990,11 @@ DOCUMENTED_WORST_CASES = (
     ),
     ("52 parents of one activity share one batch", _parent_flood(52), 990, 106),
     ("52 parents of different activities share none", _distinct_parent_flood(52), 990, 208),
-    ("a document that takes no track is not bounded here", _list_flood(166), 998, 332),
+    # The fourth row used to be `_list_flood(166)`, served for 332 statements
+    # under the sentence "no budget here bounds it". CUI-0027 gave it a budget,
+    # so it is no longer a *served* worst case and no longer belongs in a table
+    # of them; `test_the_widest_list_fan_out_is_refused_after_the_budget` is
+    # where it is pinned now.
 )
 """(label, document, tokens, statements) for each worst case the docstrings cite.
 
@@ -1845,4 +1851,267 @@ def test_a_batch_mixing_sampled_and_whole_tracks_stays_at_two_arms(mixed_batch_c
     assert _or_arms(wide_sql) == BATCH_COST_MIXED_ARMS
     assert wide_steps / MAX_TRACK_FIELDS_PER_REQUEST < BATCH_COST_FLAT_CEILING * (
         narrow_steps / BATCH_COST_NARROW
+    )
+
+
+# ── CUI-0027: a per-request bound on the rows a fan-out reads ──────────────
+LIST_FLOOD_WIDTH = 166
+"""Aliased ``activities`` fields MAX_QUERY_TOKENS admits, taking no ``track``.
+
+998 of the 1000 tokens, and the shape CUI-0027 was filed as: 60,590 rows and
+3.1 s on the real export, the slowest legal document measured for that ticket
+bar an equally wide flood of ``year``. Written down so the tests below can be
+read, but derived rather than trusted -- see ``_widest_list_flood``.
+"""
+
+LIST_FLOOD_TOKENS = 998
+"""Tokens that flood lexes to, two short of MAX_QUERY_TOKENS.
+
+The half of the shape that used to live in DOCUMENTED_WORST_CASES and is still
+worth pinning: the parser is not what refuses this document, so a token limit
+that quietly crept down to meet it would take the row budget's test with it.
+"""
+
+ROW_FLOOD_NARROW = 8
+"""The narrow fan-out the wide one is compared against, in fields."""
+
+ROW_FLOOD_WIDE = 64
+"""The wide fan-out: eight times the narrow one, and still inside the budget.
+
+An eighth and a whole, the same ratio ``BATCH_COST_NARROW`` takes against
+MAX_TRACK_FIELDS_PER_REQUEST, so the widths differ by enough for growth to show
+over the fixed per-statement cost that dilutes it.
+"""
+
+ROW_FLOOD_LIMIT = MAX_LIST_ROWS_PER_REQUEST // ROW_FLOOD_WIDE
+"""Rows each field of those floods asks for, so the wide one just fits the budget."""
+
+ROW_FLOOD_FLAT_CEILING = 1.1
+"""How far a per-field reading may move between the two widths.
+
+One-sided room for a SQLite build that emits a different number of opcodes for
+the same plan, not a measured spread -- the same allowance and the same reason
+as ``BATCH_COST_FLAT_CEILING``. Nothing about a page read grows with how many
+*other* pages the document opens, so the true figure is flat.
+"""
+
+CLIENT_LIST_DOCUMENTS = (
+    # Every document in frontend/src/data/api/queries.ts that spends this
+    # budget, reduced to the field that spends it. Each names no window, so
+    # each charges one DEFAULT_PAGE_SIZE page -- which is the whole of the
+    # claim that MAX_LIST_ROWS_PER_REQUEST costs the front end nothing.
+    ("ActivitiesQuery", "{ activities { id } }"),
+    ("WeightQuery", "{ weight { date } }"),
+    ("WeatherQuery", "{ weather { date } }"),
+    ("WarningsQuery", "{ warnings { date } }"),
+    ("YearQuery", "{ year { year } }"),
+)
+"""(name, reduced document) for each front-end query that pays the row budget."""
+
+
+@pytest.fixture
+def activity_rows_loaded():
+    """Count the ORM activity rows every session materialises while the fixture is alive."""
+    loaded = [0]
+
+    def tally(_session, obj):
+        if isinstance(obj, models.Activity):
+            loaded[0] += 1
+
+    # On the Session class, not an instance: create_app opens its own session
+    # per request, so a test client gives no session to attach to.
+    event.listen(Session, "loaded_as_persistent", tally)
+    try:
+        yield loaded
+    finally:
+        event.remove(Session, "loaded_as_persistent", tally)
+
+
+def _widest_list_flood() -> int:
+    """The most aliased ``activities`` fields MAX_QUERY_TOKENS lets through."""
+    fields = 1
+    while _token_count(_list_flood(fields + 1)) <= MAX_QUERY_TOKENS:
+        fields += 1
+    return fields
+
+
+def _windowed_list_flood(fields: int, limit: int) -> str:
+    """*fields* aliased ``activities``, each asking for *limit* rows and no track."""
+    return _document(" ".join(f"a{n}: activities(limit: {limit}) {{ id }}" for n in range(fields)))
+
+
+def test_the_widest_list_fan_out_reads_no_more_rows_than_the_budget(
+    year_client, activity_rows_loaded
+):
+    # The shape CUI-0027 was filed as: 166 aliased `activities`, no `track`
+    # anywhere, so neither track budget is spent and nothing used to bound it.
+    # What it costs is the rows it returns -- 166 pages of a whole year, 60,590
+    # of them, 3.1 s on the real export -- so that is what has to be bounded.
+    # Rows materialised rather than wall clock, for the reason `_batch_read`
+    # gives: a count is a property of the code where a second of CI is not.
+    widest = _widest_list_flood()
+    assert widest == LIST_FLOOD_WIDTH, "the token limit moved; so does this shape"
+    assert _token_count(_list_flood(widest)) == LIST_FLOOD_TOKENS
+
+    year_client.post(GRAPHQL_PATH, json={"query": _list_flood(widest), "variables": {}})
+
+    assert activity_rows_loaded[0] <= MAX_LIST_ROWS_PER_REQUEST, (
+        f"{widest} aliased list fields read {activity_rows_loaded[0]} rows; "
+        f"nothing is bounding the fan-out"
+    )
+
+
+def test_the_widest_list_fan_out_is_refused_after_the_budget(year_client, sql_count):
+    # The same document from the other side: what it costs before it is turned
+    # away. An error does not unwind the queries already sent, so what the
+    # budget has to hold is the served prefix -- which is the whole reason the
+    # charge lands before the SQL rather than after it.
+    affordable = MAX_LIST_ROWS_PER_REQUEST // DEFAULT_PAGE_SIZE
+    assert affordable < _widest_list_flood(), "the budget must be the binding limit here"
+
+    sql_count[0] = 0
+    body = gql_partial(year_client, _list_flood(_widest_list_flood()))
+
+    assert str(MAX_LIST_ROWS_PER_REQUEST) in " ".join(e["message"] for e in body["errors"])
+    assert sql_count[0] == affordable * SQL_PER_LIST_FIELD
+    # A list field is a non-null type, so the refusal propagates to the root
+    # and nulls the whole response rather than that one alias: 166 pages asked
+    # for, eight paid for, nothing returned. The client gets less than it would
+    # by asking for eight, which is the shape of every over-budget request here
+    # and is why `data` cannot be read for which aliases survived.
+    assert body["data"] is None
+
+
+def test_the_row_budget_is_the_boundary(year_client):
+    # Charged on the window asked for, not on the rows that come back, so the
+    # refusal lands before the SQL does. `year_db` holds 365 activities, so
+    # every page here returns fewer rows than it is charged for -- which is the
+    # point: an exact charge could only be levied after the query.
+    fits = _windowed_list_flood(ROW_FLOOD_WIDE, ROW_FLOOD_LIMIT)
+    assert len(gql(year_client, fits)) == ROW_FLOOD_WIDE
+
+    over = _windowed_list_flood(ROW_FLOOD_WIDE + 1, ROW_FLOOD_LIMIT)
+    assert _token_count(over) <= MAX_QUERY_TOKENS, "the parser must not be the one refusing"
+    message = gql_errors(year_client, over)
+    assert "row" in message.lower()
+    assert str(MAX_LIST_ROWS_PER_REQUEST) in message
+
+
+def test_a_refused_page_stops_the_operation_where_it_stands(year_client, sql_count):
+    # What follows from that non-null propagation, and the reason the two track
+    # budgets' sticky/not-sticky distinction has no counterpart here: the first
+    # refusal ends the operation, so a cheap page queued behind an over-large
+    # one is never reached whatever the counter was left holding. Spend all but
+    # `left` rows, then ask for one row too many, then for one that would fit.
+    spent = _windowed_list_flood(ROW_FLOOD_WIDE, ROW_FLOOD_LIMIT - 1)
+    left = MAX_LIST_ROWS_PER_REQUEST - ROW_FLOOD_WIDE * (ROW_FLOOD_LIMIT - 1)
+    document = _document(
+        spent[2:-2],
+        f"over: activities(limit: {left + 1}) {{ id }}",
+        f"under: activities(limit: {left}) {{ id }}",
+    )
+
+    sql_count[0] = 0
+    body = gql_partial(year_client, document)
+
+    assert [e["path"] for e in body["errors"]] == [["over"]]
+    assert str(MAX_LIST_ROWS_PER_REQUEST) in body["errors"][0]["message"]
+    # The pages before `over` are paid for; `over` issues nothing, because it
+    # is refused before its SQL; `under` is never resolved at all.
+    assert sql_count[0] == ROW_FLOOD_WIDE * SQL_PER_LIST_FIELD
+
+
+def test_the_row_budget_is_per_request_and_does_not_leak_across_requests(year_client):
+    # Two back-to-back requests that each spend the whole budget. Module-level
+    # mutable state would starve the second one.
+    query = _windowed_list_flood(ROW_FLOOD_WIDE, ROW_FLOOD_LIMIT)
+    for _ in range(2):
+        assert len(gql(year_client, query)) == ROW_FLOOD_WIDE
+
+
+def test_year_pays_a_page_of_the_row_budget(year_client):
+    # `year` takes no `limit` and opens no window, but it reads a whole
+    # calendar year of activities: 166 aliased `year` fields were the *slowest*
+    # document measured for CUI-0027, ahead even of the list flood it was filed
+    # as. Charging it one default page is what brings it inside the same bound.
+    affordable = MAX_LIST_ROWS_PER_REQUEST // DEFAULT_PAGE_SIZE
+    fits = _document(*(f"y{n}: year {{ year }}" for n in range(affordable)))
+    assert len(gql(year_client, fits)) == affordable
+
+    over = _document(*(f"y{n}: year {{ year }}" for n in range(affordable + 1)))
+    assert _token_count(over) <= MAX_QUERY_TOKENS, "the parser must not be the one refusing"
+    assert str(MAX_LIST_ROWS_PER_REQUEST) in gql_errors(year_client, over)
+
+
+@pytest.mark.parametrize(
+    ("name", "document"), CLIENT_LIST_DOCUMENTS, ids=[c[0] for c in CLIENT_LIST_DOCUMENTS]
+)
+def test_every_document_the_front_end_sends_is_inside_the_row_budget(
+    name, document, year_client, activity_rows_loaded
+):
+    # The claim the constant's docstring rests on: this budget costs today's
+    # clients nothing. Each of these charges one DEFAULT_PAGE_SIZE page, which
+    # is an eighth of it, so all five could be sent in one request and still be
+    # served -- and that is asserted rather than argued, below.
+    assert gql(year_client, document), f"{name} must still be served whole"
+    assert activity_rows_loaded[0] <= DEFAULT_PAGE_SIZE
+
+
+def test_the_whole_front_end_in_one_request_is_still_inside_the_row_budget(year_client):
+    every = _document(*(document[2:-2] for _, document in CLIENT_LIST_DOCUMENTS))
+    assert len(gql(year_client, every)) == len(CLIENT_LIST_DOCUMENTS)
+
+
+def test_every_list_field_at_the_maximum_page_is_still_inside_the_row_budget(year_client):
+    # The other end of "8x above real demand": all four list fields taken at
+    # MAX_PAGE_SIZE in one request is 4,000 rows exactly, and is served. A
+    # budget below that would make paging at the documented maximum a thing a
+    # client could only do one field at a time.
+    lists = ("activities", "weight", "weather", "warnings")
+    assert len(lists) * MAX_PAGE_SIZE == MAX_LIST_ROWS_PER_REQUEST
+
+    every = _document(*(f"{field}(limit: {MAX_PAGE_SIZE}) {{ date }}" for field in lists))
+    assert len(gql(year_client, every)) == len(lists)
+
+
+def _flood_steps(session, document: str) -> int:
+    """Return the VDBE steps *document* costs, executed against *session*.
+
+    Steps rather than seconds, for the reason ``_batch_read`` gives: SQLite's
+    progress callback fires once per virtual-machine instruction, so what comes
+    back is a count of work done -- deterministic for a given build and fixture
+    where a wall time is not.
+    """
+    steps = [0]
+
+    def tick():
+        steps[0] += 1
+        return 0
+
+    raw = session.connection().connection.dbapi_connection
+    raw.set_progress_handler(tick, 1)
+    try:
+        result = schema.execute_sync(document, context_value={"session": session})
+    finally:
+        raw.set_progress_handler(None, 1)
+    assert not result.errors, result.errors
+    return steps[0]
+
+
+def test_the_fan_out_cost_does_not_widen_with_the_document(year_session):
+    # The CUI-0019 lesson, asked of this half. That ticket's cause was AU-050
+    # buying a flat statement count with a predicate that grew with the batch,
+    # so the work went up with the square of the width while the count stayed
+    # put -- a statement count alone could not see it. The same trap is open
+    # here: the ticket's second suggested route was to batch the list fields
+    # too. Whatever bounds this fan-out, eight times the fields must cost about
+    # eight times the work and not sixty-four, so what is compared is the slope,
+    # in steps rather than seconds.
+    narrow = _flood_steps(year_session, _windowed_list_flood(ROW_FLOOD_NARROW, ROW_FLOOD_LIMIT))
+    wide = _flood_steps(year_session, _windowed_list_flood(ROW_FLOOD_WIDE, ROW_FLOOD_LIMIT))
+
+    assert wide / ROW_FLOOD_WIDE < ROW_FLOOD_FLAT_CEILING * (narrow / ROW_FLOOD_NARROW), (
+        "a field in a wide fan-out has started costing more than one in a "
+        "narrow fan-out: the list path has picked up a term that grows with "
+        "the width of the document (CUI-0019 in the other half)"
     )
