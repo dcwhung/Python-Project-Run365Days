@@ -913,8 +913,20 @@ Hard gates：363 passed / ruff clean / format clean / SDL up to date / coverage 
 | **CUI-0027** | 🟠 High | **List fan-out 冇 budget 綁住**：166 個 aliased `activities`（零 track）喺 production 上 **~3,100 ms**（developer 3,228 / reviewer 獨立 3,072），領先第二名（最差 track shape 272.5 ms）11 倍；15 s Vercel function 只得 **4.9×** 餘裕，而所有 track shape 有 50×+。998 token、public endpoint、零成本可觸發。`schema.py:173` 自己寫住「no budget here bounds it」。⚠️ 修嘅時候留意 CUI-0019 教訓：**statement 數唔等於成本** | pending |
 | **CUI-0028** | 🟡 Medium | **`SAMPLE_KEY_SEPARATOR` 個承重不變式冇 gate**：QA mutation testing 發現將 separator 改成 `"0"` 或 `""`，365 條測試照樣全綠。個 invariant 係真嘅（變長純數字 id 之下會**靜靜攞錯行**：`position=5,id="01"` 同 `position=50,id="1"` 都砌出 `"5001"`），但 suite 入面冇一個 fixture 有「令 separator 變成承重」嗰種形狀 —— production id 係 10 位固定寬度。**非 blocker**。順帶：`tracks()` docstring 講 "Duplicates are collapsed" 亦零測試斷言過 | pending |
 
-> 編號：掃過 `.tickets/pending/`、`.tickets/in-progress/` 同本檔，現存最高 **CUI-0028**，
-> 所以由 **CUI-0029** 起，全局唯一、無重用、無跳號。
+| **CUI-0029** | 🟡 Medium | **被 budget 拒絕嘅 request 喺 server log 留完整 traceback**：`_charge_list_rows` / `_charge_track_field` 掟 `ValueError`，Strawberry 當成未預期錯誤，喺**預設 log level**（唔使 `basicConfig`）就已經以 `ERROR` + `exc_info` 記低 **9 個帶絕對路徑嘅 frame**（含 `/.venv/lib/python3.11/site-packages/`）。`track` 同 `list` 兩條路徑都有。回俾 client 嗰面**乾淨**（只有一句 message，零內部細節），問題純粹喺 log。觸發成本 998 token / public / 免認證 ⇒ **log 量放大**。**pre-existing**，以 **S-055** 身分跨三輪 review 未開票。建議掟 `GraphQLError`；⚠️ `RuntimeError`（budget 未 seed）要繼續 log | pending |
+| **CUI-0030** | 🟡 Medium | **四個 view 仲用 raw `error.message`**：`OverviewView.tsx:20,21` / `YearView.tsx:28` / `ActivitiesView.tsx:67`。CUI-0016 造嘅 `readableError()` 只用咗喺 `ActivityView.tsx`。用真 `createApiSource` 打真 server 實測：被拒時 raw `.message` 係 **601–620 字元、含 GraphQL document 原文**嘅序列化 blob，`readableError()` 收成 62 字元一句。**同 CUI-0016 對 AU-047 嘅關係逐字一樣** —— 唔係 CUI-0027 引入，但 CUI-0027 新增咗一個可達成因。**今日前端撞唔到**（五個 document 各 charge 500 / 4000，餘裕 8×），所以唔阻 CUI-0027 結案 | pending |
+| **CUI-0031** | 🟢 Low | **CUI-0024 嘅 follow-up**：移除寫死測試數字嗰陣**換走咗句子主語**（「**93 tests** cover X」→「**The Python suite** covers X」），後面個 list 一隻字冇改，於是一個準確嘅**局部**清單變成唔完整嘅**整體**描述。README 完全冇提 `test_api.py`(123) / `test_activities_parsers.py`(70) / weather(57) = **250/382 = 65%**；`architecture.md` 漏 33%；Vitest 段漏 7/22 個檔案（含 CUI-0016 嘅回歸釘 `errors.test.ts` 同 `ActivityView.test.tsx`）。⚠️ **唔好**改成列齊每個檔案 —— 咁只係將 drift 由「數字」搬去「清單」。建議改主語（「Among other things…」）。CUI-0024 其餘各項 QA 已逐句重驗**全部成立**（every builder function / every view's model module / all nine views 三句實測過） | pending |
+
+> 編號：掃過 `.tickets/pending/`、`.tickets/in-progress/` 同本檔，現存最高 **CUI-0031**，
+> 所以由 **CUI-0032** 起，全局唯一、無重用、無跳號。
+>
+> ⚠️ **狀態欄 drift（2026-09-16 QA 記錄）**：上表 **CUI-0022 / CUI-0024 / CUI-0027** 三行仲寫住
+> `pending`，但佢哋實際喺 `.tickets/in-progress/0001-0200/`。以 ticket 檔案為準。
+> QA 唔郁 ticket 狀態（唔做 `git mv`），由 main agent 按 receipt 一次過更新。
+>
+> ⚠️ **alias 軸唔開票**：用戶 2026-09-16 明文決定「記錄但不處理、不開票」。
+> 記錄載體係 `MAX_LIST_ROWS_PER_REQUEST` 個 docstring。**唔好**因為見到 18.2×
+> 未達 CUI-0027 DoD 嘅 20× 就補開一張票。
 
 ### QA 同意 reviewer 嘅兩條 🟢 不阻塞
 
