@@ -25,7 +25,7 @@ models, its readers and its derived metrics:
 | `run365days.dashboard` | `builder` (pure per-run calculations shared by export and API) and `stats` (year aggregates) | `activities`, `weight` |
 | `run365days.export` | `records` (one intermediate structure), `models` (SQLAlchemy), `sqlite` and `static_json` writers | `dashboard.builder`, `activities`, `weight` |
 | `run365days.api` | `app` (Flask factory), `schema` (Strawberry types and `Query`), `service` (SQLAlchemy queries), `db` (engine and session helpers) | `export.models`, `dashboard.stats` |
-| `run365days.cli` | Three console scripts that wire the features together | everything above |
+| `run365days.cli` | The console scripts that wire the features together (declared under `[project.scripts]` in `pyproject.toml`) | everything above |
 
 Dependencies only point downwards in that table. Nothing under `activities`,
 `weather` or `weight` knows the dashboard exists, which keeps each feature
@@ -100,9 +100,9 @@ the sub-resources a future API will expose.
 ### Pure builder functions
 
 Everything in `dashboard.builder` takes plain Python values and returns
-plain Python values; file I/O is limited to `load_jsonl` and
-`write_data_js`. That is what makes the payload unit-testable without
-fixtures on disk (`tests/test_dashboard_builder.py`).
+plain Python values; file I/O is limited to `load_jsonl`. That is what
+makes the payload unit-testable without fixtures on disk
+(`tests/test_dashboard_builder.py`).
 
 ### One front end, two data modes
 
@@ -136,7 +136,7 @@ in a container or against a different year's exports.
 - **pytest** covering geo and time helpers, MET metrics, weight parsing,
   every builder function, the year statistics, the export writers, the
   GraphQL API (Flask test client against a temporary database) and the
-  CLI serialiser (133 tests).
+  CLI serialiser.
 - **pre-commit** runs the same ruff checks locally.
 - **GitHub Actions** (`.github/workflows/pages.yml`) runs the ruff and
   pytest gates above, together with the frontend checks, on the branches
