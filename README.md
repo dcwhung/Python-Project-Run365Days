@@ -235,20 +235,18 @@ ruff format --check src tests
 
 ## Continuous integration and deployment
 
-`.github/workflows/pages.yml` runs on every push and pull request to
-`develop` and to `master`, so both branches are gated. Only `develop`
-deploys:
+`.github/workflows/pages.yml` gates every push and pull request it runs on
+with the Python checks (lint, format, tests and GraphQL schema sync) and the
+frontend checks (lint, typecheck, unit tests and a build in both data modes).
+That file is the source of truth for which branches it runs on and for the
+steps of each job; they are not repeated here, so there is no second copy to
+keep in sync.
 
-1. **Lint and test**: install the package, `ruff check`, `ruff format
-   --check`, `pytest`, and check `frontend/schema.graphql` matches the
-   Strawberry schema.
-2. **Frontend**: `npm ci`, ESLint, codegen + `tsc`, Vitest, and a Vite
-   build in both data modes.
-3. **Build dashboard** (`develop` pushes only): `run365-export --skip-db` writes the
-   static JSON into `frontend/public/data`, then `npm run build:static` with
-   `VITE_BASE_PATH=/<repo>/` and `dist/index.html` copied to `404.html` so
-   deep links work on Pages.
-4. **Deploy to GitHub Pages** (`develop` pushes only).
+The static dashboard is built and deployed to GitHub Pages from one branch
+only -- `develop` -- and a gated branch that is not the deploy source stops
+after the checks. [docs/deployment.md](docs/deployment.md) covers that split,
+the `github-pages` environment rule it depends on, and every step needed to
+move the deploy source.
 
 ### Vercel (API mode)
 
@@ -278,10 +276,10 @@ are git-ignored and rebuilt on every deploy.
 
 Release branches are frozen snapshots. New work lands on `develop` through
 pull requests, which the CI workflow gates, and `develop` is what deploys.
-`master` is the repository's default branch and runs the same lint and test
-jobs on its pull requests, but it does not deploy; moving the deploy source
-to it is a later decision, and
-[docs/deployment.md](docs/deployment.md) lists every step that switch needs.
+`master` is the repository's default branch and is gated by the same CI
+checks, but it does not deploy; moving the deploy source to it is a later
+decision, and [docs/deployment.md](docs/deployment.md) lists every step
+that switch needs.
 The history is in [docs/CHANGELOG.md](docs/CHANGELOG.md). Tags and GitHub
 Releases are created by the manual "Tag release" workflow, which takes its
 notes from the changelog.

@@ -860,3 +860,144 @@ AU-047 立嘅 W-017 係「**數字**值得寫低就值得 assert」。本批顯�
 
 `CUI-0017` 講嘅「實測 request 層面去到 208」喺 AU-050 之後**只對 distinct-parent 嘅形狀成立**：52 個 aliased parent 指住**同一條** activity 而家係 **106**（per-request memoization），指住 **52 條唔同** activity 先仍然係 208。修 CUI-0017 嗰陣要用返新數字。
 
+
+---
+
+## 2026-09-16 Batch QA — low-cost wave 1（CUI-0006 / 0017 / 0020 / 0003 / 0014）
+
+Review：86 → **97 pass**（`2026-09-16_review_low-cost-wave1_delta.md`）
+QA：**✅ pass，0 Critical**（`.proj-docs/qa/2026-09-16_qa_low-cost-wave1_batch.md`）
+Hard gates：363 passed / ruff clean / format clean / SDL up to date / coverage **94.71%**
+
+### 五張票嘅 QA verdict
+
+| 票 | Verdict | 狀態建議 |
+|---|---|---|
+| **CUI-0006** | ✅ pass | 標 completed |
+| **CUI-0017** | ✅ pass | 標 completed |
+| **CUI-0003** | ✅ pass | 標 completed |
+| **CUI-0014** | ✅ pass | 標 completed |
+| **CUI-0020** | ✅ pass（代碼/文件） | ⛔ **唔可以標 completed** —— 第三個 DoD（同 CUI-0019 一齊重量）未達成。留 `.tickets/in-progress/0001-0200/` 標 blocked on CUI-0019，**唔好搬 `on-hold/`**（其餘 DoD 已 100% 完成） |
+
+### QA 獨立驗證嘅關鍵數字
+
+| 項目 | 結果 |
+|---|---|
+| AST 比對（41 個 `src/**/*.py`，剝走 docstring） | **只有 `common/time.py` 嘅可執行 AST 有變**；`api/schema.py` / `weather/models.py` 純 docstring |
+| CUI-0006 blast radius | 1,087 activity record + **328,752 track point** byte-identical（深度 dump，唔經 `_activities_to_jsonl`）|
+| Negative control | scratchpad mutant 改 tz → **只有 KML 變**，證明 probe 會捉到差異 |
+| 改動分支被行過幾多次 | iso_offset **97,004**（全部 KML，全部 `+08:00`）；GPX/TCX **零次** → 改動路徑**到唔到 export** |
+| export → SQLite → static JSON | `run365.db` 邏輯 dump 136,057 行**只差 1 行**（`generated_at`）；370 個 static JSON 只有 `meta.json` 差同一個欄位 |
+| GraphQL | 13 條真實 query + SDL，base vs HEAD **全部 sha256 相同**，零 error |
+| Regex fuzz | 3,402 個無 offset 形狀 **零 false positive**；240 個 offset 拼法 **零漏網**；348 個轉換 **零 instant 偏移** |
+| `MissingTimeZoneDataError` | 六種輸入形狀（含新開嘅負 offset 路徑）一律先撞環境錯誤；仍然係 `RuntimeError` 唔係 `ValueError` ✅ |
+| CUI-0017 | 208 / 128 獨立重現；3 個 mutant（token 限制 / field cap / parent 成本）全部紅 |
+| CUI-0003 | 邊界 `max_depth=3 REFUSED / 4 served` 重現；3 個 mutant（加深一層 / union / interface）全部紅 |
+| CUI-0014 | 461 warning 行 × 6 欄位 **零缺失**（docstring 依據準確）；6 個 mutant 全紅 |
+| **CUI-0020 production 數字第一次獨立重量** | 134,041 track rows **一個不差**；16x → 實測 **15.6x**；38x → 實測 **37x**；兩個 52-parent shape 跨規模 **1.0x / 1.3x**（docstring 講「唔夠 1.4x」成立）|
+
+### QA 開嘅新 ticket（**皆不阻塞**）
+
+| ID | 級別 | 內容 | 狀態 |
+|---|---|---|---|
+| **CUI-0022** | 🔵 Low | `activity_time_range()`（`src/common/time.py:167`）係 dead code —— 全 repo 零 caller，亦係 `time.py` 唯一未覆蓋嘅代碼（L178-182），令 93.2% 呢個 coverage 訊號被溝淡。**pre-existing，唔係 CUI-0006 引入** | pending |
+| **CUI-0023** | 🔵 Low | **CUI-0004 引嘅 coverage 依據已過期**：AU-050 令 `service.py` 由 84 → 103 statement，AU-047 C-001 嘅 `track(points: 1)` 測試順帶覆蓋咗 `_even_positions` 嗰條早返 branch。`return [total - 1]` 而家喺 L152 **已有覆蓋**，唯一未覆蓋嘅係 L257（`tracks()` 空輸入護欄，GraphQL 入唔到）。**CUI-0004 嘅核心 bug 仍然有效**（`_even_positions(600, 1) = [599]`，冇 first），只係佢個 title 同 coverage 依據要更正 | pending |
+| **CUI-0024** | 🟢 Low | 清 AU-035 嗰批 `docs/` 既有 drift：`README.md` / `docs/architecture.md` 寫「three console scripts」實際 4 個、`architecture.md` 引用已消失嘅 `write_data_js`、三處寫死嘅測試數量（133 / 93 / 87）全部過期。Main agent 已逐項核實。建議優先**移除**寫死數字而唔係更新佢哋（同 CUI-0015 揀方案 3 同一理由）。已核實「all nine views」同 CHANGELOG 嘅 `write_data_js` **正確，唔好改** | pending |
+| **CUI-0025** | 🟢 Low | **`S-011` 兩半今日仍然成立**：(a) `points: 0` 喺 api mode 被拒（`_track_points` 1–1000 bounds），喺 static mode 回全部點（`source.ts:66` `points ? downsample(...) : rows` 短路）；(b) `MAX_TRACK_POINTS` / `MAX_PAGE_SIZE` 兩個界仍然冇寫入 SDL，前端睇 `schema.graphql` 見唔到。⚠️ CUI-0021 之後 `downsample` 對 `limit < 2` 回最後一點，所以而家有三種可能行為，執票時唔可以求其揀。**唔好將 api mode 改返「0 = 攞全部」** —— 嗰個係 AU-001 堵咗嘅 DoS 向量 | pending |
+
+> **CUI-0026 更正（2026-09-16）**：上面「149 係質數」呢個歸因**錯咗**，同質數無關。
+> 判準係 `d = limit - 1` 嘅奇偶：tie 要 `2i(n-1) = d(2k+1)`，`d` 奇數時左邊偶、右邊奇，永遠無解。
+> 即 **`limit` 偶數 ⇒ 完全免疫；`limit` 奇數 ⇒ 會 tie**。反例：`limit=64`（63 = 3²×7，非質數）零 tie。
+> Main agent 已窮舉核實（`limit` 2..400 × `n` ≤ 1000：偶數 0 個分歧、奇數 68,503 個）。
+> `TRACK_POINTS = 600` 因此有兩重保護：`n <= limit` 早返，**加上** 599 係奇數。
+
+> 編號：掃過 `.tickets/pending/`、`.tickets/in-progress/` 同本檔，現存最高 **CUI-0026**，
+> 所以由 **CUI-0027** 起，全局唯一、無重用、無跳號。
+
+### QA 同意 reviewer 嘅兩條 🟢 不阻塞
+
+**S-042**（`sql_count` fixture-order 不變式仲有 12 個 case 靠緊）、
+**S-043**（`test_api.py:501,512` 重複 build 同一個 schema）——
+建議併入下一個掂到 `tests/test_api.py` 嘅 lane。
+
+### ⚠️ W-024 更正（2026-09-16，QA 裁決）—— 核心 finding 係 false positive
+
+Round 2 review 開嘅 **W-024**（🟡）指 `frontend/src/lib/downsample.ts` /
+`downsample.test.ts` 寫嘅「45,117 組合 / 10,189 分歧 / 22.6%」重現唔到，
+並判定「**唔係範圍定義差異，係量錯咗**」。QA 於 2026-09-16 用重建嘅真實 export 獨立裁決：
+
+**判定：核心 finding 不成立。原始數字係啱嘅，reviewer 嘅推論錯。**
+
+| 爭議 | 裁決 |
+|---|---|
+| 「45,117 / 10,189 / 22.6% 量錯咗」 | ❌ 三個數字**逐個精確重現** |
+| 「22.6% 係達唔到嘅」 | ❌ 只喺**連續 range** 之內成立 |
+| 「唔係範圍定義差異」 | ❌ **正正就係範圍定義差異** |
+| 「the export can produce」措辭同 A3 矛盾 | ✅ **成立**，但屬 🟢 措辭歧義 |
+
+**決定性證據 —— 同一個 probe 一次過重現咗爭議雙方嘅全部數字：**
+
+```
+lane 嘅定義（export 真正持有嘅 123 個相異 track length，250..600，points = 1..L-1）:
+    combinations = 45,117   divergent = 10,189   ratio = 22.584%  -> 22.6%     全中
+
+reviewer 嘅定義（連續 range 2 <= total <= cap）:
+    cap= 250:  31,125 /  6,634 / 21.31%      cap= 300:  44,850 /  9,652 / 21.52%
+    cap= 309:  47,586 / 10,221 / 21.48%      cap= 600: 179,700 / 38,530 / 21.44%
+    cap=1000: 499,500 /105,181 / 21.06%      五行全中
+    highest ratio over every cap 2..1000 = 21.91% at cap = 103     亦全中
+```
+
+兩個 model **完全一致**，分別**純粹**喺枚舉邊啲長度。Export 實測
+`COUNT(DISTINCT cnt) = 123`、範圍 `250..600`，而 `Σ(L−1) = 45,240 − 123 = **45,117**`
+——呢個數字**直接由算術跌出嚟**，唔係湊。
+
+**後續建議**
+
+- **W-024 由 🟡 降為 🟢**，範圍由「數字量錯」收窄為「註釋欠缺範圍定義」。
+- **唔改**嗰份有日期嘅 review 報告本身（同 reviewer 自己喺 S-041 用嘅文件倫理一致），更正記喺呢度。
+- **反對 reviewer 方案 A**（換成 `2 <= length <= 1000` 嘅 105,181 / 499,500）：
+  呢個係**虛構**長度集（999 個入面 876 個 export 永遠見唔到），
+  會用無關數字換走貼題數字，而且冇解決真正缺陷（範圍定義冇寫出嚟）。
+- **支持 followup lane 方向**：保留 45,117 / 10,189 / 22.6% + 補範圍定義，
+  **但必須同時**拆走 “the export can produce” 嘅歧義 —— reviewer 第二半係啱嘅，唔可以只修一半。
+- **CUI-0021** line 27 嗰組數字**係啱嘅，唔使改**；同樣建議補一句範圍定義。
+- **唔需要開新 ticket**（數字冇錯，措辭已有 lane 處理中）。
+
+**順帶實測 —— 「今日不可達」比想像中脆：**
+
+```
+limit=600:   0/365 tracks 入到 sampler -> divergent = 0   （今日嘅操作點）
+limit=150: 365/365 入到 sampler        -> divergent = 0   <- 假綠！因為 149 係奇數（見 CUI-0026）
+limit= 97: 103/123 個長度分歧 (84%)     limit=193: 104/123 (85%)     limit=241: 101/123 (82%)
+```
+
+`TRACK_POINTS` 由 600 一調去 97 / 193 / 241 呢類值，**超過 80% 嘅長度即刻分歧**。
+`roundHalfToEven` 守住嘅唔係理論風險。⚠️ 另記：**用 `limit=150` 做 smoke test 會出假綠。**
+
+**補充（QA 覆核 lane 嘅實際修復，`58e1086`，仍未 merge）**
+
+Lane 嘅新註釋文字我逐句對住重建嘅 export 核實過，**六項全中**：
+
+```
+"123 distinct track lengths between 250 and 600"   -> 123, 250..600                    OK
+"45,117 pairs ... 10,189 of them (22.6%)"          -> 45,117 / 10,189 / 22.6%          OK
+"every length in 2..1000 ... gives 21.1%"          -> 499,500 / 105,181 / 21.1%        OK
+"every real call is n <= limit" (TRACK_POINTS=600) -> 0/365 tracks reach the sampler   OK
+"The export caps a track at 600 rows"              -> longest stored track = 600       OK
+CUI-0021 補回嘅「2..1000 任何一個 cap 最高只到 21.91%」                                  OK
+```
+
+佢**確實有修埋第二半**：`the export can produce` 已改成
+`the pairs the sampler can be *asked* for`，並明文寫低
+「none of those 10,189 pairs is reachable today」。
+**✅ `fix/frontend/W-024_reproducible-divergence-figure` 可以 merge。**
+
+🟢 一個唔阻 merge 嘅小瑕疵：註釋寫 `SELECT COUNT(*) FROM track_points GROUP BY activity_id`
+「yields 123 distinct track lengths」—— 嗰句 query 實際出 365 行，要
+`SELECT COUNT(DISTINCT cnt) FROM (SELECT COUNT(*) AS cnt FROM track_points GROUP BY activity_id)`
+先可以複製貼上直接出 123。順手先改，唔值得單開 commit。
+
+> 註：QA 嘅量度仍然有效 —— `git diff a0de0cd..HEAD -- src/export/ src/dashboard/ src/activities/ src/common/`
+> 為空，export pipeline 由量度嗰刻至今零改動，所以嗰份 `run365.db`（134,041 rows / 123 個長度）
+> 仍然係現時 HEAD 會產生嘅同一份。

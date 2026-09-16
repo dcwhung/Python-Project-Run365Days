@@ -95,59 +95,108 @@ class TestParseDateTimeWallClockOfZonedInputs:
         )
 
 
-class TestParseDateTimeOffsetIsReturnedAsWritten:
-    """An ISO string with an offset keeps that offset, whatever *timezone* says.
+class TestParseDateTimeIsoOffsetIsConvertedToTimezone:
+    """An ISO string with an offset names an instant and is converted into *timezone*.
 
-    The branch returns ``dateutil.parser.parse(rec_time)`` untouched: no
-    ``astimezone``, and no check that the offset matches the requested zone. The
-    ``Returns`` contract used to read "a timezone-aware datetime in *timezone*",
-    which is simply false here (W-019), and nothing tested it -- the only offset
-    the callers ever feed is ``+08:00``, where being wrong is invisible.
+    CUI-0006, and the class that replaces ``TestParseDateTimeOffsetIsReturnedAsWritten``.
+    That one pinned the opposite contract on purpose -- the branch returned
+    ``dateutil.parser.parse(rec_time)`` untouched, so the offset came back exactly as
+    written and the *timezone* argument was dead on this one path of four (W-019) --
+    and said in as many words that a future ``.astimezone()`` was what would turn it
+    red. This is that ticket, so the pin is rewritten rather than worked around.
 
-    These pin the behaviour, not an endorsement of it. Converting the offset is a
-    behaviour change across three parsers and belongs to its own ticket; until
-    then the documented contract and the tests have to say the same thing.
+    Two halves of one fault, both fixed here: the missing conversion, and the
+    ``elif "+" in rec_time`` test that made a *negative* offset miss the branch and
+    die in the naive ``strptime`` below it. Both came of writing the branch around
+    the only offset the sample data carries.
+
+    Why it matters despite that data: the three Garmin exports of a single run
+    disagree about format. GPX and TCX write UTC ``Z``, which is converted; KML
+    writes a local offset, which was not. At ``+08:00`` the two agree, so a run
+    recorded outside Hong Kong (KML ``+09:00``) would have silently landed an hour
+    off its own GPX and TCX twins.
     """
 
-    def test_a_foreign_offset_survives_the_hong_kong_default(self):
-        dt = parse_datetime("2021-10-17T06:10:56+09:00")
+    @pytest.mark.parametrize(
+        ("timezone", "expected"),
+        [
+            ("Asia/Hong_Kong", "2021-10-17T05:10:56+08:00"),
+            ("America/New_York", "2021-10-16T17:10:56-04:00"),
+            ("UTC", "2021-10-16T21:10:56+00:00"),
+        ],
+    )
+    def test_a_foreign_positive_offset_is_converted_to_the_requested_zone(self, timezone, expected):
+        # +09:00 is what a Japanese run's KML would carry. The wall clock moves by
+        # one hour into HK, which is exactly what the old behaviour did not do.
+        assert (
+            parse_datetime("2021-10-17T06:10:56+09:00", timezone=timezone).isoformat() == expected
+        )
 
-        assert dt.utcoffset() == timedelta(hours=9)
-        # The wall clock is untouched too: this is not a conversion that happens
-        # to land on +09:00, it is the input handed back.
-        assert (dt.hour, dt.minute, dt.second) == (6, 10, 56)
-
-    def test_the_timezone_argument_does_not_reach_this_branch(self):
-        # Two zones eight hours apart, one input: identical results. Any
-        # conversion at all -- to the argument or to a default -- would separate
-        # these, so this is what a future .astimezone() would turn red.
-        hong_kong = parse_datetime("2021-10-17T06:10:56+09:00", timezone="Asia/Hong_Kong")
-        new_york = parse_datetime("2021-10-17T06:10:56+09:00", timezone="America/New_York")
-
-        assert hong_kong.isoformat() == new_york.isoformat() == "2021-10-17T06:10:56+09:00"
-
-    def test_the_only_offset_the_callers_feed_is_the_one_that_hides_this(self):
-        # Why the false contract cost nothing in practice, stated where it can
-        # go red: at +08:00 "returned as written" and "converted to Hong Kong"
-        # agree on the instant, so no caller could tell them apart.
-        as_written = parse_datetime("2021-10-17T06:10:56+08:00")
-        converted = parse_datetime("2021-10-16T22:10:56.000Z")
-
-        assert as_written.timestamp() == converted.timestamp()
-        assert as_written.utcoffset() == converted.utcoffset() == timedelta(hours=8)
+    @pytest.mark.parametrize(
+        ("timezone", "expected"),
+        [
+            ("Asia/Hong_Kong", "2021-10-17T19:10:56+08:00"),
+            ("America/New_York", "2021-10-17T07:10:56-04:00"),
+            ("UTC", "2021-10-17T11:10:56+00:00"),
+        ],
+    )
+    def test_a_negative_offset_is_parsed_rather_than_rejected(self, timezone, expected):
+        # Previously a ValueError from the naive strptime: the branch tested for
+        # "+", and a bare `"-" in rec_time` could not replace it because every
+        # timestamp's date separators are minus signs. The offset has to be
+        # recognised at the end of the string or not at all.
+        assert (
+            parse_datetime("2021-10-17T06:10:56-05:00", timezone=timezone).isoformat() == expected
+        )
 
     @pytest.mark.parametrize(
         "rec_time",
-        ["2021-10-16T22:10:56Z", "2021-10-17T06:10:56-05:00"],
-        ids=["utc-without-millis", "negative-offset"],
+        ["2021-10-17T06:10:56+09:00", "2021-10-17T06:10:56-05:00", "2021-10-17T06:10:56+00:00"],
+        ids=["positive", "negative", "zero"],
     )
-    def test_neighbouring_iso_shapes_are_not_supported(self, rec_time):
-        # The ``Z`` branch requires a ``.``, and the offset branch tests for
-        # ``"+"``, so both of these fall through to the naive branch and fail
-        # there. Unreachable from the data in hand, and pinned so that stays a
-        # measured fact rather than an assumption.
+    def test_the_instant_is_the_same_whatever_timezone_asks_for(self, rec_time):
+        # A conversion, not a reinterpretation: the argument decides how the
+        # instant is *displayed*, never which instant it is.
+        instants = {
+            parse_datetime(rec_time, timezone=tz).timestamp()
+            for tz in ("Asia/Hong_Kong", "America/New_York", "UTC")
+        }
+        assert len(instants) == 1
+        assert instants == {parse_datetime(rec_time, timezone="UTC").timestamp()}
+
+    def test_the_offset_follows_the_argument_not_the_input(self):
+        # The inverse of the superseded test_the_timezone_argument_does_not_reach
+        # _this_branch: two zones eight hours apart must now separate, where
+        # before they returned byte-identical strings.
+        hong_kong = parse_datetime("2021-10-17T06:10:56+09:00", timezone="Asia/Hong_Kong")
+        new_york = parse_datetime("2021-10-17T06:10:56+09:00", timezone="America/New_York")
+
+        assert hong_kong.utcoffset() == timedelta(hours=8)
+        assert new_york.utcoffset() == timedelta(hours=-4)
+        assert hong_kong.isoformat() != new_york.isoformat()
+
+    def test_the_offset_the_callers_actually_feed_is_left_where_it_was(self):
+        # The whole production data set is +08:00 under the Hong_Kong default,
+        # where converting and not converting agree -- which is why this fix
+        # rewrites 194,008 KML timestamps into the same bytes. Kept from the
+        # superseded class, where it explained why the old defect was invisible;
+        # here it is the regression guard for the 365 tracked activities.
+        as_written = parse_datetime("2021-10-17T06:10:56+08:00")
+        converted = parse_datetime("2021-10-16T22:10:56.000Z")
+
+        assert as_written.isoformat() == "2021-10-17T06:10:56+08:00"
+        assert as_written.timestamp() == converted.timestamp()
+        assert as_written.utcoffset() == converted.utcoffset() == timedelta(hours=8)
+
+    def test_a_utc_z_string_without_milliseconds_is_still_not_supported(self):
+        # Deliberately left alone by CUI-0006. The Z branch requires a ".", so
+        # this shape falls through to the naive strptime and raises -- the same
+        # kind of sample-data-shaped condition as the "+" test fixed above, but a
+        # different branch, absent from the data (every Z timestamp in the 365
+        # GPX and TCX files carries milliseconds) and out of this ticket's scope.
+        # The docstring says "not supported" and this keeps that honest.
         with pytest.raises(ValueError):
-            parse_datetime(rec_time)
+            parse_datetime("2021-10-16T22:10:56Z")
 
 
 class TestParseDateTimeAbsoluteInstantInputs:

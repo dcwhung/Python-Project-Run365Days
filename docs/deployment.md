@@ -58,27 +58,28 @@ failure is readable in the browser.
 
 ## GitHub Pages
 
-The workflow has four jobs. The first two run on every push and pull
-request to **both** `develop` and `master`, so a pull request into either
-branch is gated by lint and tests. The last two are restricted to
-`develop` — `github.ref == 'refs/heads/develop'` — so every push to
-`develop` deploys the site, while `master` runs the checks and stops
-there. A manual `workflow_dispatch` follows the same rule: it re-deploys
-when run on `develop`, and is CI-only on any other branch.
+`.github/workflows/pages.yml` is the source of truth for this deployment:
+the branches it runs on, its jobs and each job's steps all live in that
+file. This section describes only the shape, which is what a reader needs
+before opening it — a prose copy of the branch lists and job order has
+gone stale twice already, so it is deliberately not kept here.
 
-Only one branch can be the deploy source; two would race for the same
-Pages deployment. `develop` holds that role for now.
+Lint, tests and the frontend checks run on every branch the workflow gates,
+so a pull request into any of them is covered. Building and deploying the
+site is restricted to a single branch — `develop` today — by a `github.ref`
+test in the workflow, so a gated branch that is not the deploy source runs
+the checks and stops there. A manual `workflow_dispatch` follows the
+same restriction: it re-deploys when run on the deploy branch, and is
+CI-only anywhere else. Only one branch can hold that role; two would race
+for the same Pages deployment.
 
-1. **Lint and test**: `ruff check`, `ruff format --check`, `pytest`, and
-   `run365-schema --check frontend/schema.graphql`.
-2. **Frontend**: `npm ci`, ESLint, codegen + `tsc`, Vitest, Vite build in
-   both data modes.
-3. **Build dashboard (static mode)**: `run365-export --skip-db --static-dir
-   frontend/public/data`, then `npm run build:static` with
-   `VITE_BASE_PATH=/<repo>/`. `dist/index.html` is copied to `404.html` so
-   a deep link such as `/activity/7264441638` is served by Pages and picked
-   up by the router.
-4. **Deploy to GitHub Pages**.
+The site build copies `dist/index.html` to `404.html`, so a deep link such
+as `/activity/7264441638` is served by Pages and picked up by the router.
+It also sets `VITE_BASE_PATH=/<repo>/`, which `frontend/vite.config.ts`
+reads into Vite's `base`, so the asset URLs resolve from the repository
+subpath Pages serves the site on. Vercel serves from the domain root and
+leaves it unset, where the config falls back to `/`. Both are shape facts
+rather than job steps, which is why they are written down here.
 
 The repository's `github-pages` environment must allow deployments from
 `develop` (Settings, Environments, Deployment branches). That rule lives

@@ -11,11 +11,21 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
-from graphql import GraphQLSyntaxError, parse
+from graphql import (
+    GraphQLInterfaceType,
+    GraphQLList,
+    GraphQLNonNull,
+    GraphQLObjectType,
+    GraphQLSyntaxError,
+    GraphQLUnionType,
+    parse,
+)
+from graphql import build_schema as build_schema_from_sdl
 from run365days.api import db, service
 from run365days.api.app import GRAPHQL_PATH, HEALTH_PATH, create_app
 from run365days.api.schema import (
     MAX_PAGE_SIZE,
+    MAX_QUERY_DEPTH,
     MAX_QUERY_TOKENS,
     MAX_TRACK_FIELDS_PER_REQUEST,
     MAX_TRACK_POINTS,
@@ -419,6 +429,99 @@ def test_query_deeper_than_the_configured_limit_is_rejected():
     assert "depth" in str(result.errors[0]).lower()
 
 
+DEEPEST_REACHABLE_DEPTH = 4
+"""The smallest ``max_depth`` that admits the deepest document this schema can build.
+
+One *below* MAX_QUERY_DEPTH, which is the whole of CUI-0003: the depth limiter
+cannot fire against the schema as it stands, and MAX_QUERY_TOKENS is what
+actually answers an alias flood.
+"""
+
+
+def _unwrap(gql_type):
+    """Strip ``!`` and ``[]`` off *gql_type* to get at the named type inside."""
+    while isinstance(gql_type, GraphQLList | GraphQLNonNull):
+        gql_type = gql_type.of_type
+    return gql_type
+
+
+def _deepest_selection(gql_type, seen=()):
+    """Field levels the deepest document rooted at *gql_type* can nest.
+
+    Walks the type graph rather than any particular document, so it answers
+    "how deep can a client go", not "how deep does the dashboard go".
+
+    Counts the leaf field as a level, which ``QueryDepthLimiter`` does not, so
+    the ``max_depth`` the same document needs is one less than this returns.
+    ``seen`` carries the types already on this path: the graph is acyclic
+    today, and this is what keeps the walk finite on the day it stops being.
+
+    Only object types are walked. An interface or a union would be counted as
+    a leaf, so anything nested under one would be missed and the depth
+    *under-reported* -- which is why the caller asserts the schema has none
+    before trusting what this returns.
+    """
+    if not isinstance(gql_type, GraphQLObjectType) or gql_type.name in seen:
+        return 0
+    seen = (*seen, gql_type.name)
+    return max(
+        (
+            1 + _deepest_selection(_unwrap(field.type), seen)
+            for name, field in gql_type.fields.items()
+            if not name.startswith("__")
+        ),
+        default=0,
+    )
+
+
+def test_the_depth_limiter_refuses_one_level_below_the_deepest_document(year_session):
+    # CUI-0003. The existing max_depth=2 test above shows the limiter refusing
+    # something; it does not show where the edge is. These two calls put the
+    # deepest document the schema can express on either side of it, so the
+    # limiter is pinned as connected rather than merely present -- the schema
+    # reports 100% coverage on build_schema either way.
+    deep_enough = build_schema(max_depth=DEEPEST_REACHABLE_DEPTH)
+    served = deep_enough.execute_sync(DEEPEST_CLIENT_QUERY, context_value={"session": year_session})
+    assert not served.errors, served.errors
+    assert served.data["year"] is not None
+
+    one_short = build_schema(max_depth=DEEPEST_REACHABLE_DEPTH - 1)
+    refused = one_short.execute_sync(DEEPEST_CLIENT_QUERY, context_value={"session": year_session})
+    assert refused.errors
+    assert "depth" in str(refused.errors[0]).lower()
+
+
+def test_the_type_graph_stays_one_level_below_the_depth_limit():
+    # What this test is for is the person who adds a nested field. MAX_QUERY_DEPTH
+    # is set one level above anything the schema can express, so today the
+    # limiter never fires -- deliberately, as headroom. Deepen the type graph by
+    # one and that silently becomes "fires on the deepest legal document", which
+    # is a change worth noticing rather than discovering from a client. This is
+    # what notices it.
+    # Both readings below are questions about this one SDL, not two schemas.
+    sdl = build_schema_from_sdl(schema.as_str())
+
+    sdl_types = sdl.type_map.values()
+    assert not [
+        t.name for t in sdl_types if isinstance(t, GraphQLInterfaceType | GraphQLUnionType)
+    ], (
+        "the SDL grew an abstract type; _deepest_selection only walks object types and "
+        "counts an interface or union as a leaf, so it now under-reports depth and this "
+        "guard would stay green while MAX_QUERY_DEPTH quietly becomes able to fire. "
+        "Teach _deepest_selection to walk an interface's fields and a union's possible "
+        "types before trusting the number below"
+    )
+
+    root = sdl.query_type
+    reachable = _deepest_selection(root) - 1
+
+    assert reachable == DEEPEST_REACHABLE_DEPTH, (
+        "the type graph changed depth; re-read MAX_QUERY_DEPTH's docstring, which "
+        "says the limiter cannot fire, and the test above, which says where it would"
+    )
+    assert reachable < MAX_QUERY_DEPTH, "the limiter can now refuse a document the schema allows"
+
+
 def test_document_with_too_many_tokens_is_rejected(client):
     flood = " ".join(f"a{i}: meta {{ year }}" for i in range(500))
     assert "token" in gql_errors(client, f"{{ {flood} }}").lower()
@@ -546,6 +649,21 @@ def test_track_samples_match_the_reference_downsampler(year_session):
     rows = service.track(year_session, TRACKED_ACTIVITY_ID, points)
     expected = downsample(list(range(STORED_TRACK_POINTS)), points)
     assert [r["sec"] for r in rows] == expected
+
+
+# ── CUI-0004: what one sample means ────────────────────────────────────────
+def test_a_single_sample_is_the_last_row_not_the_first(year_session):
+    # "Evenly spaced" has no meaning for one sample, so the field has to pick a
+    # row, and it picks the last -- the same row ``downsample`` picks for
+    # ``limit < 2``. Nothing about the arithmetic forces that choice; the two
+    # implementations agree only because both were written to. This pins the
+    # choice so that changing it on one side shows up as a failure here rather
+    # than as api mode and static mode drawing different tracks.
+    rows = service.track(year_session, TRACKED_ACTIVITY_ID, 1)
+
+    assert len(rows) == 1
+    assert rows[0]["sec"] == STORED_TRACK_POINTS - 1
+    assert [r["sec"] for r in rows] == downsample(list(range(STORED_TRACK_POINTS)), 1)
 
 
 # ── AU-047: a per-request budget on track points ───────────────────────────
@@ -747,14 +865,20 @@ def _parent_flood(parents: int, activity_id: str = TRACKED_ACTIVITY_ID) -> str:
     return _document(fields)
 
 
-def _distinct_parent_flood(parents: int) -> str:
+def _distinct_parent_flood(parents: int, points: int = 1) -> str:
     """*parents* aliased ``activity(id:)`` fields, each naming a different activity.
 
     The same shape as ``_parent_flood`` and the same token cost -- an id is one
     STRING token whatever it spells -- but no two of these tracks can share a
     batch, so this is the shape that still pays two statements per track.
+
+    *points* does not move the token cost either (an INT is one token however
+    many digits it spells), so raising it turns the same document from one the
+    points budget serves whole into one it refuses most of, without letting the
+    parser answer instead.
     """
-    fields = " ".join(f'a{n}: activity(id: "r{n}") {{ {CHEAP_TRACK} }}' for n in range(parents))
+    track = f"track(points: {points}) {{ sec }}"
+    fields = " ".join(f'a{n}: activity(id: "r{n}") {{ {track} }}' for n in range(parents))
     return _document(fields)
 
 
@@ -805,8 +929,18 @@ def _alias_flood(aliases: int = ALIAS_FLOOD_ALIASES, points: int = 1) -> str:
 
 
 @pytest.fixture
-def sql_count():
-    """Count statements every engine issues while the fixture is alive."""
+def sql_count(year_client):
+    """Count statements every engine issues while the fixture is alive.
+
+    Takes ``year_client`` for the ordering rather than for the value: building
+    that fixture issues ~393 statements of its own, so a test that starts
+    counting first reads the setup instead of its request. Depending on it here
+    makes pytest build the client first whatever order a test lists its
+    arguments in, which is the difference between the invariant being stated and
+    the invariant holding -- every consumer of this fixture uses that client
+    anyway. A second kind of client would want a ``sql_count_for(client)``
+    factory rather than a loosening of this.
+    """
     counter = [0]
 
     def tally(*_args, **_kwargs):
@@ -946,6 +1080,63 @@ def test_the_alias_flood_issues_no_more_statements_than_the_field_cap_allows(
     sql_count[0] = 0
     gql_errors(year_client, _alias_flood())
     assert sql_count[0] <= ALIAS_FLOOD_MAX_SQL
+
+
+PARENT_FLOOD_WIDTH = 52
+"""Aliased ``activity(id:)`` parents MAX_QUERY_TOKENS admits, one cheap track each.
+
+990 of the 1000 tokens; 53 lexes to 1009 and no longer parses. Written down so
+the ceiling below can be read, but derived rather than trusted -- see
+``_widest_parent_flood``.
+"""
+
+
+def _widest_parent_flood() -> int:
+    """The most aliased ``activity(id:)`` parents MAX_QUERY_TOKENS lets through."""
+    parents = 1
+    while _token_count(_distinct_parent_flood(parents + 1)) <= MAX_QUERY_TOKENS:
+        parents += 1
+    return parents
+
+
+def test_a_flood_of_aliased_parents_issues_more_statements_than_the_field_cap_bounds(
+    year_client, sql_count
+):
+    # CUI-0017, and the companion to the test above: the same question asked of
+    # the shape that one does not reach -- aliased `activity(id:)` parents
+    # rather than aliased `activities`. What it pins is the sentence in
+    # MAX_TRACK_FIELDS_PER_REQUEST's docstring that says the cap is not a bound
+    # on the statements a request issues. A parent pays about two statements
+    # for itself before its track is weighed at all, and nothing but
+    # MAX_QUERY_TOKENS says how many parents a document may carry, so the
+    # request-level ceiling is the two limits together and is the larger number.
+    parents = _widest_parent_flood()
+    assert parents == PARENT_FLOOD_WIDTH, "the token limit moved; so does the ceiling below"
+
+    track_statements = MAX_TRACK_FIELDS_PER_REQUEST * SQL_PER_TRACK_BATCH
+    ceiling = parents * SQL_PER_ACTIVITY_FIELD + track_statements
+
+    # Reset before the first half as well as the second, so both halves read
+    # the same way: each counts one request rather than a request plus whatever
+    # came before it. What keeps the fixtures' own ~393 statements out of the
+    # first half is `sql_count` depending on `year_client`, which builds the
+    # client before the listener attaches whatever order these arguments are
+    # in; this line no longer carries that on its own.
+    sql_count[0] = 0
+    assert gql(year_client, _distinct_parent_flood(parents)), "the widest flood is served whole"
+    assert sql_count[0] > track_statements, "the cap alone would under-count this request"
+    assert sql_count[0] <= ceiling
+
+    # The parents are paid for whether their tracks are served or refused. At
+    # MAX_TRACK_POINTS each the points budget turns away all but the first few
+    # -- the document is the same width and the same token cost, so nothing
+    # else can be doing the refusing -- and the parent half is charged anyway.
+    sql_count[0] = 0
+    body = gql_partial(year_client, _distinct_parent_flood(parents, MAX_TRACK_POINTS))
+    messages = [e["message"] for e in body["errors"]]
+    assert all(str(MAX_TRACK_POINTS_PER_REQUEST) in m for m in messages), messages
+    assert sql_count[0] >= parents * SQL_PER_ACTIVITY_FIELD
+    assert sql_count[0] <= ceiling
 
 
 def test_the_field_cap_is_per_request_and_does_not_leak_across_requests(year_client):
