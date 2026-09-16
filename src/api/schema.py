@@ -450,6 +450,8 @@ def _track_rows(info: Info, activity_id: str, page: tuple[str, ...], points: int
 
 TRACK_DESCRIPTION = (
     "GPS track, evenly downsampled to at most `points` samples. "
+    "`points: 1` has nothing to space evenly and returns the track's last row "
+    "alone, not its first. "
     f"One request may read at most {MAX_TRACK_FIELDS_PER_REQUEST} `track` fields, "
     f"totalling {MAX_TRACK_POINTS_PER_REQUEST} points. Both are counted across every "
     "`track` field in the request; points are charged on `points` as asked for, not "

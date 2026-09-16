@@ -648,6 +648,21 @@ def test_track_samples_match_the_reference_downsampler(year_session):
     assert [r["sec"] for r in rows] == expected
 
 
+# ── CUI-0004: what one sample means ────────────────────────────────────────
+def test_a_single_sample_is_the_last_row_not_the_first(year_session):
+    # "Evenly spaced" has no meaning for one sample, so the field has to pick a
+    # row, and it picks the last -- the same row ``downsample`` picks for
+    # ``limit < 2``. Nothing about the arithmetic forces that choice; the two
+    # implementations agree only because both were written to. This pins the
+    # choice so that changing it on one side shows up as a failure here rather
+    # than as api mode and static mode drawing different tracks.
+    rows = service.track(year_session, TRACKED_ACTIVITY_ID, 1)
+
+    assert len(rows) == 1
+    assert rows[0]["sec"] == STORED_TRACK_POINTS - 1
+    assert [r["sec"] for r in rows] == downsample(list(range(STORED_TRACK_POINTS)), 1)
+
+
 # ── AU-047: a per-request budget on track points ───────────────────────────
 PERSONAL_BEST_FIELDS = ("longest", "fastest", "longestTime", "mostCalories", "topCadence")
 ACTIVITIES_THAT_FIT = MAX_TRACK_POINTS_PER_REQUEST // MAX_TRACK_POINTS
