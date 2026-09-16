@@ -8,18 +8,21 @@ session from ``info.context["session"]`` and delegate to
 
 from __future__ import annotations
 
+import logging
 import os
 from collections.abc import Iterator, MutableMapping
 from datetime import date as date_type
 
 import strawberry
+from graphql import GraphQLError
 from strawberry.extensions import (
     DisableIntrospection,
     MaxTokensLimiter,
     QueryDepthLimiter,
     SchemaExtension,
 )
-from strawberry.types import Info
+from strawberry.types import ExecutionContext, Info
+from strawberry.utils.logging import StrawberryLogger
 
 from run365days.api import service
 from run365days.dashboard import stats
@@ -28,16 +31,18 @@ from run365days.export.records import TRACK_COLUMNS
 DEFAULT_TRACK_POINTS = 150
 """Track points returned per activity unless the query asks for more."""
 
-MAX_TRACK_POINTS = 1000
-"""Ceiling for ``track(points:)``.
+MAX_TRACK_POINTS = service.MAX_TRACK_POINTS
+"""Ceiling for ``track(points:)``, re-exported from the service that enforces it.
 
-Deliberately above 600, the most track rows the export stores for one run
-(``run365-export --points``, whose default is ``DEFAULT_POINT_LIMIT``), so a
-client asking for the maximum always gets the whole stored track back.
+Bound in two places by one number. This module refuses a ``points`` outside
+``1..MAX_TRACK_POINTS`` before any SQL goes out (:func:`_track_points`), and
+:func:`run365days.api.service.tracks` caps what comes back at the same figure
+even for a caller that names no ``points`` at all -- so the ceiling is the
+ceiling on the output, not only on the question (CUI-0033 (a)).
 
-Not to be read as a bound on ``Activity.num_points``: that field counts the
-raw samples the source file held *before* the export downsampled them, so it
-runs past 600 for the occasional long run and the two numbers do diverge.
+It lives in the service because that is the lower of the two layers and the
+service may not import Strawberry. Kept importable from here because the SDL
+text, the bounds check and every test that reads the contract are on this side.
 """
 
 MAX_TRACK_POINTS_PER_REQUEST = 10000
@@ -164,26 +169,37 @@ assertion, and a wall time in CI buys a flaky test rather than a guarantee:
   fan-out under one parent; it does not flatten a document that spends itself
   on parents.
 
-A document that takes no ``track`` at all spends neither budget and is not
-bounded here at all: 166 aliased ``activities`` fields fit the token limit at
-998 tokens and are served, issuing 332 statements in ~2 s on the fixture and
-~3 s on the export (2,143 ms and 3,228 ms). That export reading is new with
-CUI-0019's re-measurement and is not a CUI-0019 effect: this shape takes no
-track, so nothing the fix touched is on its path. It is nonetheless the
-*slowest legal document measured anywhere here*, five times the worst track
-shape and only some 5x inside the 15 s function, where every track shape now
-sits 50x or better. Its cost follows the activity and warning rows a list
-field returns rather than the track rows the export is large in. That cost
-belongs to the list fan-out, and wants its own answer; it is not what this cap
-is for, and no budget here bounds it.
+A document that takes no ``track`` at all spends neither budget, so nothing
+*here* bounds it -- and for a while nothing anywhere did. 166 aliased
+``activities`` fields fit the token limit at 998 tokens, were served, and
+issued 332 statements in ~2 s on the fixture and ~3 s on the export
+(2,143 ms and 3,228 ms, the latter new with CUI-0019's re-measurement and not
+a CUI-0019 effect: this shape takes no track, so nothing that fix touched is
+on its path). That made it the *slowest legal document measured anywhere
+here*, five times the worst track shape and only some 5x inside the 15 s
+function, where every track shape sits 50x or better. Its cost follows the
+activity and warning rows a list field returns rather than the track rows the
+export is large in, which is why it wanted a budget of its own rather than a
+higher ceiling on this one.
+
+It has one now: :data:`MAX_LIST_ROWS_PER_REQUEST` charges every page a request
+opens, so that same document is refused after its eighth field and reads
+~0.2 s of the export instead of ~3 s. What still holds here is the division of
+labour, not the gap -- this cap bounds ``track`` round trips, that one bounds
+rows paged, and neither reaches the other's shape.
 
 Every token and statement count above is asserted in ``tests/test_api.py``: the
 served worst cases by
 ``test_the_documented_worst_cases_still_measure_as_documented``, and the alias
 route and the 52/53 boundary by the tests beside it. A change to either limit
-turns those red rather than leaving this prose quietly wrong. The wall-clock
-figures are the exception: they are one machine's reading, not a bound,
-because asserting a wall time in CI buys a flaky test rather than a guarantee.
+turns those red rather than leaving this prose quietly wrong. Two exceptions,
+both named where they sit. The wall-clock figures are one machine's reading
+and not a bound, because asserting a wall time in CI buys a flaky test rather
+than a guarantee. And the 332 statements of the list flood are history rather
+than a reading: that document is refused now, and what its paragraph asserts is
+its width and what the budget lets through
+(``test_the_widest_list_fan_out_is_refused_after_the_budget``), not a count no
+request issues any more.
 
 AU-050 has since made a page of tracks cost two statements however wide it is.
 An earlier revision of this docstring read that as weakening the round-trip
@@ -252,10 +268,13 @@ TRACK_ROWS_KEY = "track_rows_read"
 Keyed by ``(activity_id, points)`` -- both halves, because two fields asking
 different ``points`` of one activity are two different samples of it.
 
-Seeded lazily by :func:`_track_rows` rather than by :class:`_TrackBudget`,
+Seeded lazily by :func:`_track_rows` rather than by :class:`_RequestBudgets`,
 since a request that reads no ``track`` should carry no cache. Its size is
 bounded by the same budgets that bound the reads which fill it.
 """
+
+LIST_ROWS_KEY = "list_rows_remaining"
+"""``info.context`` key holding what is left of this request's list row budget."""
 
 DEFAULT_PAGE_SIZE = 500
 """Rows a list field returns when the client asks for no window.
@@ -266,6 +285,174 @@ whole year in one request (the dashboard does) need no paging.
 
 MAX_PAGE_SIZE = 1000
 """Ceiling for ``limit``: the largest single-request page the API will serve."""
+
+MAX_LIST_ROWS_PER_REQUEST = 4000
+"""Rows one operation may ask list fields for, summed over every page in it.
+
+:data:`MAX_PAGE_SIZE` bounds a single page; nothing bounded the product of
+``pages x limit``, so one legal document could open 166 pages of a whole year
+-- 60,590 rows, 3.1 s on the export, the slowest legal document measured
+anywhere in this module and five times the worst shape that takes a ``track``
+(CUI-0027). The track budgets could not answer it, because a document that
+takes no ``track`` spends neither of them.
+
+Charged the way :data:`MAX_TRACK_POINTS_PER_REQUEST` is charged, and for the
+same reason: on the window the client asked for rather than on the rows the
+page turns out to hold, so an over-wide request is refused *before* its SQL
+goes out. The same trade-off follows -- a client asking ``limit: 1000`` of a
+table holding 12 rows still pays 1000 -- which keeps the bound conservative
+rather than exact.
+
+What pays, and what does not. The rule first, so that a root field added later
+has an answer here rather than a list of examples to reason from by analogy:
+
+    **A root field pays if and only if the rows it materialises grow with a
+    window** -- one the client names (``limit``) or one the data implies
+    (``year``'s calendar year). A field that materialises a fixed number of
+    rows however large the export grows does not pay, however much SQL it
+    issues to get there.
+
+The second clause is the one worth stating, because it is the one an example
+list cannot teach: a scalar aggregate scans the whole table it counts, and
+still does not pay, because it returns one row and it is *rows materialised*
+that this budget bounds. A new field that can be made to return more rows as
+the export grows, or as the client asks for more, pays -- and pays before its
+SQL goes out, the way the two charge sites below do.
+
+All eleven root fields the SDL has today, so the list is exhaustive rather than
+illustrative (CUI-0027 W-028):
+
+* the four list fields -- ``activities``, ``weight``, ``weather``, ``warnings``
+  -- each charged its ``limit``, :data:`DEFAULT_PAGE_SIZE` when the client
+  names no window;
+* ``year``, charged one :data:`DEFAULT_PAGE_SIZE` page. It takes no ``limit``
+  and opens no window, but it reads a whole calendar year of activities
+  unwindowed, which is the read DEFAULT_PAGE_SIZE was sized for. Alone among
+  the charges here this one is a **proxy rather than a ceiling**: it is exact
+  only while a year holds at most DEFAULT_PAGE_SIZE runs, and a year holding
+  more would be undercharged rather than refused. Every other charge on this
+  list is an upper bound on what the field can read; this one is an estimate
+  of it. That is the same assumption the dashboard's unwindowed read already
+  makes, and DEFAULT_PAGE_SIZE is where it gives first -- a year past 500 runs
+  stops the front end showing a whole year before it starts costing this
+  budget its accuracy, so the proxy is not the thing that breaks. It is also
+  calibrated: measured on the export, eight ``year`` fields and eight
+  ``activities(limit: 500)`` both spend the whole 4000 and both materialise
+  2,920 activity rows, at 145 ms against 151 ms, so the proxy tracks what it
+  stands in for to within some 4%. The ~380 warning rows a ``year`` field
+  materialises alongside are charged no more than the identical ~380 an
+  ``activities`` page pulls in the same way, so they are not a ``year`` quirk;
+* ``activity(id:)`` does not pay. It reads one row by primary key, and
+  :data:`MAX_QUERY_TOKENS` admits at most 90 of them -- 90 being the count for
+  the narrowest selection, ``{ id }``; a wider one costs tokens and buys fewer
+  fields, 76 at three scalars and 30 under the full ``ActivityFields``. At the
+  widest fan-out -- the 90 aliases of ``{ id }``, not the 30 of
+  ``ActivityFields``, which is the cheaper document: ~95 ms on the export
+  (91.6-95.9 over five runs), some 160x inside the 15 s function, so charging
+  it would buy noise.
+
+  The figures this replaces -- ~0.05 s and some 300x -- were measured down a
+  path that never reaches the row. An id matching nothing returns before the
+  ``selectinload`` fires: 48-50 ms, 0 rows, 90 statements rather than 180
+  (S-058). The miss is half the hit rather than a tenth of it because it still
+  issues 90 of those 180 statements -- not, as an earlier revision of this
+  paragraph said, because roughly half of either reading is per-field dispatch.
+  Swept over 10, 30, 45 and 90 aliases both paths come out linear in their
+  statement count, at much the same cost per statement, and what does not scale
+  with the statements is a few percent of the 90-alias reading rather than half
+  of it (S-064).
+
+  Rows, likewise, are not 90. ``service.activity`` carries
+  ``selectinload(warnings)``, so each field costs two statements and pulls its
+  activity's warning rows alongside: 164 rows for the first 90 activities of
+  this export (90 + 74 links), against a ceiling of 810 at the 8 warnings the
+  worst-served day here carries. Still fixed-size in the sense this rule means
+  -- it grows with a day's weather, not with a window the client names -- but
+  "90 rows" understated it;
+* the four ``*Count`` fields and ``meta`` do not pay either, by that same rule.
+  A count is one scan returning one row, and ``meta`` is the export header --
+  two rows, not one: the table is key/value and holds ``year`` and
+  ``generated_at``, which :func:`run365days.api.service.meta` reads whole with
+  ``select(models.Meta)`` and folds into one object (S-059). So the widest
+  document is 332 rows materialised, not 166. Neither field widens with a
+  window, so neither has a window to charge.
+  Aliasing is the only axis that multiplies them and :data:`MAX_QUERY_TOKENS`
+  bounds that: at the widest each admits, 332 aliased counts read 76-86 ms on
+  the export, some 175-195x inside the function, and 166 aliased ``meta``
+  reads ~47 ms, some 315x. 166 is the count for ``meta { year }``; a second
+  subfield costs a token and drops it to 142. That is the ``activity(id:)``
+  order of magnitude above, and charging them would buy the same noise.
+
+  No one of the four counts is reproducibly the dearest, and an earlier
+  revision naming ``activitiesCount`` was reading noise (S-060). Over 15
+  interleaved rounds their medians span 76.1-83.2 ms, 9.2%, while any single
+  field's own spread across those same rounds reaches 29-52% of its median. The
+  between-field gap is real -- ``activitiesCount`` led 12 rounds of 15 -- but it
+  sits inside the run-to-run variance, so a reader who picks one of these
+  documents to worry about has picked at random. Hence the range above and no
+  winner.
+
+  These readings do **not** need a warm page cache, which is worth stating
+  because this API runs as a Vercel function against a SQLite file and a cold
+  one is its normal state rather than an artefact. Measured with the cache
+  verifiably empty -- ``posix_fadvise(POSIX_FADV_DONTNEED)`` over the file,
+  ``mincore`` confirming 0 of 2,865 pages resident, one run per freshly
+  started process -- 332 aliased ``activitiesCount`` reads 84.6 ms against
+  83.2 ms warm, and the other three are within 3% of their warm figures too.
+  The reason is that these documents are not I/O bound: a count touches a
+  handful of pages of an 11 MB file, and what the 80-odd ms buys is its 332
+  counting statements. Their cost per statement is about half the
+  ``activity(id:)`` readings above, which is why it is read as what each
+  statement does rather than as a dispatch every field pays alike (S-064).
+
+  What a cold *process* costs is real and much larger -- several hundred
+  milliseconds of imports before the first query, and a first execution some
+  way above the second while SQLAlchemy compiles the statement. Those two are
+  given as orders rather than as readings on purpose: unlike every figure above
+  they are properties of the interpreter and the machine rather than of this
+  schema, and both moved when re-measured on another one. They are also a
+  per-invocation cost the whole function pays, not something this budget bounds
+  or that aliasing multiplies.
+
+So the bound this constant states is on *windowed* reads. A request may hold
+that many rows, plus up to 90 single ones, plus the fixed-size reads that do
+not pay.
+
+4000 is a ceiling rather than a figure any caller needs, the same way
+MAX_TRACK_POINTS_PER_REQUEST is. Every document the front end sends carries
+exactly one paying field and so charges 500: the four list queries name no
+window (``ActivitiesQuery``, ``WeightQuery``, ``WeatherQuery``,
+``WarningsQuery`` in ``frontend/src/data/api/queries.ts``), and ``YearQuery``
+pays its one page. So this sits 8x above the largest real document, and still
+admits every one of the four list fields taken at the full MAX_PAGE_SIZE in a
+single request. ``test_every_document_the_front_end_sends_is_inside_the_row_budget``
+is what holds that claim to its word.
+
+Where the number comes from is the other end. The dearest row this API can be
+asked for is an activity under the full ``ActivityFields`` selection, measured
+at 0.13 ms on the export (35 aliased pages of a year, 12,775 rows, 1.65 s
+before this budget existed). Spending the whole 4000 on rows that dear is the
+worst this bounds, and scanning every ``(pages, limit)`` the token limit admits
+finds it at 16 pages of ``limit: 250``: ~0.5 s on the export, some 30x inside
+the 15 s Vercel function, which is the order of headroom every ``track`` shape
+already had. The shape this ticket was filed as -- 166 pages of a whole year --
+now serves its first eight fields and refuses the rest for ~0.2 s, against
+~3 s served. Raising this number costs that headroom roughly linearly. None of
+these readings is asserted, because a wall time in CI buys a flaky test rather
+than a guarantee; what is asserted is the rows, in
+``test_the_widest_list_fan_out_reads_no_more_rows_than_the_budget``.
+
+What this does **not** bound is the other axis of a wide document: aliasing
+many *fields* onto the rows a page already returned. ``activities`` taking 331
+aliased ``warnings`` fields is one page, charges 500, and reads ~0.8 s of the
+export. Opening more pages does not widen it -- :data:`MAX_QUERY_TOKENS` bounds
+the product of pages and aliases, so eight pages of 39 aliases reads ~0.9 s,
+the same figure again -- which is exactly why a row budget cannot answer it:
+the cost grows with fields resolved, not with rows read. That shape is the
+worst legal document left, at some 17x inside the function against the 30x
+this one leaves, and it wants a limit of its own rather than a smaller number
+here.
+"""
 
 MAX_QUERY_DEPTH = 5
 """Deepest operation the API accepts.
@@ -330,19 +517,19 @@ def _introspection_gate() -> SchemaExtension:
     return SchemaExtension() if graphiql_enabled() else DisableIntrospection()
 
 
-class _TrackBudget(SchemaExtension):
-    """Give every operation its own track budgets, in points and in fields.
+class _RequestBudgets(SchemaExtension):
+    """Give every operation its own budgets: track points, track fields, list rows.
 
     "Per operation" and "per request" are the same thing here only because
     Strawberry's operation batching is off (``schema.config.batching_config``
     is ``None``), so one HTTP request carries exactly one operation. Switching
-    batching on would let a client spend both budgets once per operation in
+    batching on would let a client spend every budget once per operation in
     the batch, which is a decision to weigh against these limits, not a free
     transport setting.
     """
 
     def on_operation(self) -> Iterator[None]:
-        """Seed both budgets before any resolver runs, then let the operation go."""
+        """Seed the budgets before any resolver runs, then let the operation go."""
         # Seeded here rather than in the transport's ``get_context`` so that
         # the bound belongs to the schema: every caller gets it, including
         # ``schema.execute_sync(..., context_value=...)`` in a test.
@@ -350,14 +537,116 @@ class _TrackBudget(SchemaExtension):
         if isinstance(context, MutableMapping):
             context[TRACK_BUDGET_KEY] = MAX_TRACK_POINTS_PER_REQUEST
             context[TRACK_FIELDS_KEY] = MAX_TRACK_FIELDS_PER_REQUEST
+            context[LIST_ROWS_KEY] = MAX_LIST_ROWS_PER_REQUEST
         # A context that is not a mutable mapping is left as it is, and that is
         # safe for a less obvious reason than "track is then unreachable". A
         # read-only ``Mapping`` -- ``MappingProxyType``, say -- is not a
         # ``MutableMapping``, so nothing is seeded here, yet
         # ``info.context["session"]`` still reads and ``track`` is reachable.
         # What actually holds the line is ``_charge_track_field``, which reads
-        # a missing budget as a refusal rather than as permission.
+        # a missing budget as a refusal rather than as permission, and
+        # ``_charge_list_rows``, which reads it the same way.
         yield
+
+
+class BudgetExceededError(GraphQLError):
+    """A refusal the client's own document earned, raised so it is not logged as a fault.
+
+    Strawberry hands every error an operation produces to the
+    ``strawberry.execution`` logger at ``ERROR`` with
+    ``exc_info=error.original_error``, so whether a traceback reaches the log is
+    decided entirely by whether that one attribute is set. graphql-core sets it
+    on anything it had to wrap, which is every plain ``ValueError`` a resolver
+    raises -- and, measured, a bare :class:`GraphQLError` as well: the
+    pass-through in ``graphql.error.located_error`` is guarded on the raised
+    error *already carrying a path*, and a freshly constructed one carries
+    none. Subclassing on its own therefore changes nothing. Carrying the
+    resolver's own location is the whole mechanism, which is why this
+    constructor asks for ``info`` instead of leaving each call site to
+    remember.
+
+    What the client sees does not move: same message, same ``locations``, same
+    ``path``, because those are the fields being filled in here rather than
+    being left for graphql-core to rebuild. What stops is a refusal that costs
+    a client 998 tokens on a public, unauthenticated endpoint writing nine
+    frames of absolute source paths -- repository layout and the interpreter's
+    ``site-packages`` directory among them -- into the deployment's log, once
+    per refused request (CUI-0029).
+
+    Deliberately not used for a budget that was never seeded. That one means a
+    schema built without :class:`_RequestBudgets` or a context it could not
+    write to: nobody's request caused it and no client can act on it, so it
+    keeps raising ``RuntimeError`` and keeps its traceback.
+    """
+
+    def __init__(self, info: Info, message: str) -> None:
+        # Strawberry's ``Info`` publishes ``path`` but has no public accessor
+        # for ``field_nodes``, and ``locations`` cannot be reconstructed
+        # without them. Both are read off the one underlying
+        # ``GraphQLResolveInfo`` rather than from two sources that could
+        # drift. If this attribute is ever renamed,
+        # ``test_a_budget_refusal_still_tells_the_client_where_it_happened``
+        # is what goes red -- on its ``message`` assertion specifically, and
+        # only on that one. Measured: rename this attribute and the client
+        # still gets both ``locations`` and ``path``, because graphql-core
+        # rebuilds them around the resulting ``AttributeError`` at the very
+        # field the refusal came from, so they are identical either way. Only
+        # the message changes, from the budget sentence to the AttributeError.
+        # That is also why there is no way to make the other two assertions
+        # carry this tripwire; the message assertion is load-bearing here even
+        # though it reads as the redundant one beside the other budget tests
+        # (S-075).
+        raw = info._raw_info
+        super().__init__(message, nodes=raw.field_nodes, path=raw.path.as_list())
+
+
+def _charge_list_rows(info: Info, rows: int) -> int:
+    """Deduct a page of *rows* from this request's list row budget.
+
+    Charged before the resolver touches its session, so a field that overruns
+    the budget is refused having issued no SQL at all -- the same order
+    :func:`_charge_track_field` keeps, and for the same reason: a row count is
+    only known after the query, so a bound that waited for it would not be one.
+
+    Nothing is written back on a refusal -- the raise below comes before the
+    assignment -- but unlike the two track budgets, nothing observes that
+    either. A list field is a non-null type, so a refused page propagates to
+    the root, nulls the whole response and ends the operation: no later field
+    is reached, whatever the counter was left holding. So the sticky /
+    not-sticky distinction :func:`_charge_track_field` has to draw does not
+    arise here, and ``test_a_refused_page_stops_the_operation_where_it_stands``
+    is what says so rather than leaving it to be assumed either way.
+
+    Args:
+        info: Resolver info carrying this request's context.
+        rows: Already bounds-checked page window, at least 1.
+
+    Returns:
+        ``rows``, so the caller can charge and spend in one expression.
+
+    Raises:
+        BudgetExceededError: If this operation has already spent the budget.
+        RuntimeError: If the budget was never seeded -- the schema was built
+            without :class:`_RequestBudgets`, or the context is a mapping that
+            extension could not write to. Falling back to an unbounded request
+            would defeat the limit, so it fails loudly instead.
+    """
+    try:
+        rows_left = info.context[LIST_ROWS_KEY] - rows
+    except KeyError as exc:
+        # Deliberately not surfacing the key that was missing: it is an
+        # internal detail of the extension, not something a client can act on.
+        raise RuntimeError(
+            "list row budget was not seeded for this request, so list fields cannot be served"
+        ) from exc
+    if rows_left < 0:
+        raise BudgetExceededError(
+            info,
+            "list row budget exhausted: one request may read at most "
+            f"{MAX_LIST_ROWS_PER_REQUEST} rows",
+        )
+    info.context[LIST_ROWS_KEY] = rows_left
+    return rows
 
 
 def _charge_track_field(info: Info, points: int) -> int:
@@ -401,9 +690,9 @@ def _charge_track_field(info: Info, points: int) -> int:
         ``points``, so the caller can spend and pass it in one expression.
 
     Raises:
-        ValueError: If this operation has already spent either budget.
+        BudgetExceededError: If this operation has already spent either budget.
         RuntimeError: If the budgets were never seeded. Two ways in: the schema
-            was built without :class:`_TrackBudget`, or the context is a
+            was built without :class:`_RequestBudgets`, or the context is a
             mapping that extension could not write to (a read-only ``Mapping``
             is not a ``MutableMapping``). Falling back to an unbounded request
             would defeat both limits, so it fails loudly instead.
@@ -418,14 +707,16 @@ def _charge_track_field(info: Info, points: int) -> int:
             "track budget was not seeded for this request, so `track` cannot be served"
         ) from exc
     if fields_left < 0:
-        raise ValueError(
+        raise BudgetExceededError(
+            info,
             "track field budget exhausted: one request may read at most "
-            f"{MAX_TRACK_FIELDS_PER_REQUEST} tracks"
+            f"{MAX_TRACK_FIELDS_PER_REQUEST} tracks",
         )
     if points_left < 0:
-        raise ValueError(
+        raise BudgetExceededError(
+            info,
             "track points budget exhausted: one request may return at most "
-            f"{MAX_TRACK_POINTS_PER_REQUEST} track points"
+            f"{MAX_TRACK_POINTS_PER_REQUEST} track points",
         )
     info.context[TRACK_FIELDS_KEY] = fields_left
     info.context[TRACK_BUDGET_KEY] = points_left
@@ -493,9 +784,11 @@ def _track_rows(info: Info, activity_id: str, page: tuple[str, ...], points: int
 
 
 TRACK_DESCRIPTION = (
-    "GPS track, evenly downsampled to at most `points` samples. "
+    f"GPS track, evenly downsampled to at most `points` (1-{MAX_TRACK_POINTS}) samples. "
     "`points: 1` has nothing to space evenly and returns the track's last row "
-    "alone, not its first. "
+    "alone, not its first. Outside that range the field is refused rather than "
+    "clamped -- `points: 0` in particular, which reads as `no limit` in every "
+    "language whose falsy rules invite it, and is the fan-out AU-001 closed. "
     f"One request may read at most {MAX_TRACK_FIELDS_PER_REQUEST} `track` fields, "
     f"totalling {MAX_TRACK_POINTS_PER_REQUEST} points. Both are counted across every "
     "`track` field in the request; points are charged on `points` as asked for, not "
@@ -508,6 +801,43 @@ Both budgets are part of the field's contract, so a client reading the SDL can
 see why a wide fan-out is refused without having to trigger the error first.
 """
 
+
+LIST_ROWS_NOTE = (
+    f" One request may open at most {MAX_LIST_ROWS_PER_REQUEST} rows of pages in total, "
+    "counted across every field in it that opens one."
+)
+"""Sentence appended to every field description that spends the list row budget.
+
+Part of those fields' contract, so a client reading the SDL can see why a wide
+fan-out is refused without having to trigger the error first -- the same reason
+:data:`TRACK_DESCRIPTION` states both track budgets.
+
+Says only what is true of *every* field that pays, which is why it stops where
+it does. It used to end "charged on ``limit`` as asked for", and ``year`` pays
+this budget without having a ``limit`` to be charged on -- it is charged one
+:data:`DEFAULT_PAGE_SIZE` page for a read the calendar sizes, not the client --
+so that clause sent ``year``'s reader looking through the SDL for an argument
+that is not in it (S-053). The clause now lives in :data:`PAGE_WINDOW_NOTE`,
+beside the argument it is about.
+"""
+
+PAGE_WINDOW_NOTE = (
+    f" The window is `limit` (1-{MAX_PAGE_SIZE}) rows from `offset` (0 or more); "
+    "either side of that range is refused rather than clamped, and the budget above is "
+    "charged on `limit` as asked for rather than on the rows a page turns out to hold."
+)
+"""Sentence appended to every field that takes a ``limit``/``offset`` page window.
+
+Separate from :data:`LIST_ROWS_NOTE` because the two do not cover the same
+fields: ``year`` spends the row budget without taking a window, so it carries
+that note and not this one (S-053). The four list fields carry both, in that
+order, so the budget is stated before the sentence that says what it is charged
+on.
+
+:data:`MAX_PAGE_SIZE` otherwise lived only in a Python docstring and the text of
+a runtime error, which a client reading the SDL never sees until it has already
+sent the request that trips it (CUI-0025).
+"""
 
 COUNT_DESCRIPTION = (
     "Rows matching the same filters, ignoring `limit` and `offset`. "
@@ -768,7 +1098,11 @@ class Query:
             year=m["year"], generated_at=m["generated_at"], track_columns=list(TRACK_COLUMNS)
         )
 
-    @strawberry.field(description="Runs in start order, optionally filtered (dates inclusive).")
+    @strawberry.field(
+        description="Runs in start order, optionally filtered (dates inclusive)."
+        + LIST_ROWS_NOTE
+        + PAGE_WINDOW_NOTE
+    )
     def activities(
         self,
         info: Info,
@@ -779,7 +1113,10 @@ class Query:
         limit: int = DEFAULT_PAGE_SIZE,
         offset: int = 0,
     ) -> list[Activity]:
+        # Charge first: the budget exists to stop the page being read at all,
+        # and the rows it would return are only known once it has been.
         limit, offset = _page(limit, offset)
+        _charge_list_rows(info, limit)
         rows = service.activities(
             info.context["session"], _iso(from_date), _iso(to_date), min_km, has_gps, limit, offset
         )
@@ -802,7 +1139,9 @@ class Query:
     def activity(self, info: Info, id: strawberry.ID) -> Activity | None:
         return _activity(service.activity(info.context["session"], str(id)))
 
-    @strawberry.field(description="Daily weigh-ins (dates inclusive).")
+    @strawberry.field(
+        description="Daily weigh-ins (dates inclusive)." + LIST_ROWS_NOTE + PAGE_WINDOW_NOTE
+    )
     def weight(
         self,
         info: Info,
@@ -812,6 +1151,7 @@ class Query:
         offset: int = 0,
     ) -> list[WeightEntry]:
         limit, offset = _page(limit, offset)
+        _charge_list_rows(info, limit)
         rows = service.weight(
             info.context["session"], _iso(from_date), _iso(to_date), limit, offset
         )
@@ -823,7 +1163,9 @@ class Query:
     ) -> int:
         return service.weight_count(info.context["session"], _iso(from_date), _iso(to_date))
 
-    @strawberry.field(description="HKO daily weather (dates inclusive).")
+    @strawberry.field(
+        description="HKO daily weather (dates inclusive)." + LIST_ROWS_NOTE + PAGE_WINDOW_NOTE
+    )
     def weather(
         self,
         info: Info,
@@ -833,6 +1175,7 @@ class Query:
         offset: int = 0,
     ) -> list[DailyWeather]:
         limit, offset = _page(limit, offset)
+        _charge_list_rows(info, limit)
         rows = service.daily_weather(
             info.context["session"], _iso(from_date), _iso(to_date), limit, offset
         )
@@ -844,7 +1187,11 @@ class Query:
     ) -> int:
         return service.daily_weather_count(info.context["session"], _iso(from_date), _iso(to_date))
 
-    @strawberry.field(description="HKO warnings and signals (dates inclusive).")
+    @strawberry.field(
+        description="HKO warnings and signals (dates inclusive)."
+        + LIST_ROWS_NOTE
+        + PAGE_WINDOW_NOTE
+    )
     def warnings(
         self,
         info: Info,
@@ -854,6 +1201,7 @@ class Query:
         offset: int = 0,
     ) -> list[WeatherWarning]:
         limit, offset = _page(limit, offset)
+        _charge_list_rows(info, limit)
         rows = service.warnings(
             info.context["session"], _iso(from_date), _iso(to_date), limit, offset
         )
@@ -865,8 +1213,17 @@ class Query:
     ) -> int:
         return service.warnings_count(info.context["session"], _iso(from_date), _iso(to_date))
 
-    @strawberry.field(description="Aggregates for the exported year (or a given year).")
+    @strawberry.field(
+        description=(
+            "Aggregates for the exported year (or a given year). Reads a whole year of runs, "
+            f"so it spends one default page ({DEFAULT_PAGE_SIZE} rows) of the same budget the "
+            "list fields spend." + LIST_ROWS_NOTE
+        )
+    )
     def year(self, info: Info, year: int | None = None) -> YearSummary:
+        # No `limit` to charge, but the read below is a page all the same: a
+        # whole calendar year, which is the read DEFAULT_PAGE_SIZE is sized for.
+        _charge_list_rows(info, DEFAULT_PAGE_SIZE)
         session = info.context["session"]
         y = year or service.meta(session)["year"]
         # No page window: these rows are folded into aggregates server-side, so
@@ -885,6 +1242,85 @@ class Query:
         )
 
 
+REFUSAL_LOG_LEVEL = logging.INFO
+"""Level a budget refusal is logged at, below the ``ERROR`` a fault gets.
+
+``INFO`` rather than ``WARNING`` for two reasons, one about meaning and one
+measured. A refusal is not a degraded state or a near miss: the request asked
+for more than the contract offers, the contract said no, and the client was
+told why in a message it can act on. Nothing on the server needs attention, so
+nothing should reach a level that asks for it.
+
+The measured half is that ``logging``'s default threshold is ``WARNING``. A
+deployment that configures nothing -- which is the Vercel default and the
+condition CUI-0029 was measured under -- therefore drops these records
+entirely, so the log-volume amplification the ticket costed at 998 tokens per
+refused request goes to zero rather than to one line per request. An operator
+who wants to watch refusals, whether to size the budgets or to spot a client
+hammering them, opts in by lowering the level and gets every one of them.
+
+What is deliberately *not* traded away: the refusal still reaches the same
+logger with the same message, so it is silenced by default rather than
+discarded at the source.
+"""
+
+EXECUTION_LOGGER = StrawberryLogger.logger
+"""The logger Strawberry itself hands every GraphQL error to (``strawberry.execution``).
+
+Taken from Strawberry rather than named again here so a refusal cannot end up
+somewhere a fault does not: an operator raising the level to read refusals must
+get them in the same stream, from the same name, as the errors they sit
+between. Reaching for the attribute also fails loudly at import if Strawberry
+ever moves it, which spelling the string out would not.
+"""
+
+
+class RefusalAwareSchema(strawberry.Schema):
+    """A schema that logs a refusal the client earned apart from a server fault.
+
+    Strawberry hands every error an operation produces to
+    :meth:`process_errors`, which logs all of them at ``ERROR``. That is right
+    for a fault and wrong for a refusal: :class:`BudgetExceededError` is raised
+    because a client's own document asked for more than the contract offers,
+    which is the budget working rather than anything failing. Carrying the
+    resolver's ``path`` already took the traceback off those records; this
+    takes them off ``ERROR`` as well, so the most common entry in a deployment's
+    log stops being a refusal working as designed (CUI-0029).
+
+    Only that one class is reclassified. Everything else -- validation errors,
+    ``Int`` coercion failures, an unseeded budget's ``RuntimeError``, a resolver
+    that breaks mid-request -- is handed to ``super()`` untouched and keeps its
+    ``ERROR`` and its ``exc_info``. The distinction is the exception type, not a
+    substring of the message: a filter matching on wording would silence a real
+    fault that happened to mention a budget, and would stop silencing these the
+    day the wording changes. ``test_an_unexpected_resolver_error_is_still
+    _logged_as_a_server_fault`` is what holds that line, since no budget test
+    would notice a classifier that swept up everything.
+    """
+
+    def process_errors(
+        self, errors: list[GraphQLError], execution_context: ExecutionContext | None = None
+    ) -> None:
+        """Log budget refusals below ``ERROR``, and everything else as Strawberry would.
+
+        Args:
+            errors: Every error this operation produced.
+            execution_context: The operation's context, passed straight through
+                to the default handler for the errors it still takes.
+        """
+        faults = []
+        for error in errors:
+            if isinstance(error, BudgetExceededError):
+                # Logged the way StrawberryLogger logs one -- the error object
+                # as the message, no exc_info -- so a deployment's handlers see
+                # the same record they saw before, at a different level.
+                EXECUTION_LOGGER.log(REFUSAL_LOG_LEVEL, error)
+            else:
+                faults.append(error)
+        if faults:
+            super().process_errors(faults, execution_context)
+
+
 def build_schema(
     max_depth: int = MAX_QUERY_DEPTH, max_tokens: int = MAX_QUERY_TOKENS
 ) -> strawberry.Schema:
@@ -896,9 +1332,10 @@ def build_schema(
 
     Returns:
         A schema that rejects over-deep or over-large documents during
-        parsing and validation, before any resolver opens a query.
+        parsing and validation, before any resolver opens a query, and that
+        logs a refusal apart from a fault (:class:`RefusalAwareSchema`).
     """
-    return strawberry.Schema(
+    return RefusalAwareSchema(
         query=Query,
         extensions=[
             # Factories, not instances: Strawberry builds a fresh extension per
@@ -907,7 +1344,7 @@ def build_schema(
             lambda: QueryDepthLimiter(max_depth=max_depth),
             lambda: MaxTokensLimiter(max_token_count=max_tokens),
             _introspection_gate,
-            _TrackBudget,
+            _RequestBudgets,
         ],
     )
 

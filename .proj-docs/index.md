@@ -1,6 +1,6 @@
 # 項目文件索引 — Run365Days
 
-**最後更新**：2026-09-16（**CUI-0019 完成，PR #13 已 merge 並部署**：batch sample predicate 由 O(batch²) 變線性，64 條 track 140.0 → 40.6 ms；CUI-0020 blocker 解除；review 86/100 warn，2 個 docstring Warning 修緊；新開 CUI-0027（list fan-out 冇 budget，🟠 High）；Python 365 tests / 前端 126 tests / coverage 95%）
+**最後更新**：2026-09-16（**v3.2.0 release**：三個 breaking change（CUI-0027 list row budget、CUI-0025 `points` 契約、CUI-0033(a) omitted cap）；12 張 ticket + 27 條 review item；未清 suggestion **0**；ticket census 29 completed / 0 in-progress / 12 pending）
 
 > 本目錄為 ai-dev-team 產出文件嘅 Single Source of Truth。
 > 每次有新文件輸出，必須喺此更新條目同頂部日期。
@@ -13,7 +13,7 @@
 | 項目 | 內容 |
 |---|---|
 | 名稱 | Run365Days（`dcwhung/Python-Project-Run365Days`） |
-| 版本 | v3.1.1 |
+| 版本 | v3.2.0 |
 | Stack | Python 3.10+ package + Flask/Strawberry GraphQL API + React 19 / Vite 7 / TS 5.9 |
 | 部署 | Vercel（API mode）＋ GitHub Pages（static mode） |
 | Default branch | `master`；**整合同部署 branch 係 `develop`**（master 現時落後 54 個 commit，只行 lint/test，唔 build 唔 deploy） |
@@ -65,7 +65,14 @@
 | 類型 | 位置 | 狀態 |
 |---|---|---|
 | Ticket registry（AU / C-W-S / CUI 全部） | [`tickets.md`](tickets.md) | ✅ 現行 SSoT |
+| QA 報告（2026-09-16 CUI-0029 batch）| [`qa/2026-09-16_qa_CUI-0029_batch.md`](qa/2026-09-16_qa_CUI-0029_batch.md)（✅ **pass**、0 🔴、hard gates 8/8、42 個新 edge case、兩個 build mode；CUI-0029 三情境真 entry + OS 層 fd 2 捕捉（0 / 579 / 2583 bytes）；CUI-0033(a) 用**兩個同 reviewer 唔同嘅角度**驗行為中立（pre-fix module sha256 相同 + 對住冇郁過嘅 static writer 比 134,041 行零 mismatch + 1250 行 synthetic 證明差異精準落喺票上嗰點）；**喺行覆蓋 100% 之下搵到兩個活 mutant** ⇒ CUI-0038 / 0039；另開 CUI-0037（CUI-0029 只封咗最貴嗰條路，`activities(offset:-1)` 33 bytes → 2016 bytes log）同 CUI-0040）| ✅ 已建立 |
+| Code review 報告（2026-09-16 CUI-0029 批次 Delta：documentation lane + S-077）| [`reviews/2026-09-16_review_CUI-0029_delta.md`](reviews/2026-09-16_review_CUI-0029_delta.md)（**97/100 pass**，0 🔴 / 0 🟡 / 3 🟢（S-080…S-082，全部 registry 措辭，已即時清）；hard gates 8/8；86 → 97 = 13 條 suggestion 關閉 +14、新開 3 條 −3；**三條「lane 推翻 reviewer」逐條獨立重做，三條都判 lane 啱、reviewer 錯**（`year` 真係 charge 500 rows；`service.py` 由 22228 變 22535 係 lane 自己個 S-071 commit 搞嘅，證實唔應該寫死讀數；`== {}` 殺唔到 mutant，而 mutant 會行全表 grouped COUNT）；`fd252a3` 歸因更正核實成立，reviewer 自認錯咗歸因同數目兩樣；S-077 setting 雙向有牙（移走 = 2 條 I001，而且 autofix 會主動拉返去錯分類）；production 零改動 = 41 個檔案全樹 AST 得一個 inert import node 位置差異）| ✅ 已建立 |
+| Code review 報告（2026-09-16 CUI-0029 批次 Round 1：CUI-0029 / 0030 / 0031 / 0033 / 0034）| [`reviews/2026-09-16_review_CUI-0029_batch.md`](reviews/2026-09-16_review_CUI-0029_batch.md)（**86/100 warn**，0 🔴 / 0 🟡 / 7 🟢（S-073…S-079）；hard gates 6/6 pass；417 py / 141 fe tests、coverage 95%、SDL in sync；每個 lane 講法獨立重做：票上 Option A 實測**唔 work**（bare `GraphQLError` 一樣出 9 個絕對路徑 frame）、INFO-over-WARNING 重現（bare deployment INFO 0 bytes / WARNING 541 bytes）、`process_errors` 冇吞任何錯、CUI-0033(a) 用重建 `else` 分支比對 **365 activity / 134,041 行 track 逐點零差異**、CUI-0034 gate 兩個方向連 `__pycache__` 清空重做；`npm audit --omit=dev` = **0 vulnerabilities**（14 條全屬 dev chain）；warn 完全嚟自 documentation suggestion 債，非本批代碼質素）| ✅ 已建立 |
+| Code review 報告（2026-09-16 Round 2 batch：CUI-0025 / CUI-0028 / CUI-0032 + S-053 / S-058 / S-059 / S-060）| [`reviews/2026-09-16_review_CUI-0025_batch.md`](reviews/2026-09-16_review_CUI-0025_batch.md)（**88/100 warn**，0 🔴 / 1 🟡 / 7 🟢；hard gates 10/10 pass；CUI-0025 五個決定三個 mutant 一對一驗過；**S-060 裁決 lane 推翻 briefing 係啱嘅**，cold cache 只貴 3–8%、query 只掂 10/2865 版，上一輪 S-060 premise 正式更正為錯；W-029 = CUI-0028 一句假「實測」，票上原 repro 其實會撞）<br>⚠️ **§W-029 嘅成因歸因同 `python -B` 補救已被 Round 3 delta 證偽 —— 以 [`reviews/2026-09-16_review_CUI-0025_delta.md`](reviews/2026-09-16_review_CUI-0025_delta.md) §3 為準**| ✅ 已建立（部分 superseded）|
+| Code review 報告（2026-09-16 Round 3 delta：W-029 / S-067，重新評分整批）| [`reviews/2026-09-16_review_CUI-0025_delta.md`](reviews/2026-09-16_review_CUI-0025_delta.md)（**90/100 pass**，0 🔴 / 0 🟡 / 4 🟢；hard gates 10/10 pass；88 → 90 = W-029 +5、S-067 +1、新 S-068…S-071 各 −1；`-B` 同 stale-`.pyc` 兩個 Round 2 講法被 developer 更正，reviewer 獨立重做後**兩個更正都採納**；production 行為 AST 證明零改動）| ✅ 已建立 |
+| Code review 報告（2026-09-16 CUI-0027 批次，2 輪）| [`reviews/2026-09-16_review_CUI-0027_batch.md`](reviews/2026-09-16_review_CUI-0027_batch.md)（84/100 **warn**，0 🔴 / 2 🟡 / 6 🟢）<br>[`reviews/2026-09-16_review_CUI-0027_delta.md`](reviews/2026-09-16_review_CUI-0027_delta.md)（**95/100 pass**，0 🔴 / 0 🟡 / 3 🟢；W-027 / W-028 mutation 獨立重做；S-057 更正咗上一輪一個事實錯誤；production 行為 AST 證明零改動）| ✅ 已建立 |
 | Code review 報告（2026-09-15 batch，955 行，3 輪）| [`reviews/2026-09-15_review_cui0016-au048-au050_batch.md`](reviews/2026-09-15_review_cui0016-au048-au050_batch.md)（89 warn → 99 pass → 97 pass）| ✅ 已建立 |
+| QA 報告（2026-09-16 CUI-0027 batch，496 行）| [`qa/2026-09-16_qa_CUI-0027_batch.md`](qa/2026-09-16_qa_CUI-0027_batch.md)（✅ pass、0 Critical、hard gates 8/8、382 pytest / 126 vitest / coverage 95%；真 client call path + 兩個 build mode + 六類 edge case + static↔api 逐點比對 + export 等價性；新開 CUI-0029 / CUI-0030 / CUI-0031；CUI-0022 同 CUI-0024 建議 completed，CUI-0027 要先補 DoD bookkeeping）| ✅ 已建立 |
 | QA 報告（2026-09-16 low-cost wave 1 batch，724 行）| [`qa/2026-09-16_qa_low-cost-wave1_batch.md`](qa/2026-09-16_qa_low-cost-wave1_batch.md)（✅ pass、0 Critical、363 tests、coverage 94.71%；export→SQLite→static JSON→GraphQL 全鏈只差 `generated_at`；CUI-0020 唔可以標 completed）| ✅ 已建立 |
 | QA 報告（2026-09-15 batch，708 行）| [`qa/2026-09-15_qa_cui0016-au048-au050_batch.md`](qa/2026-09-15_qa_cui0016-au048-au050_batch.md)（0 Critical、coverage 99%、369/370 static 檔 byte-identical）| ✅ 已建立 |
 | Code review 報告 | [`reviews/2026-09-13_review_p0-batch.md`](reviews/2026-09-13_review_p0-batch.md)（84/100 pass）<br>[`reviews/2026-09-14_review_au-047.md`](reviews/2026-09-14_review_au-047.md)（66/100 **fail**，1 🔴）<br>[`reviews/2026-09-14_review_au-047_round2.md`](reviews/2026-09-14_review_au-047_round2.md)（91/100 **pass**，0 🔴）<br>[`reviews/2026-09-14_review_au-047_round3.md`](reviews/2026-09-14_review_au-047_round3.md)（87/100 **warn**，cleanup 輪驗證） | ✅ 已建立 |

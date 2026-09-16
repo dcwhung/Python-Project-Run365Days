@@ -115,8 +115,9 @@ elsewhere, set `RUN365_DATA_DIR` to a directory with the same
 
 ## Command-line tools
 
-Installing the package registers three console scripts. Each can also be
-run as `python -m run365days.cli.<module>`.
+Installing the package registers the console scripts listed below (the
+full set is declared under `[project.scripts]` in `pyproject.toml`). Each
+can also be run as `python -m run365days.cli.<module>`.
 
 | Command | What it does | Reads | Writes |
 |---|---|---|---|
@@ -209,14 +210,23 @@ ruff check src tests
 ruff format --check src tests
 ```
 
-- 93 tests cover the geo and time helpers, MET and calorie maths, weight
-  parsing (including the undated-last-line quirk), every dashboard builder
-  function, the export records, SQLite and JSON writers, and the CLI
-  serialiser.
-- Front end: 87 Vitest tests cover the TypeScript stats port (pinned to the
-  Python numbers), the static JSON mappers and source, the API source,
-  data-mode resolution, formatting and weather helpers, every view's model
-  module, and all nine views rendered against a fake data source.
+- `tests/` is the inventory of what the Python suite covers. This page
+  points at that directory instead of restating it, so there is nothing
+  here to fall out of sync. Among the areas exercised there: the geo and
+  time helpers, MET and calorie maths, weight parsing (including the
+  undated-last-line quirk), every dashboard builder function, the year
+  statistics, the export records, SQLite and JSON writers, the CLI
+  serialiser, the TCX, GPX and KML parsers, the HKO daily, hourly and
+  warning collectors together with the raw-row contract they share with
+  the export layer, and the GraphQL API driven through a Flask test
+  client against a temporary database.
+- Front end: the Vitest modules sit beside the code they cover under
+  `frontend/src/` and are the inventory in the same way. Among them: the
+  TypeScript stats port (pinned to the Python numbers), the static JSON
+  mappers and source, the API source, data-mode resolution, formatting
+  and weather helpers, track downsampling, GraphQL error mapping, every
+  view's model module, the activity series builder and the activity view
+  itself, and all nine views rendered against a fake data source.
 - ruff enforces pycodestyle, pyflakes, isort, pyupgrade, bugbear,
   simplify, pep8-naming and Google-style docstrings on every public
   symbol. Line length is 100.

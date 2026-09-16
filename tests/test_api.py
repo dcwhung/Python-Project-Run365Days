@@ -1,4 +1,5 @@
 import importlib.util
+import logging
 import re
 from contextlib import ExitStack
 from datetime import date, timedelta
@@ -6,11 +7,6 @@ from pathlib import Path
 from types import MappingProxyType
 
 import pytest
-import strawberry
-from sqlalchemy import create_engine, event
-from sqlalchemy.engine import Engine
-from sqlalchemy.orm import Session
-
 from graphql import (
     GraphQLInterfaceType,
     GraphQLList,
@@ -21,15 +17,23 @@ from graphql import (
     parse,
 )
 from graphql import build_schema as build_schema_from_sdl
+from sqlalchemy import create_engine, event
+from sqlalchemy.engine import Engine
+from sqlalchemy.orm import Session
+
 from run365days.api import db, service
 from run365days.api.app import GRAPHQL_PATH, HEALTH_PATH, create_app
 from run365days.api.schema import (
+    DEFAULT_PAGE_SIZE,
+    LIST_ROWS_NOTE,
+    MAX_LIST_ROWS_PER_REQUEST,
     MAX_PAGE_SIZE,
     MAX_QUERY_DEPTH,
     MAX_QUERY_TOKENS,
     MAX_TRACK_FIELDS_PER_REQUEST,
     MAX_TRACK_POINTS,
     MAX_TRACK_POINTS_PER_REQUEST,
+    REFUSAL_LOG_LEVEL,
     Query,
     build_schema,
     schema,
@@ -161,6 +165,31 @@ that the position arithmetic has to survive.
 
 VARIED_IDS = tuple(f"v{i}" for i in range(len(VARIED_TRACK_LENGTHS)))
 """Activity ids of the varied fixture, in the order ``activities`` returns them."""
+
+OVER_CAP_LENGTH = max(VARIED_TRACK_LENGTHS)
+"""The longest track the varied fixture stores, which is over ``MAX_TRACK_POINTS``.
+
+Derived rather than spelled out so the two cannot drift: the value that matters
+is "longer than the ceiling", and CUI-0033 (a) is only testable at all because
+one length above it exists. ``1250`` was already in
+:data:`VARIED_TRACK_LENGTHS` -- put there for the sampler, not for this -- and
+is a length a real export can hold, so this needs no fixture of its own. Tests
+using it assert the inequality rather than assume it, since shortening the
+fixture would otherwise turn them green and empty.
+
+How a track gets that long, since an earlier revision of this docstring had it
+wrong: ``run365-export --points N`` writes at most N rows per track, because
+:func:`run365days.export.records.build_records` passes every track through
+``downsample(rows, point_limit)``. So ``--points 1200`` -- the run that opened
+CUI-0033 -- writes 1200, not 1250; 1250 rows takes ``--points 1250``. The
+figure comes from the raw data rather than from either run: exactly one
+activity in the export parses to more than 1000 track rows, and it holds 1250
+of them. To re-take it, count ``track_rows`` per activity before the
+downsample rather than reading the exported file, which is already capped.
+"""
+
+OVER_CAP_ID = VARIED_IDS[VARIED_TRACK_LENGTHS.index(OVER_CAP_LENGTH)]
+"""Id of the activity storing :data:`OVER_CAP_LENGTH` rows."""
 
 
 @pytest.fixture
@@ -412,9 +441,200 @@ def test_track_returns_every_stored_point_when_more_are_requested(year_session):
     assert len(rows) == STORED_TRACK_POINTS
 
 
+# ── CUI-0033 (a): the ceiling bounds the output, not only the ask ──────────
+def test_an_omitted_points_is_capped_at_the_ceiling_the_field_refuses_above(varied_session):
+    # The asymmetry CUI-0033 (a) measured: the same module refuses "give me
+    # 1250 points" and then handed 1250 rows to a caller that named no number
+    # at all, so MAX_TRACK_POINTS bounded what could be asked for and not what
+    # could come back. Capping here is what makes the two the same bound.
+    assert OVER_CAP_LENGTH > MAX_TRACK_POINTS, (
+        "the fixture must store more rows than the ceiling or this test asserts nothing"
+    )
+
+    rows = service.track(varied_session, OVER_CAP_ID)
+
+    assert len(rows) == MAX_TRACK_POINTS
+    # Against the explicit ask, not just against a length: a cap written as
+    # "first MAX_TRACK_POINTS rows" is also 1000 rows long and would pass a
+    # length assertion while returning the front of the track instead of an
+    # even sample of it. The two calls must come out of the same sampler.
+    assert rows == service.track(varied_session, OVER_CAP_ID, MAX_TRACK_POINTS)
+
+
+def test_a_points_over_the_ceiling_is_capped_where_the_rows_are_read(varied_session):
+    # `_track_points` refuses this value, so it cannot arrive here through the
+    # schema -- which is exactly why the cap is worth having at this layer too.
+    # It makes "at most MAX_TRACK_POINTS rows per track" a property of the
+    # function that materialises the rows rather than of the check standing in
+    # front of it, so a second caller reaching `service` directly cannot widen
+    # what one track costs. The two layers differ in what they do with an
+    # over-large ask -- the boundary refuses it, this clamps it -- because only
+    # one of them has a client to answer.
+    rows = service.track(varied_session, OVER_CAP_ID, OVER_CAP_LENGTH)
+
+    assert len(rows) == MAX_TRACK_POINTS
+    assert rows == service.track(varied_session, OVER_CAP_ID, MAX_TRACK_POINTS)
+
+
+def test_an_omitted_points_still_returns_every_stored_row_under_the_ceiling(varied_session):
+    # The other half of the decision: omitted still means "all of it". Today
+    # every exported track is well under the ceiling, which is why capping is
+    # not a breaking change -- this is the assertion that says so, across every
+    # length the batching fixture carries rather than at one of them.
+    batched = service.tracks(varied_session, VARIED_IDS)
+
+    assert {aid: len(rows) for aid, rows in batched.items()} == {
+        aid: min(stored, MAX_TRACK_POINTS)
+        for aid, stored in zip(VARIED_IDS, VARIED_TRACK_LENGTHS, strict=True)
+    }
+
+
 def test_track_points_above_the_maximum_are_rejected(year_client):
     query = f'{{ activity(id: "r0") {{ track(points: {MAX_TRACK_POINTS + 1}) {{ sec }} }} }}'
     assert str(MAX_TRACK_POINTS) in gql_errors(year_client, query)
+
+
+def test_track_points_of_zero_is_refused_rather_than_read_as_no_limit(year_client):
+    # 0 is the one value the two deployment modes used to disagree on. Before
+    # AU-001 this side read `if points:`, so 0 meant "no limit" -- the DoS
+    # vector AU-001 closed. Static mode kept that reading until CUI-0025, and
+    # `it("refuses points: 0 the way api mode does")` in
+    # frontend/src/data/static/source.test.ts is the other half of this pair.
+    # The message is asserted whole because both sides now raise it verbatim,
+    # so a client writes one error path rather than one per mode.
+    query = '{ activity(id: "r0") { track(points: 0) { sec } } }'
+    assert f"points must be between 1 and {MAX_TRACK_POINTS}, got 0" in gql_errors(
+        year_client, query
+    )
+
+
+# ── CUI-0033: where "the same sentence in both modes" stops being true ─────
+UNREPRESENTABLE_POINTS = (
+    pytest.param("2.5", "non-integer", id="non-integer"),
+    pytest.param("2147483648", "32-bit", id="over-int32"),
+)
+"""``points`` literals the ``Int`` scalar cannot carry, and the word that says why.
+
+Both modes refuse both values, so the *decision* matches; only the sentence
+does not, which is the whole of CUI-0033 (b). Static mode answers each with
+``points must be between 1 and 1000, got ...`` from ``checkPoints``, because it
+has no scalar layer to be stopped by first.
+"""
+
+
+@pytest.mark.parametrize(("literal", "reason"), UNREPRESENTABLE_POINTS)
+def test_a_points_the_int_scalar_cannot_carry_is_refused_before_the_resolver(
+    year_client, literal, reason
+):
+    # CUI-0025 promised one error path for both modes. It holds for every value
+    # `Int!` can express and stops exactly here: coercion runs during execution
+    # set-up, so `_track_points` is never called and cannot contribute its
+    # sentence. Pinned so the divergence stays a documented boundary rather
+    # than being rediscovered as a bug -- and so that closing it would have to
+    # come here and say so.
+    body = year_client.post(
+        GRAPHQL_PATH,
+        json={"query": f'{{ activity(id: "r0") {{ track(points: {literal}) {{ sec }} }} }}'},
+    ).get_json()
+
+    message = " ".join(e["message"] for e in body["errors"])
+    assert "Int cannot represent" in message and reason in message
+    # The negative half carries the claim: without it this passes against a
+    # schema that reached the resolver after all and merely worded it oddly.
+    assert "points must be between" not in message
+    # A coercion failure is not a field error, so it nulls the response whole
+    # rather than nulling `track` and serving the activity around it.
+    assert body["data"] is None
+
+
+def test_an_unknown_activity_swallows_an_illegal_points_that_static_mode_refuses(year_client):
+    # CUI-0033 (c). `track` is a field on `Activity`, so a null parent means
+    # its resolver -- bounds check included -- never runs. Static mode checks
+    # `points` before it fetches anything, so the same call throws there. Not a
+    # bug on either side, but it is the last hole in "one error path", and QA
+    # asked for it written down rather than found again.
+    body = year_client.post(
+        GRAPHQL_PATH,
+        json={"query": '{ activity(id: "no-such-activity") { track(points: 0) { sec } } }'},
+    ).get_json()
+
+    assert "errors" not in body, body.get("errors")
+    assert body["data"] == {"activity": None}
+
+
+def test_an_unknown_activity_does_not_swallow_a_points_the_int_scalar_cannot_carry(year_client):
+    # The two divergences above meet here, and the second one wins: coercion
+    # happens before any resolver, so there is no null parent yet to absorb the
+    # value. So an unknown id hides an illegal `points` only while `Int!` can
+    # carry it -- a seam neither CUI-0033 (b) nor (c) covers on its own.
+    body = year_client.post(
+        GRAPHQL_PATH,
+        json={"query": '{ activity(id: "no-such-activity") { track(points: 2.5) { sec } } }'},
+    ).get_json()
+
+    assert "Int cannot represent non-integer value: 2.5" in body["errors"][0]["message"]
+
+
+# ── CUI-0025: the bounds a client can only find by tripping over them ──────
+def _field_descriptions() -> dict[str, str]:
+    """Return ``{root field name: SDL description}`` for every field on Query."""
+    sdl = build_schema_from_sdl(schema.as_str())
+    return {name: (f.description or "") for name, f in sdl.query_type.fields.items()}
+
+
+LIST_FIELDS = ("activities", "weight", "weather", "warnings")
+"""The four root fields that take a ``limit``/``offset`` page window."""
+
+
+def test_the_sdl_states_the_range_track_points_must_fall_in():
+    sdl = build_schema_from_sdl(schema.as_str())
+    track = sdl.type_map["Activity"].fields["track"]
+
+    # The bare number will not do: MAX_TRACK_POINTS_PER_REQUEST is 10000, whose
+    # digits contain MAX_TRACK_POINTS's, so `"1000" in description` is already
+    # true of a description that never states this range at all.
+    assert f"(1-{MAX_TRACK_POINTS})" in (track.description or ""), (
+        "MAX_TRACK_POINTS lives in a Python docstring and a runtime error; a client "
+        "reading the SDL cannot see the ceiling until it trips over it"
+    )
+
+
+@pytest.mark.parametrize("field", LIST_FIELDS)
+def test_the_sdl_states_the_range_limit_must_fall_in(field):
+    descriptions = _field_descriptions()
+
+    assert f"(1-{MAX_PAGE_SIZE})" in descriptions[field], (
+        f"`{field}` takes a limit bounded by MAX_PAGE_SIZE and says so nowhere in the SDL"
+    )
+
+
+def test_the_year_description_does_not_mention_a_limit_it_has_no_argument_for():
+    # S-053. `year` spends the same row budget as the list fields, so it carries
+    # the budget sentence -- but it takes no `limit`, and a sentence saying the
+    # charge is "on `limit` as asked for" sends its reader looking for an
+    # argument that is not there.
+    sdl = build_schema_from_sdl(schema.as_str())
+    year = sdl.query_type.fields["year"]
+    assert "limit" not in year.args, "this test is stale: `year` grew a limit argument"
+
+    assert "`limit`" not in (year.description or ""), (
+        "`year` has no `limit` argument, so its description must not explain a charge "
+        "in terms of one"
+    )
+
+
+@pytest.mark.parametrize("field", LIST_FIELDS + ("year",))
+def test_every_field_that_spends_the_row_budget_says_so(field):
+    # The half of S-053 that must survive splitting the note in two: `year`
+    # loses the `limit` sentence but keeps the shared budget one.
+    #
+    # Held against LIST_ROWS_NOTE itself rather than against the bare number in
+    # it. `str(MAX_LIST_ROWS_PER_REQUEST) in description` passes on any
+    # description that happens to contain those digits -- including one where
+    # the budget sentence has decayed to a stray 4000 -- and it is the shape
+    # 72dfcb5, one commit earlier in the same lane, spent a commit message
+    # explaining why the `(1-1000)` assertions do not use (S-065).
+    assert LIST_ROWS_NOTE.strip() in _field_descriptions()[field]
 
 
 # ── AU-001: query depth and token limits ───────────────────────────────────
@@ -988,7 +1208,11 @@ DOCUMENTED_WORST_CASES = (
     ),
     ("52 parents of one activity share one batch", _parent_flood(52), 990, 106),
     ("52 parents of different activities share none", _distinct_parent_flood(52), 990, 208),
-    ("a document that takes no track is not bounded here", _list_flood(166), 998, 332),
+    # The fourth row used to be `_list_flood(166)`, served for 332 statements
+    # under the sentence "no budget here bounds it". CUI-0027 gave it a budget,
+    # so it is no longer a *served* worst case and no longer belongs in a table
+    # of them; `test_the_widest_list_fan_out_is_refused_after_the_budget` is
+    # where it is pinned now.
 )
 """(label, document, tokens, statements) for each worst case the docstrings cite.
 
@@ -1293,14 +1517,27 @@ def test_a_skipped_track_is_not_charged(year_client):
     assert len(rows[0]["charged"]) == 1
 
 
-# ── AU-047 W-014: the budgets fail closed when they were never seeded ──────
+# ── AU-047 W-014 / CUI-0027 W-027: every budget fails closed when never seeded ──
 TRACK_QUERY = f'{{ activity(id: "{TRACKED_ACTIVITY_ID}") {{ track(points: 10) {{ sec }} }} }}'
 
+UNSEEDED_DOCUMENTS = [
+    pytest.param(TRACK_QUERY, ("activity", "track"), id="track"),
+    pytest.param("{ activities { id } }", ("activities",), id="activities"),
+    pytest.param("{ year { year } }", ("year",), id="year"),
+]
+"""One document per charge site _RequestBudgets seeds a budget for, and where its rows land.
 
-def _track_rows(result) -> list:
-    activity = (result.data or {}).get("activity") or {}
-    return activity.get("track") or []
+``track`` reaches :func:`_charge_track_field`; ``activities`` and ``year`` reach
+``_charge_list_rows``, which the extension's own docstring says "reads it the
+same way". Until CUI-0027 W-027 only the track half had an assertion behind
+that sentence, so a change to the seeding would turn ``track`` red while the
+list half went quietly unbounded -- the exact state CUI-0027 fixed, restored
+with nobody watching.
 
+``year`` is listed beside ``activities`` because it reaches the same charge
+from its own call site, on :data:`DEFAULT_PAGE_SIZE` rather than on a client
+``limit``, so ``activities`` alone would not cover it.
+"""
 
 NOT_SEEDED = "not seeded"
 """Words from the unseeded-budget refusal, asserted rather than left to truthiness.
@@ -1311,36 +1548,192 @@ budget as ``.get(KEY, MAX_...)`` instead: the frozen context below still comes
 back with an error, but it is ``'mappingproxy' object does not support item
 assignment``, raised where the charge writes the counter back. The refusal is
 incidental to that context and does not generalise -- the same mutant, given a
-plain ``dict``, serves the track unbounded. Naming the message is what tells
-those two apart.
+plain ``dict``, serves the field unbounded. Naming the message is what tells
+those two apart, on every document above.
 """
 
 
-def test_track_fails_closed_when_the_schema_has_no_budget_extension(year_session):
-    # A schema built without _TrackBudget seeds nothing. Serving the track
-    # anyway would mean an unbounded request, so it must refuse instead.
-    unbounded = strawberry.Schema(query=Query, extensions=[])
+def _rows_at(result, path) -> list:
+    """Rows *result* served under *path*, or ``[]`` where the refusal nulled it away."""
+    node = result.data or {}
+    for key in path:
+        node = (node or {}).get(key) or {}
+    return node or []
 
-    result = unbounded.execute_sync(TRACK_QUERY, context_value={"session": year_session})
+
+def _unbounded_schema():
+    """A schema that seeds no budgets, of the class ``build_schema`` really returns.
+
+    The class matters, not just the missing extension: the schema subclass is
+    where an unseeded budget is told apart from a refusal a client earned, so a
+    plain ``strawberry.Schema`` here would let
+    ``test_an_unseeded_budget_still_logs_its_traceback`` pass against
+    Strawberry's own default rather than against anything this module does
+    (CUI-0029). Read off the built schema rather than imported by name so that
+    it keeps meaning "whatever production builds" if the class is ever renamed
+    or swapped -- the point is the sameness, not the identifier.
+    """
+    return type(schema)(query=Query, extensions=[])
+
+
+@pytest.mark.parametrize(("document", "path"), UNSEEDED_DOCUMENTS)
+def test_a_budget_fails_closed_when_the_schema_has_no_budget_extension(
+    year_session, document, path
+):
+    # A schema built without _RequestBudgets seeds nothing. Serving the field
+    # anyway would mean an unbounded request, so it must refuse instead.
+    unbounded = _unbounded_schema()
+
+    result = unbounded.execute_sync(document, context_value={"session": year_session})
 
     assert result.errors
     assert NOT_SEEDED in result.errors[0].message
-    assert _track_rows(result) == []
+    assert _rows_at(result, path) == []
 
 
-def test_track_fails_closed_when_the_context_cannot_be_seeded(year_session):
-    # A read-only Mapping is not a MutableMapping, so _TrackBudget skips it --
-    # but info.context["session"] still reads, so track is reachable. The
-    # invariant is that the *missing budget* is what refuses the field. This
-    # context happens to reject the write back as well, so it would error
-    # either way; NOT_SEEDED is what pins the reason rather than the symptom.
+@pytest.mark.parametrize(("document", "path"), UNSEEDED_DOCUMENTS)
+def test_a_budget_fails_closed_when_the_context_cannot_be_seeded(year_session, document, path):
+    # A read-only Mapping is not a MutableMapping, so _RequestBudgets skips it
+    # -- but info.context["session"] still reads, so the field is reachable. The
+    # invariant is that the *missing budget* is what refuses it. This context
+    # happens to reject the write back as well, so it would error either way;
+    # NOT_SEEDED is what pins the reason rather than the symptom.
     frozen = MappingProxyType({"session": year_session})
 
-    result = schema.execute_sync(TRACK_QUERY, context_value=frozen)
+    result = schema.execute_sync(document, context_value=frozen)
 
     assert result.errors
     assert NOT_SEEDED in result.errors[0].message
-    assert _track_rows(result) == []
+    assert _rows_at(result, path) == []
+
+
+# ── CUI-0029: a refusal the client earned is not logged as a server fault ──
+REFUSED_DOCUMENTS = (
+    pytest.param(
+        "{{ {} }}".format(
+            " ".join(f"{alias}: activities(limit: {MAX_PAGE_SIZE}) {{ id }}" for alias in "abcde")
+        ),
+        id="list-rows",
+    ),
+    pytest.param(
+        _fan_out_query(YEAR_DAYS, MAX_TRACK_POINTS),
+        id="track-points",
+    ),
+)
+"""One document per charge site that a client can drive past its budget.
+
+Both, not one: ``_charge_list_rows`` and ``_charge_track_field`` raise from two
+different call sites, and CUI-0029 measured nine absolute-path frames on each.
+A fix applied to only one of them would leave the other amplifying log volume
+exactly as before, with the suite still green.
+"""
+
+
+def _strawberry_records(caplog):
+    """The records Strawberry's execution logger emitted, refusals included."""
+    return [record for record in caplog.records if record.name == "strawberry.execution"]
+
+
+@pytest.mark.parametrize("document", REFUSED_DOCUMENTS)
+def test_a_budget_refusal_is_not_logged_as_a_server_fault(year_client, caplog, document):
+    # The refusal is what the budget exists to produce, so it is not a fault.
+    # Measured before the fix: one ERROR record per refused request carrying
+    # exc_info, which renders as nine frames naming absolute source paths and
+    # the interpreter's site-packages directory -- on a public, unauthenticated
+    # endpoint where one refusal costs the client 998 tokens.
+    #
+    # exc_info, not the rendered text: `logging` only formats a traceback when
+    # a handler asks it to, so asserting on formatted output would pass or fail
+    # according to the handler pytest happens to install rather than according
+    # to what the record carries into a deployment's own handlers.
+    #
+    # The level is the other half, and the half a deployment feels: at ERROR
+    # the most common entry in the log is a refusal working as designed, which
+    # buries the real 500s underneath it. Captured at DEBUG so the assertion
+    # reads the level off the record rather than deciding in advance which
+    # levels are allowed to be seen at all.
+    with caplog.at_level(logging.DEBUG, logger="strawberry.execution"):
+        assert gql_errors(year_client, document)
+
+    records = _strawberry_records(caplog)
+    assert records, "the refusal must still be logged -- silence is not the fix here"
+    assert [record.exc_info for record in records] == [None] * len(records)
+    assert [record.levelno for record in records] == [REFUSAL_LOG_LEVEL] * len(records)
+    # The constant is imported rather than spelled out so this test follows the
+    # decision, and bounded here so it cannot follow it back to where it began:
+    # REFUSAL_LOG_LEVEL = logging.ERROR would satisfy the line above on its own.
+    assert REFUSAL_LOG_LEVEL < logging.ERROR, "a refusal logged at ERROR is the state being fixed"
+
+
+@pytest.mark.parametrize(("document", "path"), UNSEEDED_DOCUMENTS)
+def test_an_unseeded_budget_still_logs_its_traceback(year_session, caplog, document, path):
+    # The other half of the same line, and the reason the fix cannot simply
+    # stop Strawberry logging exc_info. An unseeded budget means the schema was
+    # built wrong or the context could not be written to: nobody's request
+    # caused it and no client can act on it, so it is exactly the case a
+    # traceback is for. Only the client-driven refusal loses one.
+    unbounded = _unbounded_schema()
+
+    with caplog.at_level(logging.DEBUG, logger="strawberry.execution"):
+        result = unbounded.execute_sync(document, context_value={"session": year_session})
+
+    assert NOT_SEEDED in result.errors[0].message
+    records = _strawberry_records(caplog)
+    assert records, "a misconfigured schema must not go unlogged"
+    assert all(record.exc_info for record in records)
+    # Named, not just truthy: `exc_info` would also be set if the refusal had
+    # simply kept raising ValueError, which is the state this ticket removes.
+    assert all(issubclass(record.exc_info[0], RuntimeError) for record in records)
+    assert all(record.levelno == logging.ERROR for record in records)
+
+
+class _ResolverFaultError(Exception):
+    """An error no client asked for, raised to stand in for a real server fault."""
+
+
+def test_an_unexpected_resolver_error_is_still_logged_as_a_server_fault(
+    year_client, caplog, monkeypatch
+):
+    # The invariant the level drop is most likely to break. `process_errors`
+    # sees *every* error an operation produces -- refusals, validation errors,
+    # coercion failures and genuine faults alike -- so classifying one kind and
+    # quietly taking the rest with it is a one-line mistake that no budget test
+    # would notice. Anything unrecognised keeps Strawberry's own treatment.
+    #
+    # A resolver that breaks mid-request is that case at its starkest: there is
+    # no refusal, no client to blame and nothing in the response to act on, so
+    # the traceback in the log is all an operator gets.
+    def explode(_session):
+        raise _ResolverFaultError("the database went away")
+
+    monkeypatch.setattr(service, "meta", explode)
+
+    with caplog.at_level(logging.DEBUG, logger="strawberry.execution"):
+        assert gql_errors(year_client, "{ year { year } }")
+
+    records = _strawberry_records(caplog)
+    assert records, "a server fault must not go unlogged"
+    assert all(record.levelno == logging.ERROR for record in records)
+    # Named rather than merely truthy, for the same reason as above: this has
+    # to be *this* fault's traceback and not some other error's.
+    assert all(record.exc_info for record in records)
+    assert all(issubclass(record.exc_info[0], _ResolverFaultError) for record in records)
+
+
+@pytest.mark.parametrize("document", REFUSED_DOCUMENTS)
+def test_a_budget_refusal_still_tells_the_client_where_it_happened(year_client, document):
+    # `locations` and `path` are what make the refusal actionable: they name
+    # the field in the client's own document that overspent. They survive only
+    # because the refusal is raised carrying the resolver's nodes and path --
+    # drop either and graphql-core rebuilds the error around the raised one,
+    # which is precisely what puts the traceback back. So this is the assertion
+    # that fails if the mechanism above is quietly undone.
+    body = year_client.post(GRAPHQL_PATH, json={"query": document}).get_json()
+
+    error = body["errors"][0]
+    assert "budget exhausted" in error["message"]
+    assert error["locations"], "a refusal with no location cannot be traced to a field"
+    assert error["path"], "a refusal with no path cannot be traced to a field"
 
 
 # ── AU-050: one statement per batch of tracks, not two per track ───────────
@@ -1846,3 +2239,439 @@ def test_a_batch_mixing_sampled_and_whole_tracks_stays_at_two_arms(mixed_batch_c
     assert wide_steps / MAX_TRACK_FIELDS_PER_REQUEST < BATCH_COST_FLAT_CEILING * (
         narrow_steps / BATCH_COST_NARROW
     )
+
+
+# ── CUI-0027: a per-request bound on the rows a fan-out reads ──────────────
+LIST_FLOOD_WIDTH = 166
+"""Aliased ``activities`` fields MAX_QUERY_TOKENS admits, taking no ``track``.
+
+998 of the 1000 tokens, and the shape CUI-0027 was filed as: 60,590 rows and
+3.1 s on the real export, the slowest legal document measured for that ticket
+bar an equally wide flood of ``year``. Written down so the tests below can be
+read, but derived rather than trusted -- see ``_widest_list_flood``.
+"""
+
+LIST_FLOOD_TOKENS = 998
+"""Tokens that flood lexes to, two short of MAX_QUERY_TOKENS.
+
+The half of the shape that used to live in DOCUMENTED_WORST_CASES and is still
+worth pinning: the parser is not what refuses this document, so a token limit
+that quietly crept down to meet it would take the row budget's test with it.
+"""
+
+ROW_FLOOD_NARROW = 8
+"""The narrow fan-out the wide one is compared against, in fields."""
+
+ROW_FLOOD_WIDE = 64
+"""The wide fan-out: eight times the narrow one, and still inside the budget.
+
+An eighth and a whole, the same ratio ``BATCH_COST_NARROW`` takes against
+MAX_TRACK_FIELDS_PER_REQUEST, so the widths differ by enough for growth to show
+over the fixed per-statement cost that dilutes it.
+"""
+
+ROW_FLOOD_LIMIT = MAX_LIST_ROWS_PER_REQUEST // ROW_FLOOD_WIDE
+"""Rows each field of those floods asks for, so the wide one just fits the budget."""
+
+ROW_FLOOD_FLAT_CEILING = 1.1
+"""How far a per-field reading may move between the two widths.
+
+One-sided room for a SQLite build that emits a different number of opcodes for
+the same plan, not a measured spread -- the same allowance and the same reason
+as ``BATCH_COST_FLAT_CEILING``. Nothing about a page read grows with how many
+*other* pages the document opens, so the true figure is flat.
+"""
+
+CLIENT_LIST_DOCUMENTS = (
+    # Every document in frontend/src/data/api/queries.ts that spends this
+    # budget, reduced to the field that spends it. Each names no window, so
+    # each charges one DEFAULT_PAGE_SIZE page -- which is the whole of the
+    # claim that MAX_LIST_ROWS_PER_REQUEST costs the front end nothing.
+    ("ActivitiesQuery", "{ activities { id } }"),
+    ("WeightQuery", "{ weight { date } }"),
+    ("WeatherQuery", "{ weather { date } }"),
+    ("WarningsQuery", "{ warnings { date } }"),
+    ("YearQuery", "{ year { year } }"),
+)
+"""(name, reduced document) for each front-end query that pays the row budget."""
+
+
+@pytest.fixture
+def activity_rows_loaded():
+    """Count the ORM activity rows every session materialises while the fixture is alive."""
+    loaded = [0]
+
+    def tally(_session, obj):
+        if isinstance(obj, models.Activity):
+            loaded[0] += 1
+
+    # On the Session class, not an instance: create_app opens its own session
+    # per request, so a test client gives no session to attach to.
+    event.listen(Session, "loaded_as_persistent", tally)
+    try:
+        yield loaded
+    finally:
+        event.remove(Session, "loaded_as_persistent", tally)
+
+
+def _widest_list_flood() -> int:
+    """The most aliased ``activities`` fields MAX_QUERY_TOKENS lets through."""
+    fields = 1
+    while _token_count(_list_flood(fields + 1)) <= MAX_QUERY_TOKENS:
+        fields += 1
+    return fields
+
+
+def _windowed_list_flood(fields: int, limit: int) -> str:
+    """*fields* aliased ``activities``, each asking for *limit* rows and no track."""
+    return _document(" ".join(f"a{n}: activities(limit: {limit}) {{ id }}" for n in range(fields)))
+
+
+def test_the_widest_list_fan_out_reads_no_more_rows_than_the_budget(
+    year_client, activity_rows_loaded
+):
+    # The shape CUI-0027 was filed as: 166 aliased `activities`, no `track`
+    # anywhere, so neither track budget is spent and nothing used to bound it.
+    # What it costs is the rows it returns -- 166 pages of a whole year, 60,590
+    # of them, 3.1 s on the real export -- so that is what has to be bounded.
+    # Rows materialised rather than wall clock, for the reason `_batch_read`
+    # gives: a count is a property of the code where a second of CI is not.
+    widest = _widest_list_flood()
+    assert widest == LIST_FLOOD_WIDTH, "the token limit moved; so does this shape"
+    assert _token_count(_list_flood(widest)) == LIST_FLOOD_TOKENS
+
+    year_client.post(GRAPHQL_PATH, json={"query": _list_flood(widest), "variables": {}})
+
+    # `<=` with about 27% of slack on this fixture, deliberately (CUI-0027
+    # S-054). `year_db` holds 365 activities, so the eight pages the budget
+    # affords return 2,920 rows against the 4,000 they are charged, and this
+    # assertion is really 2920 <= 4000. Tightening it to that exact figure
+    # would pin the test to the fixture's size without buying protection: what
+    # it would catch is an undercharge, and `test_the_row_budget_is_the_boundary`
+    # already catches that exactly, by serving at the budget and refusing at
+    # budget + 1. Measured against a charge mutated to 75% of `limit`: that
+    # test fails, along with three others, while an exact count here would be
+    # the fourth rather than the only one. What this test is for is the
+    # question none of those answer -- whether anything bounds the shape at all
+    # -- and for that `<=` is the honest assertion. The 60,590 rows it read
+    # before the budget existed are 15x the bound, not 1.3x.
+    assert activity_rows_loaded[0] <= MAX_LIST_ROWS_PER_REQUEST, (
+        f"{widest} aliased list fields read {activity_rows_loaded[0]} rows; "
+        f"nothing is bounding the fan-out"
+    )
+
+
+def test_the_widest_list_fan_out_is_refused_after_the_budget(year_client, sql_count):
+    # The same document from the other side: what it costs before it is turned
+    # away. An error does not unwind the queries already sent, so what the
+    # budget has to hold is the served prefix -- which is the whole reason the
+    # charge lands before the SQL rather than after it.
+    affordable = MAX_LIST_ROWS_PER_REQUEST // DEFAULT_PAGE_SIZE
+    assert affordable < _widest_list_flood(), "the budget must be the binding limit here"
+
+    sql_count[0] = 0
+    body = gql_partial(year_client, _list_flood(_widest_list_flood()))
+
+    assert str(MAX_LIST_ROWS_PER_REQUEST) in " ".join(e["message"] for e in body["errors"])
+    assert sql_count[0] == affordable * SQL_PER_LIST_FIELD
+    # A list field is a non-null type, so the refusal propagates to the root
+    # and nulls the whole response rather than that one alias: 166 pages asked
+    # for, eight paid for, nothing returned. The client gets less than it would
+    # by asking for eight, which is the shape of every over-budget request here
+    # and is why `data` cannot be read for which aliases survived.
+    assert body["data"] is None
+
+
+def test_the_row_budget_is_the_boundary(year_client):
+    # Charged on the window asked for, not on the rows that come back, so the
+    # refusal lands before the SQL does. `year_db` holds 365 activities, so
+    # every page here returns fewer rows than it is charged for -- which is the
+    # point: an exact charge could only be levied after the query.
+    fits = _windowed_list_flood(ROW_FLOOD_WIDE, ROW_FLOOD_LIMIT)
+    assert len(gql(year_client, fits)) == ROW_FLOOD_WIDE
+
+    over = _windowed_list_flood(ROW_FLOOD_WIDE + 1, ROW_FLOOD_LIMIT)
+    assert _token_count(over) <= MAX_QUERY_TOKENS, "the parser must not be the one refusing"
+    message = gql_errors(year_client, over)
+    assert "row" in message.lower()
+    assert str(MAX_LIST_ROWS_PER_REQUEST) in message
+
+
+def test_a_refused_page_stops_the_operation_where_it_stands(year_client, sql_count):
+    # What follows from that non-null propagation, and the reason the two track
+    # budgets' sticky/not-sticky distinction has no counterpart here: the first
+    # refusal ends the operation, so a cheap page queued behind an over-large
+    # one is never reached whatever the counter was left holding. Spend all but
+    # `left` rows, then ask for one row too many, then for one that would fit.
+    spent = _windowed_list_flood(ROW_FLOOD_WIDE, ROW_FLOOD_LIMIT - 1)
+    left = MAX_LIST_ROWS_PER_REQUEST - ROW_FLOOD_WIDE * (ROW_FLOOD_LIMIT - 1)
+    document = _document(
+        spent[2:-2],
+        f"over: activities(limit: {left + 1}) {{ id }}",
+        f"under: activities(limit: {left}) {{ id }}",
+    )
+
+    sql_count[0] = 0
+    body = gql_partial(year_client, document)
+
+    assert [e["path"] for e in body["errors"]] == [["over"]]
+    assert str(MAX_LIST_ROWS_PER_REQUEST) in body["errors"][0]["message"]
+    # The pages before `over` are paid for; `over` issues nothing, because it
+    # is refused before its SQL; `under` is never resolved at all.
+    assert sql_count[0] == ROW_FLOOD_WIDE * SQL_PER_LIST_FIELD
+
+
+def test_the_row_budget_is_per_request_and_does_not_leak_across_requests(year_client):
+    # Two back-to-back requests that each spend the whole budget. Module-level
+    # mutable state would starve the second one.
+    query = _windowed_list_flood(ROW_FLOOD_WIDE, ROW_FLOOD_LIMIT)
+    for _ in range(2):
+        assert len(gql(year_client, query)) == ROW_FLOOD_WIDE
+
+
+def test_year_pays_a_page_of_the_row_budget(year_client):
+    # `year` takes no `limit` and opens no window, but it reads a whole
+    # calendar year of activities: 166 aliased `year` fields were the *slowest*
+    # document measured for CUI-0027, ahead even of the list flood it was filed
+    # as. Charging it one default page is what brings it inside the same bound.
+    affordable = MAX_LIST_ROWS_PER_REQUEST // DEFAULT_PAGE_SIZE
+    fits = _document(*(f"y{n}: year {{ year }}" for n in range(affordable)))
+    assert len(gql(year_client, fits)) == affordable
+
+    over = _document(*(f"y{n}: year {{ year }}" for n in range(affordable + 1)))
+    assert _token_count(over) <= MAX_QUERY_TOKENS, "the parser must not be the one refusing"
+    assert str(MAX_LIST_ROWS_PER_REQUEST) in gql_errors(year_client, over)
+
+
+@pytest.mark.parametrize(
+    ("name", "document"), CLIENT_LIST_DOCUMENTS, ids=[c[0] for c in CLIENT_LIST_DOCUMENTS]
+)
+def test_every_document_the_front_end_sends_is_inside_the_row_budget(
+    name, document, year_client, activity_rows_loaded
+):
+    # The claim the constant's docstring rests on: this budget costs today's
+    # clients nothing. Each of these charges one DEFAULT_PAGE_SIZE page, which
+    # is an eighth of it, so all five could be sent in one request and still be
+    # served -- and that is asserted rather than argued, below.
+    assert gql(year_client, document), f"{name} must still be served whole"
+    assert activity_rows_loaded[0] <= DEFAULT_PAGE_SIZE
+
+
+def test_the_whole_front_end_in_one_request_is_still_inside_the_row_budget(year_client):
+    every = _document(*(document[2:-2] for _, document in CLIENT_LIST_DOCUMENTS))
+    assert len(gql(year_client, every)) == len(CLIENT_LIST_DOCUMENTS)
+
+
+def test_every_list_field_at_the_maximum_page_is_still_inside_the_row_budget(year_client):
+    # The other end of "8x above real demand": all four list fields taken at
+    # MAX_PAGE_SIZE in one request is 4,000 rows exactly, and is served. A
+    # budget below that would make paging at the documented maximum a thing a
+    # client could only do one field at a time.
+    lists = ("activities", "weight", "weather", "warnings")
+    assert len(lists) * MAX_PAGE_SIZE == MAX_LIST_ROWS_PER_REQUEST
+
+    every = _document(*(f"{field}(limit: {MAX_PAGE_SIZE}) {{ date }}" for field in lists))
+    assert len(gql(year_client, every)) == len(lists)
+
+
+def _flood_steps(session, document: str) -> int:
+    """Return the VDBE steps *document* costs, executed against *session*.
+
+    Steps rather than seconds, for the reason ``_batch_read`` gives: SQLite's
+    progress callback fires once per virtual-machine instruction, so what comes
+    back is a count of work done -- deterministic for a given build and fixture
+    where a wall time is not.
+    """
+    steps = [0]
+
+    def tick():
+        steps[0] += 1
+        return 0
+
+    raw = session.connection().connection.dbapi_connection
+    raw.set_progress_handler(tick, 1)
+    try:
+        result = schema.execute_sync(document, context_value={"session": session})
+    finally:
+        raw.set_progress_handler(None, 1)
+    assert not result.errors, result.errors
+    return steps[0]
+
+
+def test_the_fan_out_cost_does_not_widen_with_the_document(year_session):
+    # The CUI-0019 lesson, asked of this half. That ticket's cause was AU-050
+    # buying a flat statement count with a predicate that grew with the batch,
+    # so the work went up with the square of the width while the count stayed
+    # put -- a statement count alone could not see it. The same trap is open
+    # here: the ticket's second suggested route was to batch the list fields
+    # too. Whatever bounds this fan-out, eight times the fields must cost about
+    # eight times the work and not sixty-four, so what is compared is the slope,
+    # in steps rather than seconds.
+    narrow = _flood_steps(year_session, _windowed_list_flood(ROW_FLOOD_NARROW, ROW_FLOOD_LIMIT))
+    wide = _flood_steps(year_session, _windowed_list_flood(ROW_FLOOD_WIDE, ROW_FLOOD_LIMIT))
+
+    assert wide / ROW_FLOOD_WIDE < ROW_FLOOD_FLAT_CEILING * (narrow / ROW_FLOOD_NARROW), (
+        "a field in a wide fan-out has started costing more than one in a "
+        "narrow fan-out: the list path has picked up a term that grows with "
+        "the width of the document (CUI-0019 in the other half)"
+    )
+
+
+COLLIDING_IDS = ("1", "01", "5", "05", "50", "500")
+"""Activity ids that are pure decimal and, unlike every other fixture here, not one width.
+
+This is the shape the rest of the suite has no fixture for, and the reason
+:data:`~run365days.api.service.SAMPLE_KEY_SEPARATOR` could be set to a decimal
+digit or dropped entirely without a single test going red (CUI-0028). The other
+fixtures number their activities ``r0`` and ``v0``..``v8``: a non-decimal prefix
+at a fixed width, so ``position + separator + id`` stays unambiguous whatever
+sits between the halves. Production ids are pure decimal but ten characters
+wide, and a fixed width is injective for the same reason. Neither shape can
+make the separator carry anything.
+
+Variable width is what makes it load-bearing. ``position=10`` on id ``"5"`` and
+``position=1`` on id ``"05"`` are one character apart in the key and are told
+apart only by the separator: at ``":"`` they build ``"10:5"`` and ``"1:05"``, at
+a decimal digit or at ``""`` they build the same string. The ``IN`` in
+:func:`~run365days.api.service._sample_filter` compares keys whole, so a
+collision does not raise -- the loser's rows simply come back as well, and the
+track is thinned to the wrong rows in silence. That pair is one of three live
+in this fixture, which is what makes the count below 10 and not 8: at
+``points=7`` the sampled positions 10, 20 and 30 on ``"5"`` build the keys that
+rows 1, 2 and 3 of ``"05"`` build too, so ``"05"`` comes back with 10 rows
+instead of 7. The same three pairs are why the ticket's own shape collides;
+that table is on CUI-0028 and this names its counterpart here rather than
+leaving the count to stand for it.
+
+These ids are not the ones CUI-0028 was filed with, and the reason is coverage
+rather than correctness: the ticket's own ``("1","01","10","2","20","002")``
+collides too, ``"01"`` coming back with 10 rows instead of 7 under both ``"0"``
+and ``""``, exactly as the ticket recorded. An execution note claiming that
+shape did not collide was wrong and has been withdrawn (W-029). What this
+fixture adds over it is the degenerate 0- and 1-row tracks and a different
+length per id, so the batch exercises the whole-track arm and the sampled arm
+at once.
+"""
+
+COLLIDING_TRACK_LENGTHS = (0, 1, 60, 101, 121, 201)
+"""Rows stored per id above, a different length each, keeping the degenerate 0 and 1."""
+
+
+def _write_id_track_db(path: Path, ids, lengths) -> None:
+    """A track database whose activity ids are given rather than derived from the index.
+
+    :func:`_write_track_db` names its activities ``prefix + index``, which can
+    only ever produce one width of id and a non-decimal prefix. This one takes
+    the ids, which is what :data:`COLLIDING_IDS` needs.
+    """
+    engine = create_engine(sqlite_url(path))
+    models.Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        session.add_all(
+            [
+                models.Meta(key="year", value="2021"),
+                models.Meta(key="generated_at", value="2026-01-01T00:00:00"),
+            ]
+        )
+        for index, (activity_id, stored) in enumerate(zip(ids, lengths, strict=True)):
+            activity = _activity_row(index, stored, has_gps=stored > 0)
+            activity.id = activity_id
+            session.add(activity)
+        session.commit()
+    engine.dispose()
+
+
+@pytest.fixture
+def colliding_session(tmp_path):
+    path = tmp_path / "colliding.db"
+    _write_id_track_db(path, COLLIDING_IDS, COLLIDING_TRACK_LENGTHS)
+    with db.session_scope(db.make_engine(path)) as session:
+        yield session
+
+
+def test_the_sample_key_separator_cannot_occur_in_a_position():
+    # The property SAMPLE_KEY_SEPARATOR's docstring names as the one thing the
+    # sample key rests on, asserted directly. Free: no database, no fixture,
+    # just the arithmetic that feeds the Python half of the key. The test below
+    # proves the consequence; this one states the intent, and is the one that
+    # says which way the constant may not be changed.
+    positions = sorted(
+        {
+            position
+            for total in COLLIDING_TRACK_LENGTHS + VARIED_TRACK_LENGTHS
+            for points in (1, 2, 3, 7, 21)
+            if 0 < points < total
+            for position in service._even_positions(total, points)
+        }
+    )
+    # Not vacuous, and not digit-blind: a separator set to a digit this sweep
+    # never rendered would otherwise slip through the loop below.
+    assert set("".join(str(position) for position in positions)) == set("0123456789")
+
+    # Called out on its own because "" is in every string, so the loop would
+    # report it as a collision at the first position rather than as what it is.
+    assert service.SAMPLE_KEY_SEPARATOR, (
+        "an empty separator sits in every key, so the two halves run together "
+        "and the key stops being injective"
+    )
+    for position in positions:
+        assert service.SAMPLE_KEY_SEPARATOR not in str(position), (
+            f"position {position} renders with SAMPLE_KEY_SEPARATOR "
+            f"{service.SAMPLE_KEY_SEPARATOR!r} inside it. Then a position and an "
+            "activity id can run together into a key another pair also builds, "
+            "and _sample_filter thins the wrong rows silently rather than raising"
+        )
+
+
+@pytest.mark.parametrize("points", [3, 5, 7, 10, 21, 37])
+def test_a_batch_of_variable_length_ids_thins_each_track_independently(colliding_session, points):
+    # The consequence, on the one fixture shape that can show it. Every id here
+    # is decimal and they are not all one width, so the sample key is injective
+    # only because of its separator -- see COLLIDING_IDS. Held against the same
+    # reference downsampler the fixed-width batch is held against, so a key
+    # collision reads as the wrong rows rather than as a count.
+    batched = service.tracks(colliding_session, COLLIDING_IDS, points)
+
+    for activity_id, stored in zip(COLLIDING_IDS, COLLIDING_TRACK_LENGTHS, strict=True):
+        expected = downsample(list(range(stored)), points)
+        got = [row["sec"] for row in batched[activity_id]]
+        assert got == expected, f"{activity_id!r}: stored={stored} points={points}"
+
+
+def test_duplicate_ids_in_a_batch_collapse_to_one_entry(varied_session, sql_params):
+    # ``tracks`` documents that duplicates are collapsed, and nothing asserted
+    # it. The returned mapping alone cannot: it is keyed by activity id, so a
+    # repeated id folds into one entry whether or not the dedupe is there. What
+    # the dedupe actually buys is bound parameters -- a repeated id would bind
+    # its own subquery id and a key per sample all over again, against a
+    # statement that raises rather than slows once it passes SQLite's ceiling
+    # (test_the_widest_batch_stays_under_sqlites_bound_parameter_ceiling). So
+    # the cost is measured, and that is the half of this test with teeth.
+    points = 7
+    repeated_ids = VARIED_IDS * 3
+    assert len(repeated_ids) > len(set(repeated_ids)), "the batch must actually repeat ids"
+
+    sql_params.clear()
+    repeated = service.tracks(varied_session, repeated_ids, points)
+    repeated_cost = list(sql_params)
+    sql_params.clear()
+    distinct = service.tracks(varied_session, VARIED_IDS, points)
+    distinct_cost = list(sql_params)
+
+    assert list(repeated) == list(VARIED_IDS), "one entry per distinct id, in the order asked"
+    assert repeated == distinct
+    assert repeated_cost == distinct_cost, (
+        "a repeated id is paying for itself again: the batch binds parameters "
+        "per copy rather than per distinct track"
+    )
+
+
+def test_an_empty_batch_reads_nothing_and_returns_nothing(varied_session, sql_params):
+    # The early return in `service.tracks`, which was the module's only
+    # uncovered statement (S-078). It is the one path that does not issue the
+    # grouped COUNT CUI-0033 (a) added, so what it is worth pinning is the cost,
+    # not the value: the empty mapping falls out of the comprehension above it
+    # either way, while removing the return sends an empty batch into SQL.
+    sql_params.clear()
+    assert service.tracks(varied_session, [], 7) == {}
+    assert list(sql_params) == [], "an empty batch must not reach the database"

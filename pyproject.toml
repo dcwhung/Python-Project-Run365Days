@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "run365days"
-version = "3.1.1"
+version = "3.2.0"
 description = "Personal running analytics: Garmin activity parsing, weather correlation, weight tracking and a dashboard"
 requires-python = ">=3.10"
 dependencies = [
@@ -26,6 +26,14 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=7",
+    # Coverage is a signal this project quotes rather than an optional extra of
+    # its own: the reports under .proj-docs/qa/ and .proj-docs/reviews/ cite a
+    # number, and several tickets name one as their verification. Leaving it
+    # out made every clone and every worktree install it by hand before it
+    # could measure anything (CUI-0032). Vercel never sees it -- requirements.txt
+    # and scripts/vercel-build.sh both install a bare ".", so the serverless
+    # function gets the core dependencies and no extras.
+    "pytest-cov>=5",
     "ruff>=0.5",
     "pre-commit>=3",
 ]
@@ -55,6 +63,16 @@ packages = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+# What a bare `pytest --cov` measures, so that it and `pytest --cov=src` are the
+# same run. Only the denominator is fixed here, and deliberately nothing else:
+# an `omit` would move every coverage number already quoted in .proj-docs/ away
+# from the figure it was recorded as, and `branch = true` would move it again.
+# No `fail_under` either -- a threshold is one more hardcoded number that drifts
+# out of step with the thing it describes (CUI-0024, CUI-0031), and this project
+# reads coverage as a signal rather than as a gate.
+[tool.coverage.run]
+source = ["src"]
 
 [tool.ruff]
 line-length = 100
@@ -89,6 +107,10 @@ convention = "google"
 
 [tool.ruff.lint.isort]
 known-first-party = ["run365days"]
+# `src` includes api/ (Vercel mandates api/graphql.py), which makes ruff read a bare
+# `graphql` import as this repo's own module. Name graphql-core explicitly so the
+# import sorts with the other third-party packages.
+known-third-party = ["graphql"]
 
 [tool.ruff.format]
 quote-style = "double"

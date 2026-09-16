@@ -19,7 +19,7 @@ type Activity {
   warnings: [String!]!
 
   """
-  GPS track, evenly downsampled to at most `points` samples. `points: 1` has nothing to space evenly and returns the track's last row alone, not its first. One request may read at most 64 `track` fields, totalling 10000 points. Both are counted across every `track` field in the request; points are charged on `points` as asked for, not on the rows a track turns out to hold. The field limit applies however small `points` is, because each `track` field costs the same query either way.
+  GPS track, evenly downsampled to at most `points` (1-1000) samples. `points: 1` has nothing to space evenly and returns the track's last row alone, not its first. Outside that range the field is refused rather than clamped -- `points: 0` in particular, which reads as `no limit` in every language whose falsy rules invite it, and is the fan-out AU-001 closed. One request may read at most 64 `track` fields, totalling 10000 points. Both are counted across every `track` field in the request; points are charged on `points` as asked for, not on the rows a track turns out to hold. The field limit applies however small `points` is, because each `track` field costs the same query either way.
   """
   track(points: Int! = 150): [TrackPoint!]!
 }
@@ -76,7 +76,9 @@ type Query {
   """Export metadata."""
   meta: Meta!
 
-  """Runs in start order, optionally filtered (dates inclusive)."""
+  """
+  Runs in start order, optionally filtered (dates inclusive). One request may open at most 4000 rows of pages in total, counted across every field in it that opens one. The window is `limit` (1-1000) rows from `offset` (0 or more); either side of that range is refused rather than clamped, and the budget above is charged on `limit` as asked for rather than on the rows a page turns out to hold.
+  """
   activities(fromDate: Date = null, toDate: Date = null, minKm: Float = null, hasGps: Boolean = null, limit: Int! = 500, offset: Int! = 0): [Activity!]!
 
   """
@@ -87,7 +89,9 @@ type Query {
   """One run by Garmin activity id."""
   activity(id: ID!): Activity
 
-  """Daily weigh-ins (dates inclusive)."""
+  """
+  Daily weigh-ins (dates inclusive). One request may open at most 4000 rows of pages in total, counted across every field in it that opens one. The window is `limit` (1-1000) rows from `offset` (0 or more); either side of that range is refused rather than clamped, and the budget above is charged on `limit` as asked for rather than on the rows a page turns out to hold.
+  """
   weight(fromDate: Date = null, toDate: Date = null, limit: Int! = 500, offset: Int! = 0): [WeightEntry!]!
 
   """
@@ -95,7 +99,9 @@ type Query {
   """
   weightCount(fromDate: Date = null, toDate: Date = null): Int!
 
-  """HKO daily weather (dates inclusive)."""
+  """
+  HKO daily weather (dates inclusive). One request may open at most 4000 rows of pages in total, counted across every field in it that opens one. The window is `limit` (1-1000) rows from `offset` (0 or more); either side of that range is refused rather than clamped, and the budget above is charged on `limit` as asked for rather than on the rows a page turns out to hold.
+  """
   weather(fromDate: Date = null, toDate: Date = null, limit: Int! = 500, offset: Int! = 0): [DailyWeather!]!
 
   """
@@ -103,7 +109,9 @@ type Query {
   """
   weatherCount(fromDate: Date = null, toDate: Date = null): Int!
 
-  """HKO warnings and signals (dates inclusive)."""
+  """
+  HKO warnings and signals (dates inclusive). One request may open at most 4000 rows of pages in total, counted across every field in it that opens one. The window is `limit` (1-1000) rows from `offset` (0 or more); either side of that range is refused rather than clamped, and the budget above is charged on `limit` as asked for rather than on the rows a page turns out to hold.
+  """
   warnings(fromDate: Date = null, toDate: Date = null, limit: Int! = 500, offset: Int! = 0): [WeatherWarning!]!
 
   """
@@ -111,7 +119,9 @@ type Query {
   """
   warningsCount(fromDate: Date = null, toDate: Date = null): Int!
 
-  """Aggregates for the exported year (or a given year)."""
+  """
+  Aggregates for the exported year (or a given year). Reads a whole year of runs, so it spends one default page (500 rows) of the same budget the list fields spend. One request may open at most 4000 rows of pages in total, counted across every field in it that opens one.
+  """
   year(year: Int = null): YearSummary!
 }
 
