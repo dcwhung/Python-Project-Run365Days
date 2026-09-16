@@ -7,7 +7,7 @@ database built from :class:`~run365days.export.records.ExportRecords`.
 
 from collections.abc import Iterable
 
-from sqlalchemy import ColumnElement, Select, String, cast, func, or_, select
+from sqlalchemy import ColumnElement, Select, String, Subquery, cast, func, or_, select
 from sqlalchemy.orm import Session, aliased, selectinload
 
 from run365days.export import models
@@ -195,25 +195,52 @@ def _stored_counts(session: Session, activity_ids: list[str]) -> dict[str, int]:
 SAMPLE_KEY_SEPARATOR = ":"
 """Separator joining a position to an activity id in the sample key.
 
-Any character would do, because the position comes *first*: it is a run of
-decimal digits, so the first separator in the key always ends it and the
-remainder is the whole activity id however many separators it contains. Put
-the id first instead and an id holding this character would make two different
-rows share a key -- which is why the order is the load-bearing half of this
-and the character is not.
+What makes the key injective is that one of its two halves cannot contain this
+character: a position is a run of decimal digits, so whichever end of the key
+it sits at is unambiguous, and the whole of the other half is the activity id
+however many separators that id itself holds. Nothing here ever parses a key
+back apart -- the ``IN`` compares them whole -- so injectivity is the only
+property needed.
+
+Position first is therefore an arbitrary choice, kept only because it reads
+well. An earlier revision of this docstring, of ``f57caa8``'s commit message
+and of CUI-0019 all said instead that id-first would let two rows share a key,
+and that is wrong: id-first is injective for exactly the same reason, off the
+*last* separator rather than the first. Both orders were brute-forced over ids
+holding separators, empty ids, leading zeros and non-ASCII, at zero collisions
+either way. The order is not the load-bearing half of this; the one thing the
+key does rest on is that a position never renders with this character in it
+(:func:`_sample_key`). Let that change and both orders break together, and the
+key stops matching silently rather than raising.
 """
 
 
-def _sample_key(numbered) -> ColumnElement:
+def _sample_key(numbered: Subquery) -> ColumnElement:
     """Return the expression naming a row of *numbered* as ``position:activity_id``.
 
     One value per row, so the whole batch can be selected by a single ``IN``
     against the keys :func:`_sample_filter` builds in Python, which is what
     keeps the predicate the same size at any batch width (CUI-0019).
 
-    The cast is not decoration: ``position`` is an integer column, and
-    SQLAlchemy renders ``concat`` on an integer as arithmetic addition rather
-    than as ``||``.
+    The cast is explicitness, not necessity, and an earlier revision of this
+    docstring had both of its reasons wrong. ``numbered.c.position`` is not an
+    integer column: it is a label over ``row_number() OVER (...) - 1``, which
+    SQLAlchemy cannot type and leaves as ``NullType``. And ``concat`` does not
+    render as arithmetic addition on an integer -- ``+`` does, but ``concat``
+    is the explicit ``concat_op`` and renders ``||`` whatever the operand type,
+    a real ``Integer`` column included. SQLite then coerces an integer to text
+    across ``||`` by itself, so dropping the cast changes neither the value nor
+    any test. What it changes is the type: without it the expression the ``IN``
+    binds against is ``NullType`` rather than ``String``, and neither the SQL
+    nor the SQLAlchemy expression says that this is text concatenation. The
+    cast is what puts that in writing, which is why it stays.
+
+    What the keys do rest on is that both sides render a position identically:
+    Python's ``str(int)`` and SQLite's ``CAST(... AS VARCHAR)`` agree on every
+    integer, which is why :func:`_even_positions` must keep returning ``int``.
+    A float would build ``2.0`` on the Python side against ``2`` on the SQL
+    side and match nothing -- thinning the wrong rows silently rather than
+    raising.
     """
     return (
         cast(numbered.c.position, String)
@@ -222,7 +249,9 @@ def _sample_key(numbered) -> ColumnElement:
     )
 
 
-def _sample_filter(numbered, activity_ids: list[str], totals: dict[str, int], points: int):
+def _sample_filter(
+    numbered: Subquery, activity_ids: list[str], totals: dict[str, int], points: int
+) -> ColumnElement:
     """Return the predicate keeping *points* even samples of every track in the batch.
 
     Each track gets its own positions, computed by :func:`_even_positions` in
