@@ -298,18 +298,48 @@ goes out. The same trade-off follows -- a client asking ``limit: 1000`` of a
 table holding 12 rows still pays 1000 -- which keeps the bound conservative
 rather than exact.
 
-What pays, and what does not:
+What pays, and what does not. The rule first, so that a root field added later
+has an answer here rather than a list of examples to reason from by analogy:
 
-* the four list fields, each charged its ``limit`` -- :data:`DEFAULT_PAGE_SIZE`
-  when the client names no window;
+    **A root field pays if and only if the rows it materialises grow with a
+    window** -- one the client names (``limit``) or one the data implies
+    (``year``'s calendar year). A field that materialises a fixed number of
+    rows however large the export grows does not pay, however much SQL it
+    issues to get there.
+
+The second clause is the one worth stating, because it is the one an example
+list cannot teach: a scalar aggregate scans the whole table it counts, and
+still does not pay, because it returns one row and it is *rows materialised*
+that this budget bounds. A new field that can be made to return more rows as
+the export grows, or as the client asks for more, pays -- and pays before its
+SQL goes out, the way the two charge sites below do.
+
+All eleven root fields the SDL has today, so the list is exhaustive rather than
+illustrative (CUI-0027 W-028):
+
+* the four list fields -- ``activities``, ``weight``, ``weather``, ``warnings``
+  -- each charged its ``limit``, :data:`DEFAULT_PAGE_SIZE` when the client
+  names no window;
 * ``year``, charged one :data:`DEFAULT_PAGE_SIZE` page. It takes no ``limit``
   and opens no window, but it reads a whole calendar year of activities
   unwindowed, which is the read DEFAULT_PAGE_SIZE was sized for;
 * ``activity(id:)`` does not pay. It reads one row by primary key, and
   :data:`MAX_QUERY_TOKENS` admits at most 90 of them: 90 rows and ~0.05 s on
   the export, some 300x inside the 15 s function, so charging it would buy
-  noise. The bound this constant states is therefore on *paged* reads, and a
-  request may hold that many rows plus up to 90 single ones.
+  noise;
+* the four ``*Count`` fields and ``meta`` do not pay either, by that same rule.
+  A count is one scan returning one row, and ``meta`` is the one-row export
+  header; neither widens with a window, so neither has a window to charge.
+  Aliasing is the only axis that multiplies them and :data:`MAX_QUERY_TOKENS`
+  bounds that: at the widest each admits, 332 aliased counts read 77-86 ms on
+  the export (the dearest is ``activitiesCount``, ~83 ms, some 180x inside the
+  function) and 166 aliased ``meta`` reads ~46 ms, some 320x. That is the
+  ``activity(id:)`` order of magnitude above, and charging them would buy the
+  same noise.
+
+So the bound this constant states is on *windowed* reads. A request may hold
+that many rows, plus up to 90 single ones, plus the fixed-size reads that do
+not pay.
 
 4000 is a ceiling rather than a figure any caller needs, the same way
 MAX_TRACK_POINTS_PER_REQUEST is. Every document the front end sends carries
