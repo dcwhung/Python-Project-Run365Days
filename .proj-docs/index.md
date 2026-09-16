@@ -1,6 +1,6 @@
 # 項目文件索引 — Run365Days
 
-**最後更新**：2026-09-16（**Round 3 delta re-review 完成 —— ✅ pass、90/100、0 Critical、0 Warning、hard gates 10/10 pass**：Python **402 tests**／前端 **131 tests（22 files）**／coverage **95% TOTAL**（1632 stmts）—— 三個數同 Round 2 逐字相同，配合 AST 比對證實 delta **production 行為零改動**。涵蓋 **W-029**（已 close：CUI-0028 票上原 repro 形狀**確實會撞**，`"01"` 回 10 行，QA 由頭到尾都啱；紀錄三處已更正，fixture / assertion / worked example 一個字都冇改）同 **S-067**（已 close：CUI-0028 DoD #4，`SAMPLE_KEY_SEPARATOR` docstring 指返兩條守住佢嘅測試）。**CUI-0028 DoD 五項全部可剔，可移去 completed。**⚠️ **Round 2 兩個講法已被證偽並更正**：(1) `python -B` **救唔到** stale `.pyc` —— `-B` 只阻止**寫入**、唔阻止**讀取**，A/B/C 三個組合實測得「清 `__pycache__`」嗰個至真係量到 mutant；(2) stale `.pyc` **解釋唔到** `""` 嗰個 case（size 9 ≠ 10，三個組合都會重新 compile）——「wanted key 對 wanted key 而唔係對 stored row」先解釋得晒，但**同一個 process 內 re-import（`sys.modules` 命中）亦解釋得晒**，成因原則上裁決唔到，所以防範措施綁方法唔綁成因（in-process `setattr` + `assert` mutant 生效 + 同獨立 oracle 比）。新開 **S-068…S-071**（4 🟢，全部係 docstring / ticket 措辭，零阻塞）＋ **S-072**（唔計分：Round 2 報告仍帶住已證偽嘅 `-B` 補救，宜加 superseded 指標）。**S-061…S-066 仍然 open**，評分時當 open 計。流程紀錄（非 blocker）：developer push 咗 feature branch 去 origin，lane brief 明文禁止，後果為零。上一條：Round 2 batch review ⚠️ warn 88/100）
+**最後更新**：2026-09-16（**P0 + P1 全部結案**：CUI-0019 / 0020 / 0022 / 0023 / 0024 / 0025 / 0027 / 0028 / 0032 標 completed；review 三輪 84→95、88→90 pass，QA 兩輪 0 Critical；Python 402 tests / 前端 131 tests / coverage 95%；新開 CUI-0029 至 CUI-0036 八張 follow-up）
 
 > 本目錄為 ai-dev-team 產出文件嘅 Single Source of Truth。
 > 每次有新文件輸出，必須喺此更新條目同頂部日期。
