@@ -1705,6 +1705,16 @@ is read as fixed by construction rather than as "the fixture happens to build
 one arm". Two is the most this predicate can ever carry.
 """
 
+BATCH_COST_UNSAMPLED_ARMS = 1
+"""Arms the whole-track control's statement carries, at any width.
+
+The same number as BATCH_COST_SAMPLED_ARMS and *not* the same claim, which is
+why it is pinned separately rather than borrowed: ``points=None`` never
+reaches ``_sample_filter`` at all, so what this says is that the statement
+carries no disjunction whatever -- not that the sample predicate is down to a
+single ``IN``. The two could move apart without either being wrong.
+"""
+
 BATCH_COST_FLAT_CEILING = 1.1
 """How far a per-track reading is allowed to move between the two widths.
 
@@ -1818,7 +1828,7 @@ def test_the_batch_predicate_does_not_widen_with_the_batch(batch_cost_engine):
     flat_narrow, flat_narrow_sql = _batch_read(batch_cost_engine, BATCH_COST_NARROW, None)
     flat_wide, flat_wide_sql = _batch_read(batch_cost_engine, MAX_TRACK_FIELDS_PER_REQUEST, None)
 
-    assert _or_arms(flat_narrow_sql) == _or_arms(flat_wide_sql) == BATCH_COST_SAMPLED_ARMS
+    assert _or_arms(flat_narrow_sql) == _or_arms(flat_wide_sql) == BATCH_COST_UNSAMPLED_ARMS
     assert flat_wide / MAX_TRACK_FIELDS_PER_REQUEST < BATCH_COST_FLAT_CEILING * (
         flat_narrow / BATCH_COST_NARROW
     ), "the unsampled path is the flat one this test is calibrated against"
