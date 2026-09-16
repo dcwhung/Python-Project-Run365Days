@@ -322,7 +322,21 @@ illustrative (CUI-0027 W-028):
   names no window;
 * ``year``, charged one :data:`DEFAULT_PAGE_SIZE` page. It takes no ``limit``
   and opens no window, but it reads a whole calendar year of activities
-  unwindowed, which is the read DEFAULT_PAGE_SIZE was sized for;
+  unwindowed, which is the read DEFAULT_PAGE_SIZE was sized for. Alone among
+  the charges here this one is a **proxy rather than a ceiling**: it is exact
+  only while a year holds at most DEFAULT_PAGE_SIZE runs, and a year holding
+  more would be undercharged rather than refused. Every other charge on this
+  list is an upper bound on what the field can read; this one is an estimate
+  of it. That is the same assumption the dashboard's unwindowed read already
+  makes, and DEFAULT_PAGE_SIZE is where it gives first -- a year past 500 runs
+  stops the front end showing a whole year before it starts costing this
+  budget its accuracy, so the proxy is not the thing that breaks. It is also
+  calibrated: measured on the export, eight ``year`` fields and eight
+  ``activities(limit: 500)`` both spend the whole 4000 and both materialise
+  2,920 activity rows, at 145 ms against 151 ms, so the proxy tracks what it
+  stands in for to within some 4%. The ~380 warning rows a ``year`` field
+  materialises alongside are charged no more than the identical ~380 an
+  ``activities`` page pulls in the same way, so they are not a ``year`` quirk;
 * ``activity(id:)`` does not pay. It reads one row by primary key, and
   :data:`MAX_QUERY_TOKENS` admits at most 90 of them: 90 rows and ~0.05 s on
   the export, some 300x inside the 15 s function, so charging it would buy
