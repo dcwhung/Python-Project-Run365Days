@@ -7,7 +7,7 @@ database built from :class:`~run365days.export.records.ExportRecords`.
 
 from collections.abc import Iterable
 
-from sqlalchemy import ColumnElement, Select, and_, func, or_, select
+from sqlalchemy import ColumnElement, Select, String, cast, func, or_, select
 from sqlalchemy.orm import Session, aliased, selectinload
 
 from run365days.export import models
@@ -192,6 +192,36 @@ def _stored_counts(session: Session, activity_ids: list[str]) -> dict[str, int]:
     return dict(rows.all())
 
 
+SAMPLE_KEY_SEPARATOR = ":"
+"""Separator joining a position to an activity id in the sample key.
+
+Any character would do, because the position comes *first*: it is a run of
+decimal digits, so the first separator in the key always ends it and the
+remainder is the whole activity id however many separators it contains. Put
+the id first instead and an id holding this character would make two different
+rows share a key -- which is why the order is the load-bearing half of this
+and the character is not.
+"""
+
+
+def _sample_key(numbered) -> ColumnElement:
+    """Return the expression naming a row of *numbered* as ``position:activity_id``.
+
+    One value per row, so the whole batch can be selected by a single ``IN``
+    against the keys :func:`_sample_filter` builds in Python, which is what
+    keeps the predicate the same size at any batch width (CUI-0019).
+
+    The cast is not decoration: ``position`` is an integer column, and
+    SQLAlchemy renders ``concat`` on an integer as arithmetic addition rather
+    than as ``||``.
+    """
+    return (
+        cast(numbered.c.position, String)
+        .concat(SAMPLE_KEY_SEPARATOR)
+        .concat(numbered.c.activity_id)
+    )
+
+
 def _sample_filter(numbered, activity_ids: list[str], totals: dict[str, int], points: int):
     """Return the predicate keeping *points* even samples of every track in the batch.
 
@@ -202,6 +232,16 @@ def _sample_filter(numbered, activity_ids: list[str], totals: dict[str, int], po
     round-half-to-even on every track length, and ``downsample`` is the
     reference the samples are held against.
 
+    Those positions reach SQL as one ``IN`` over :func:`_sample_key` rather
+    than as one ``activity_id = ? AND position IN (...)`` arm per track. The
+    arms were what AU-050 shipped, and they made this predicate as wide as the
+    batch: SQLite evaluates the whole disjunction against every row the
+    numbered subquery scans, so the work grew with batch width times batch
+    rows -- 8.9x the pre-AU-050 cost at 365 tracks, where it should have been
+    flat (CUI-0019). A single ``IN`` over a list of constants is one ephemeral
+    index and a lookup per row, so the predicate now costs the same whether
+    the batch holds one track or all of them.
+
     Args:
         numbered: Subquery whose rows carry ``activity_id`` and ``position``.
         activity_ids: Tracks wanted, with no duplicates.
@@ -209,10 +249,11 @@ def _sample_filter(numbered, activity_ids: list[str], totals: dict[str, int], po
         points: Samples wanted per track.
 
     Returns:
-        A predicate over *numbered* selecting the wanted rows.
+        A predicate over *numbered* selecting the wanted rows: at most two
+        arms, and never zero for a non-empty batch.
     """
     whole: list[str] = []
-    sampled: list[ColumnElement] = []
+    keys: list[str] = []
     for activity_id in activity_ids:
         total = totals.get(activity_id, 0)
         if total <= points:
@@ -220,15 +261,16 @@ def _sample_filter(numbered, activity_ids: list[str], totals: dict[str, int], po
             # which is also the trackless case and so is never an empty batch.
             whole.append(activity_id)
         else:
-            sampled.append(
-                and_(
-                    numbered.c.activity_id == activity_id,
-                    numbered.c.position.in_(_even_positions(total, points)),
-                )
+            keys.extend(
+                f"{position}{SAMPLE_KEY_SEPARATOR}{activity_id}"
+                for position in _even_positions(total, points)
             )
+    arms: list[ColumnElement] = []
+    if keys:
+        arms.append(_sample_key(numbered).in_(keys))
     if whole:
-        sampled.append(numbered.c.activity_id.in_(whole))
-    return or_(*sampled)
+        arms.append(numbered.c.activity_id.in_(whole))
+    return or_(*arms)
 
 
 def tracks(
@@ -236,16 +278,25 @@ def tracks(
 ) -> dict[str, list[dict]]:
     """Return the stored track of every activity in *activity_ids*, in two statements.
 
-    The cost is flat in the size of the batch: one grouped COUNT, then one
-    SELECT over a ``row_number() OVER (PARTITION BY activity_id ORDER BY seq)``
-    subquery. Before AU-050 every track paid those two statements on its own,
-    so the count grew with the page;
+    The statement count is flat in the size of the batch: one grouped COUNT,
+    then one SELECT over a
+    ``row_number() OVER (PARTITION BY activity_id ORDER BY seq)`` subquery.
+    Before AU-050 every track paid those two statements on its own, so the
+    count grew with the page;
     ``test_a_page_of_tracks_costs_the_same_statements_however_wide_it_is`` is
     what now holds it flat, and ``SQL_PER_TRACK_BATCH`` is the figure.
 
-    What batching trades away is bound parameters: the position IN lists that
-    used to be spread over 2N statements now arrive in one, and a statement
-    over SQLite's ``SQLITE_MAX_VARIABLE_NUMBER`` raises rather than slows. The
+    Two statements are not by themselves two statements' worth of work, and for
+    a while here they were not: AU-050 bought the flat count with a predicate
+    that carried an arm per track, so the SELECT's own cost grew with the width
+    of the batch even though its count did not (CUI-0019). It is
+    :func:`_sample_filter` that keeps the predicate a fixed size, and
+    ``test_the_batch_predicate_does_not_widen_with_the_batch`` that holds it
+    there, since a statement count alone cannot see that kind of regression.
+
+    What batching trades away is bound parameters: the samples that used to be
+    named across 2N statements are now named in one, and a statement over
+    SQLite's ``SQLITE_MAX_VARIABLE_NUMBER`` raises rather than slows. The
     caller is what bounds them. This function will happily read a thousand
     tracks in one go; :mod:`run365days.api.schema` never asks for more than its
     per-request track budgets still cover, which is what keeps the widest legal
