@@ -138,7 +138,11 @@ in a container or against a different year's exports.
   GraphQL API (Flask test client against a temporary database) and the
   CLI serialiser (133 tests).
 - **pre-commit** runs the same ruff checks locally.
-- **GitHub Actions** (`.github/workflows/pages.yml`) runs lint and tests on
-  every push and pull request to `master`, then builds and deploys the
-  static dashboard on pushes only. Vercel builds the API-mode deployment
-  from the same commits; both are described in [deployment.md](deployment.md).
+- **GitHub Actions** (`.github/workflows/pages.yml`) runs the ruff and
+  pytest gates above, together with the frontend checks, on the branches
+  that workflow gates, and builds and deploys the static dashboard from the
+  one branch it designates as the deploy source. The workflow file is the
+  source of truth for the branch list and for each job's steps; this page
+  does not restate them, so there is nothing here to fall out of sync.
+  Vercel builds the API-mode deployment from the same package; both
+  deployments are described in [deployment.md](deployment.md).
