@@ -498,7 +498,10 @@ def test_the_type_graph_stays_one_level_below_the_depth_limit():
     # one and that silently becomes "fires on the deepest legal document", which
     # is a change worth noticing rather than discovering from a client. This is
     # what notices it.
-    sdl_types = build_schema_from_sdl(schema.as_str()).type_map.values()
+    # Both readings below are questions about this one SDL, not two schemas.
+    sdl = build_schema_from_sdl(schema.as_str())
+
+    sdl_types = sdl.type_map.values()
     assert not [
         t.name for t in sdl_types if isinstance(t, GraphQLInterfaceType | GraphQLUnionType)
     ], (
@@ -509,7 +512,7 @@ def test_the_type_graph_stays_one_level_below_the_depth_limit():
         "types before trusting the number below"
     )
 
-    root = build_schema_from_sdl(schema.as_str()).query_type
+    root = sdl.query_type
     reachable = _deepest_selection(root) - 1
 
     assert reachable == DEEPEST_REACHABLE_DEPTH, (
