@@ -174,10 +174,10 @@ Lane D 為 `ActivitySkipped` 加咗 `# noqa: N818`。ruff 嘅 `N818` 要求 exce
 |---|---|---|---|
 | CUI-0001 | 🟡 Major | 必填數值行裸 `float()` 繞過 W-005；`inf` 令 Pages build 崩潰但 Vercel 照 ship `Infinity` | ✅ **Done** `3723849` `e5b04f1` |
 | CUI-0002 | 🟡 Major | 改用 `zoneinfo` 後未宣告 `tzdata`，`pytz` 成死依賴 | ✅ **Done** `9559231` |
-| CUI-0003 | 🟢 Minor | depth limit 實際永遠唔會觸發（schema 最深 4 層，limiter 要 `max_depth=3` 先拒） | pending |
-| CUI-0004 | 🟢 Minor | `track(points: 1)` 只回最後一點，同 docstring 承諾不符 | pending |
+| CUI-0003 | 🟢 Minor | depth limit 實際永遠唔會觸發（schema 最深 4 層，limiter 要 `max_depth=3` 先拒） | ✅ **completed 2026-09-16**（QA wave 1 pass） |
+| CUI-0004 | 🟢 Minor | `track(points: 1)` 只回最後一點，同 docstring 承諾不符 | ✅ **completed 2026-09-16**（QA wave 2 pass） |
 | CUI-0005 | 🟢 Minor | `app.test_client()` 過 ~130 request 洩漏 session（已確認係 test client artifact，真 WSGI server 400/400 正常） | pending |
-| **CUI-0006** | 🟢 Low | `parse_datetime` 嘅 ISO-with-offset 分支無視 `timezone` 參數 | pending（新開） |
+| **CUI-0006** | 🟢 Low | `parse_datetime` 嘅 ISO-with-offset 分支無視 `timezone` 參數 | ✅ **completed 2026-09-16**（QA wave 1 pass） |
 
 ### CUI-0002 修復摘要
 
@@ -451,7 +451,7 @@ Developer 冇求其揀一邊，佢揾到決定性證據：
 | ID | 級別 | 標題 | 狀態 |
 |---|---|---|---|
 | **AU-037** | 🟡 **升級** | `SunMoon` 冇 collector —— 而家變成 load-bearing | pending |
-| **CUI-0014** | 🟢 Low | `from_raw_row()` 對缺失 STRING 欄位預設 `""` 而舊 code 出 `None` | pending |
+| **CUI-0014** | 🟢 Low | `from_raw_row()` 對缺失 STRING 欄位預設 `""` 而舊 code 出 `None` | ✅ **completed 2026-09-16**（QA wave 1 pass） |
 
 **AU-037 升級理由**：排除 sunrise/sunset 之後，一次重新採集會寫出一個冇 sun/moon 欄位嘅 `hko_daily_weather_extract.json`，令 export 出嘅 sunrise/sunset 變 `None`。資料唔會損壞、export 亦唔會爆，但 dashboard 會失去呢兩個欄位，直到 `SunMoon` collector 移植好為止。**呢個係排除決定嘅誠實代價，唔係新引入嘅 regression** —— collector 從來都冇呢啲值。
 
@@ -525,7 +525,7 @@ Repo 外：GitHub `github-pages` environment deployment branch｜Vercel Producti
 
 | ID | 級別 | 標題 | 狀態 |
 |---|---|---|---|
-| **CUI-0015** | 🟢 Low | `docs/architecture.md:142` 嘅 CI 描述**同一 session 內過時兩次**，應改為自動同步 | pending |
+| **CUI-0015** | 🟢 Low | `docs/architecture.md:142` 嘅 CI 描述**同一 session 內過時兩次**，應改為自動同步 | ✅ **completed 2026-09-16**（QA wave 2 pass） |
 
 呢段喺 AU-004 之後由 W-001 修好，W-011 之後**又再過時**。根本問題係一段描述 CI 行為嘅文字同 `pages.yml` 之間冇任何同步機制。建議參考本 repo 已經證明有效嘅 `run365-schema --check frontend/schema.graphql` pattern。
 
@@ -613,8 +613,8 @@ Repo 外：GitHub `github-pages` environment deployment branch｜Vercel Producti
 
 | ID | 級別 | 標題 | 狀態 |
 |---|---|---|---|
-| **CUI-0016** | 🟡 Major | `ActivityView` 將 track 載入失敗誤報成「Activity not found.」—— `ActivityView.tsx:70` 有 `all.isError` 處理但**冇** `track.isError`，所以 track 失敗跌落 `:71` 嗰條「唔存在」分支，連已經成功載入嘅 KPI／天氣一併丟棄。唔會白畫面（乾淨 early return，無需 ErrorBoundary），純粹係訊息報錯咗因 | pending |
-| **CUI-0017** | 🟢 Minor | `src/api/schema.py:84` 寫「Worst case is therefore 64 × 2 = 128 statements」，但實測 request 層面去到 **208**：每個 aliased `activity(id:)` parent 本身要 ~2 條語句（`session.get` + `selectinload`），而且個 track 就算被拒都照收 —— 呢半邊唔受 field cap 約束，只受 token limiter 約束。Bound 本身冇問題（86 倍 headroom），純文件準確性 | pending |
+| **CUI-0016** | 🟡 Major | `ActivityView` 將 track 載入失敗誤報成「Activity not found.」—— `ActivityView.tsx:70` 有 `all.isError` 處理但**冇** `track.isError`，所以 track 失敗跌落 `:71` 嗰條「唔存在」分支，連已經成功載入嘅 KPI／天氣一併丟棄。唔會白畫面（乾淨 early return，無需 ErrorBoundary），純粹係訊息報錯咗因 | ✅ **Done** `88c5c6f` `b84b7b7`（2026-09-15） |
+| **CUI-0017** | 🟢 Minor | `src/api/schema.py:84` 寫「Worst case is therefore 64 × 2 = 128 statements」，但實測 request 層面去到 **208**：每個 aliased `activity(id:)` parent 本身要 ~2 條語句（`session.get` + `selectinload`），而且個 track 就算被拒都照收 —— 呢半邊唔受 field cap 約束，只受 token limiter 約束。Bound 本身冇問題（86 倍 headroom），純文件準確性 | ✅ **completed 2026-09-16**（QA wave 1 pass） |
 | **CUI-0018** | 🟢 Minor | Budget 拒絕嘅 GraphQL error 得 `['locations','message','path']`，**冇 `extensions.code`**，client 只能 match 由常數 f-string 砌出嚟嘅字串（常數一改就靜靜哋失效）。另外 non-null propagation 令一個被拒 track 清空成個 `data`（連成功嘅 sibling `meta` 都冇）。今日不可達，AU-050 之前應處理 | pending |
 
 > ✅ Response **零洩漏**：177 bytes、無 stacktrace、無絕對路徑、無 context key 名。W-013 特登唔講出 `track_points_remaining` 係啱嘅。
@@ -805,9 +805,9 @@ Reviewer round 2 **兩處都撤回**，並自我診斷：
 
 | ID | 級別 | 內容 | 狀態 |
 |---|---|---|---|
-| **CUI-0019** | 🟠 High | AU-050 嘅 `_sample_filter()` 砌 N 條 OR arm，SQLite 對 subquery 每 row 評估晒 → **O(batch²)**。真實 export（134,041 track row）上 field cap 嗰個 fan-out **67 ms → 158.7 ms（2.37×）**，128 條 3.9×，365 條 8.9×（3.8 秒）。Statement count 的確 130 → 4，但 wall clock 升咗 | pending |
-| **CUI-0020** | 🟡 Medium | docstring 嘅 wall-clock 喺 `year_db` fixture（**600** 條 track row）量，卻用嚟論證 production（**134,041** 條，224×）嘅餘裕。同一 shape fixture 10.4 ms vs production 165.6 ms（16×）；「some 60x inside the 15 s Vercel function」production 實際係 **38×** | pending |
-| **CUI-0021** | 🔵 Low | api / static 取樣 rounding 差一個 index（**pre-existing**，今日不可達） | pending |
+| **CUI-0019** | 🟠 High | AU-050 嘅 `_sample_filter()` 砌 N 條 OR arm，SQLite 對 subquery 每 row 評估晒 → **O(batch²)**。真實 export（134,041 track row）上 field cap 嗰個 fan-out **67 ms → 158.7 ms（2.37×）**，128 條 3.9×，365 條 8.9×（3.8 秒）。Statement count 的確 130 → 4，但 wall clock 升咗 | ✅ **completed 2026-09-16**（QA pass，四條 DoD 獨立核實） |
+| **CUI-0020** | 🟡 Medium | docstring 嘅 wall-clock 喺 `year_db` fixture（**600** 條 track row）量，卻用嚟論證 production（**134,041** 條，224×）嘅餘裕。同一 shape fixture 10.4 ms vs production 165.6 ms（16×）；「some 60x inside the 15 s Vercel function」production 實際係 **38×** | ✅ **completed 2026-09-16**（QA pass；blocker 已由 CUI-0019 解除） |
+| **CUI-0021** | 🔵 Low | api / static 取樣 rounding 差一個 index（**pre-existing**，今日不可達） | ✅ **completed 2026-09-16**（QA wave 2 pass） |
 
 ### QA 等價性證據（0 Critical 嘅依據）
 
@@ -900,23 +900,23 @@ Hard gates：363 passed / ruff clean / format clean / SDL up to date / coverage 
 
 | ID | 級別 | 內容 | 狀態 |
 |---|---|---|---|
-| **CUI-0022** | 🔵 Low | `activity_time_range()`（`src/common/time.py:167`）係 dead code —— 全 repo 零 caller，亦係 `time.py` 唯一未覆蓋嘅代碼（L178-182），令 93.2% 呢個 coverage 訊號被溝淡。**pre-existing，唔係 CUI-0006 引入** | pending |
-| **CUI-0023** | 🔵 Low | ✅ **completed 2026-09-16** — **CUI-0004 引嘅 coverage 依據已過期**：AU-050 令 `service.py` 由 84 → 103 statement，AU-047 C-001 嘅 `track(points: 1)` 測試順帶覆蓋咗 `_even_positions` 嗰條早返 branch。`return [total - 1]` 而家喺 L152 **已有覆蓋**，唯一未覆蓋嘅係 L257（`tracks()` 空輸入護欄，GraphQL 入唔到）。**CUI-0004 嘅核心 bug 仍然有效**（`_even_positions(600, 1) = [599]`，冇 first），只係佢個 title 同 coverage 依據要更正 | pending |
-| **CUI-0024** | 🟢 Low | 清 AU-035 嗰批 `docs/` 既有 drift：`README.md` / `docs/architecture.md` 寫「three console scripts」實際 4 個、`architecture.md` 引用已消失嘅 `write_data_js`、三處寫死嘅測試數量（133 / 93 / 87）全部過期。Main agent 已逐項核實。建議優先**移除**寫死數字而唔係更新佢哋（同 CUI-0015 揀方案 3 同一理由）。已核實「all nine views」同 CHANGELOG 嘅 `write_data_js` **正確，唔好改** | pending |
-| **CUI-0025** | 🟢 Low | **`S-011` 兩半今日仍然成立**：(a) `points: 0` 喺 api mode 被拒（`_track_points` 1–1000 bounds），喺 static mode 回全部點（`source.ts:66` `points ? downsample(...) : rows` 短路）；(b) `MAX_TRACK_POINTS` / `MAX_PAGE_SIZE` 兩個界仍然冇寫入 SDL，前端睇 `schema.graphql` 見唔到。⚠️ CUI-0021 之後 `downsample` 對 `limit < 2` 回最後一點，所以而家有三種可能行為，執票時唔可以求其揀。**唔好將 api mode 改返「0 = 攞全部」** —— 嗰個係 AU-001 堵咗嘅 DoS 向量 | pending |
+| **CUI-0022** | 🔵 Low | `activity_time_range()`（`src/common/time.py:167`）係 dead code —— 全 repo 零 caller，亦係 `time.py` 唯一未覆蓋嘅代碼（L178-182），令 93.2% 呢個 coverage 訊號被溝淡。**pre-existing，唔係 CUI-0006 引入** | ✅ **completed 2026-09-16**（QA pass） |
+| **CUI-0023** | 🔵 Low | ✅ **completed 2026-09-16** — **CUI-0004 引嘅 coverage 依據已過期**：AU-050 令 `service.py` 由 84 → 103 statement，AU-047 C-001 嘅 `track(points: 1)` 測試順帶覆蓋咗 `_even_positions` 嗰條早返 branch。`return [total - 1]` 而家喺 L152 **已有覆蓋**，唯一未覆蓋嘅係 L257（`tracks()` 空輸入護欄，GraphQL 入唔到）。**CUI-0004 嘅核心 bug 仍然有效**（`_even_positions(600, 1) = [599]`，冇 first），只係佢個 title 同 coverage 依據要更正 | ✅ **completed 2026-09-16**（Main agent 結案） |
+| **CUI-0024** | 🟢 Low | 清 AU-035 嗰批 `docs/` 既有 drift：`README.md` / `docs/architecture.md` 寫「three console scripts」實際 4 個、`architecture.md` 引用已消失嘅 `write_data_js`、三處寫死嘅測試數量（133 / 93 / 87）全部過期。Main agent 已逐項核實。建議優先**移除**寫死數字而唔係更新佢哋（同 CUI-0015 揀方案 3 同一理由）。已核實「all nine views」同 CHANGELOG 嘅 `write_data_js` **正確，唔好改** | ✅ **completed 2026-09-16**（QA pass） |
+| **CUI-0025** | 🟢 Low | **`S-011` 兩半今日仍然成立**：(a) `points: 0` 喺 api mode 被拒（`_track_points` 1–1000 bounds），喺 static mode 回全部點（`source.ts:66` `points ? downsample(...) : rows` 短路）；(b) `MAX_TRACK_POINTS` / `MAX_PAGE_SIZE` 兩個界仍然冇寫入 SDL，前端睇 `schema.graphql` 見唔到。⚠️ CUI-0021 之後 `downsample` 對 `limit < 2` 回最後一點，所以而家有三種可能行為，執票時唔可以求其揀。**唔好將 api mode 改返「0 = 攞全部」** —— 嗰個係 AU-001 堵咗嘅 DoS 向量 | ✅ **completed 2026-09-16**（QA pass） |
 
 > **CUI-0026 更正（2026-09-16）**：上面「149 係質數」呢個歸因**錯咗**，同質數無關。
 > 判準係 `d = limit - 1` 嘅奇偶：tie 要 `2i(n-1) = d(2k+1)`，`d` 奇數時左邊偶、右邊奇，永遠無解。
 > 即 **`limit` 偶數 ⇒ 完全免疫；`limit` 奇數 ⇒ 會 tie**。反例：`limit=64`（63 = 3²×7，非質數）零 tie。
 > Main agent 已窮舉核實（`limit` 2..400 × `n` ≤ 1000：偶數 0 個分歧、奇數 68,503 個）。
 > `TRACK_POINTS = 600` 因此有兩重保護：`n <= limit` 早返，**加上** 599 係奇數。
-| **CUI-0027** | 🟠 High | **List fan-out 冇 budget 綁住**：166 個 aliased `activities`（零 track）喺 production 上 **~3,100 ms**（developer 3,228 / reviewer 獨立 3,072），領先第二名（最差 track shape 272.5 ms）11 倍；15 s Vercel function 只得 **4.9×** 餘裕，而所有 track shape 有 50×+。998 token、public endpoint、零成本可觸發。`schema.py:173` 自己寫住「no budget here bounds it」。⚠️ 修嘅時候留意 CUI-0019 教訓：**statement 數唔等於成本** | pending |
-| **CUI-0028** | 🟡 Medium | **`SAMPLE_KEY_SEPARATOR` 個承重不變式冇 gate**：QA mutation testing 發現將 separator 改成 `"0"` 或 `""`，365 條測試照樣全綠。個 invariant 係真嘅（變長純數字 id 之下會**靜靜攞錯行**：`position=5,id="01"` 同 `position=50,id="1"` 都砌出 `"5001"`），但 suite 入面冇一個 fixture 有「令 separator 變成承重」嗰種形狀 —— production id 係 10 位固定寬度。**非 blocker**。順帶：`tracks()` docstring 講 "Duplicates are collapsed" 亦零測試斷言過 | pending |
+| **CUI-0027** | 🟠 High | **List fan-out 冇 budget 綁住**：166 個 aliased `activities`（零 track）喺 production 上 **~3,100 ms**（developer 3,228 / reviewer 獨立 3,072），領先第二名（最差 track shape 272.5 ms）11 倍；15 s Vercel function 只得 **4.9×** 餘裕，而所有 track shape 有 50×+。998 token、public endpoint、零成本可觸發。`schema.py:173` 自己寫住「no budget here bounds it」。⚠️ 修嘅時候留意 CUI-0019 教訓：**statement 數唔等於成本** | ✅ **completed 2026-09-16**（QA pass，DoD 第 2 項明文豁免） |
+| **CUI-0028** | 🟡 Medium | **`SAMPLE_KEY_SEPARATOR` 個承重不變式冇 gate**：QA mutation testing 發現將 separator 改成 `"0"` 或 `""`，365 條測試照樣全綠。個 invariant 係真嘅（變長純數字 id 之下會**靜靜攞錯行**：`position=5,id="01"` 同 `position=50,id="1"` 都砌出 `"5001"`），但 suite 入面冇一個 fixture 有「令 separator 變成承重」嗰種形狀 —— production id 係 10 位固定寬度。**非 blocker**。順帶：`tracks()` docstring 講 "Duplicates are collapsed" 亦零測試斷言過 | ✅ **completed 2026-09-16**（QA pass） |
 
 | **CUI-0029** | 🟡 Medium | **被 budget 拒絕嘅 request 喺 server log 留完整 traceback**：`_charge_list_rows` / `_charge_track_field` 掟 `ValueError`，Strawberry 當成未預期錯誤，喺**預設 log level**（唔使 `basicConfig`）就已經以 `ERROR` + `exc_info` 記低 **9 個帶絕對路徑嘅 frame**（含 `/.venv/lib/python3.11/site-packages/`）。`track` 同 `list` 兩條路徑都有。回俾 client 嗰面**乾淨**（只有一句 message，零內部細節），問題純粹喺 log。觸發成本 998 token / public / 免認證 ⇒ **log 量放大**。**pre-existing**，以 **S-055** 身分跨三輪 review 未開票。建議掟 `GraphQLError`；⚠️ `RuntimeError`（budget 未 seed）要繼續 log | ✅ **completed 2026-09-16**（QA pass，0 Critical）|
 | **CUI-0030** | 🟡 Medium | **四個 view 仲用 raw `error.message`**：`OverviewView.tsx:20,21` / `YearView.tsx:28` / `ActivitiesView.tsx:67`。CUI-0016 造嘅 `readableError()` 只用咗喺 `ActivityView.tsx`。用真 `createApiSource` 打真 server 實測：被拒時 raw `.message` 係 **601–620 字元、含 GraphQL document 原文**嘅序列化 blob，`readableError()` 收成 62 字元一句。**同 CUI-0016 對 AU-047 嘅關係逐字一樣** —— 唔係 CUI-0027 引入，但 CUI-0027 新增咗一個可達成因。**今日前端撞唔到**（五個 document 各 charge 500 / 4000，餘裕 8×），所以唔阻 CUI-0027 結案 | ✅ **completed 2026-09-16**（QA pass，0 Critical）|
 | **CUI-0031** | 🟢 Low | **CUI-0024 嘅 follow-up**：移除寫死測試數字嗰陣**換走咗句子主語**（「**93 tests** cover X」→「**The Python suite** covers X」），後面個 list 一隻字冇改，於是一個準確嘅**局部**清單變成唔完整嘅**整體**描述。README 完全冇提 `test_api.py`(123) / `test_activities_parsers.py`(70) / weather(57) = **250/382 = 65%**；`architecture.md` 漏 33%；Vitest 段漏 7/22 個檔案（含 CUI-0016 嘅回歸釘 `errors.test.ts` 同 `ActivityView.test.tsx`）。⚠️ **唔好**改成列齊每個檔案 —— 咁只係將 drift 由「數字」搬去「清單」。建議改主語（「Among other things…」）。CUI-0024 其餘各項 QA 已逐句重驗**全部成立**（every builder function / every view's model module / all nine views 三句實測過） | ✅ **completed 2026-09-16**（QA pass，0 Critical）|
-| **CUI-0032** | 🟢 Low | `pytest-cov` 唔喺 `[dev]` extras（得 pytest / ruff / pre-commit），但 coverage 係本項目經常引用嘅訊號，每個新 clone / worktree 都要手動 `pip install pytest-cov`（本 session 兩條 lane 各撞過一次）。⚠️ 執票時要核實 Vercel 唔裝 optional extras 呢個前提 | pending |
+| **CUI-0032** | 🟢 Low | `pytest-cov` 唔喺 `[dev]` extras（得 pytest / ruff / pre-commit），但 coverage 係本項目經常引用嘅訊號，每個新 clone / worktree 都要手動 `pip install pytest-cov`（本 session 兩條 lane 各撞過一次）。⚠️ 執票時要核實 Vercel 唔裝 optional extras 呢個前提 | ✅ **completed 2026-09-16**（QA pass） |
 | **CUI-0033** | 🟡 Medium | `track()` 三個未對齊邊界：(a) **omitted 唔受 `MAX_TRACK_POINTS` 管** —— `track(id, 1200)` 拒絕但 `track(id)` 照回 1200 點，即個常數係「可以問幾多」嘅上限唔係「會收到幾多」；`run365-export --points 1200` 令兩 mode 分歧原樣返嚟（S-061 實測版）(b) 非整數 / 超 Int32 兩邊都拒但句子唔同 (c) 未知 id + 非法 points 一邊掟錯一邊回 null | ✅ **completed 2026-09-16**（QA pass，0 Critical）|
 | **CUI-0034** | 🟢 Low | `MAX_TRACK_POINTS = 1000` 兩種語言各寫死一次；TS 側被三個字面量釘住 ⇒ 改 TS 有 3 條紅，但**改 Python 只會令 SDL check 紅，更新 SDL 之後兩邊分歧而全綠** —— gate 係**單向**嘅（S-062 收緊版，同 S-065 同一形態）| ✅ **completed 2026-09-16**（QA pass，0 Critical）|
 | **CUI-0035** | 🟡 Medium | Vercel 入口 `api/graphql.py` 嘅 start-up 失敗路徑（`_error_app()` 成個 function + 通往佢嘅唯一 `except`）**零測試**，而 `[tool.coverage.run] source=["src"]` 令佢**永久唔入分母** ⇒ 「deploy 爛咗嗰陣仲睇得到點解爛」呢個功能冇人守（S-066 量化版）| pending |
