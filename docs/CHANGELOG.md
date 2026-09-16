@@ -4,6 +4,59 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Release branches
 are named `release/vX` and tags `vX.Y.Z`.
 
+## [3.1.1] - 2026-09-16 - `develop`
+
+Nine tickets from the pending queue, cleared in three batches. Two behaviour
+changes; everything else is documentation the measurements had outgrown, and
+the tests that now hold those claims to the code.
+
+### Fixed
+- `_sample_filter` no longer builds one `OR` arm per track. SQLite had to
+  evaluate all of them against every row of the `row_number()` subquery, so
+  the batch AU-050 introduced cost O(batch squared): 64 tracks took 140 ms
+  against the real export where the per-track implementation it replaced took
+  65 ms, and 365 tracks took 3.8 s. One `IN` over a composite key restores a
+  flat cost per row -- 64 tracks in 41 ms, 0.62x of the pre-AU-050 figure at
+  every width measured -- while keeping the two statements AU-050 bought. The
+  batch reads fewer bound parameters than before, not more (CUI-0019).
+- `parse_datetime` converts an ISO timestamp carrying an offset into the
+  requested zone, and recognises a negative one. The branch tested for `"+"`,
+  so `-05:00` reached neither it nor the UTC branch and died in the naive
+  `strptime` below, taking the whole file with it. GPX and TCX write UTC `Z`
+  and were converted; KML writes the local offset and was not, so the three
+  exports of one run disagreed by an hour anywhere outside Hong Kong -- and
+  `_TIMESTAMP_FORMAT` carries no offset, so the evidence was gone by the time
+  the row was written. Verified byte-identical over 1,087 activity records and
+  328,752 track points (CUI-0006).
+- The static sampler rounds half to even, as Python does, instead of half up.
+  22.6% of the `(length, points)` pairs the sampler can be asked for over the
+  123 track lengths the export holds land on a tie, where the two deployment
+  modes drew different indices. None is reachable while `TRACK_POINTS` is 600,
+  which is both above every stored track and even -- an odd `limit` is what
+  makes a tie possible at all (CUI-0021).
+
+### Documented
+- `track(points: 1)` returns the last row alone rather than the first, in the
+  docstring and in the SDL description, matching `downsample` deliberately
+  (CUI-0004).
+- `MAX_QUERY_DEPTH` stays 5 and says outright that it cannot fire against this
+  schema; an alias flood is wide rather than deep, and `MAX_QUERY_TOKENS` is
+  what refuses one. Two tests hold the limiter to its edge, one of which goes
+  red if anyone deepens the type graph (CUI-0003).
+- Every wall clock quoted by `MAX_TRACK_FIELDS_PER_REQUEST` names the scale it
+  was read at, and the Vercel headroom is read off the export rather than
+  inferred from a 600-row fixture (CUI-0020, CUI-0017).
+- A missing string column reads as empty text rather than `None`, recorded
+  where the choice is made and pinned by tests (CUI-0014).
+- The CI prose no longer repeats `pages.yml`'s branch list or job steps, which
+  had gone stale twice in one session, and points at the workflow instead
+  (CUI-0015).
+
+### Known
+- Nothing bounds the list fan-out: 166 aliased `activities` fields with no
+  track at all take about 3.1 s on the real export, eleven times the worst
+  legal track shape and within 4.9x of the 15 s function limit (CUI-0027).
+
 ## [3.1.0] - 2026-09-15 - `develop`
 
 ### Added

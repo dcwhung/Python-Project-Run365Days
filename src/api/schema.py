@@ -106,8 +106,12 @@ to 224x in QA's 2026-09-15 batch report -- and since AU-050 the batch read is
 the one path here whose cost follows that total, so a fixture reading of a
 *wide* batch does not carry to production, while a reading of anything else
 roughly does. QA measured both scales on 2026-09-15 (CUI-0020) and every
-figure below names the scale it came from; none of them is asserted, so none
-of them goes red on its own. They are quoted to one significant figure on
+figure below names the scale it came from. The export column was taken again
+when CUI-0019 changed the batch predicate, which is the half of this the
+export's size reaches; the figures below are that re-reading, and the ones QA
+published on 2026-09-15 are named where the two differ. None of them is
+asserted, so none of them goes red on its own. They are quoted to one
+significant figure on
 purpose: an earlier revision wrote two of them as two-figure intervals
 (``0.07-0.08``, ``0.17-0.21``) and both were narrower than the same machine
 produced on a re-run, which reads as a measured bound when it is not one
@@ -117,15 +121,21 @@ assertion, and a wall time in CI buys a flaky test rather than a guarantee:
 * The shortest way to saturate this cap is one list field -- not the only
   way. ``activities(limit: 64) { track(points: 1) }`` is 19 tokens and issues
   4 statements (2 for the list, 2 for the one batch its 64 tracks share) in
-  ~0.01 s on the fixture but ~0.2 s on the export (10.4 ms and 165.6 ms, a
-  16x gap), and the only reading here that moves with the export's size at
-  all, since this is the one shape whose batch is wide. ``limit: 65``
-  issues the same 4 before refusing the 65th -- the cap holds on a refused
-  request, which is the point of charging before the SQL -- in ~0.01 s on the
-  fixture, unmeasured on the export and bounded there by the served case
-  beside it. Aliasing 64 ``track`` fields of one activity under a single
-  parent reaches the same 4 for 714 tokens in ~0.02 s at either scale
-  (20.8 ms fixture, 21.7 ms export: that batch reads one activity's track, so
+  ~0.01 s on the fixture but 53 ms on the export (13.3 ms and 52.7 ms, a
+  4x gap). The export figure is given in ms rather than as ~0.05 s because it
+  sits within a hair of the 0.055 boundary: a re-run reading 58 ms rounds to
+  0.06 instead, so here the single figure is the unstable part and the ms is
+  the steady one. It is also the only reading here that moves with the
+  export's size at all, since this is the one shape whose batch is wide.
+  That gap was 16x while the sample predicate grew with the batch (QA read
+  165.6 ms on 2026-09-15); CUI-0019 is what closed it, and this is the one
+  line in this docstring that fix moves. ``limit: 65`` issues the same 4 before refusing
+  the 65th -- the cap holds on a refused request, which is the point of
+  charging before the SQL -- in ~0.01 s on the fixture and ~0.05 s on the
+  export (13.6 ms and 53.8 ms), which is the served case beside it plus the
+  refusal, as it should be. Aliasing 64 ``track`` fields of one activity under
+  a single parent reaches the same 4 for 714 tokens in ~0.02 s at either scale
+  (24.2 ms fixture, 23.8 ms export: that batch reads one activity's track, so
   what it scans is that track's rows and not the export's), and its 65th field
   is refused by this cap too: that route is longer in tokens, not out of
   reach.
@@ -135,28 +145,37 @@ assertion, and a wall time in CI buys a flaky test rather than a guarantee:
   :data:`MAX_QUERY_TOKENS`, where 53 lexes to 1009 and no longer parses. Both
   are legal and fully served. What they cost turns on whether their tracks can
   share a batch: 52 parents naming *one* activity issue 106 statements
-  (52 x 2 + 2) in ~0.07 s on the fixture and ~0.08 s on the export (68.7 ms
-  and 78.2 ms), while 52 parents naming 52 *different* activities cannot
-  share and issue 208 (52 x 2 + 52 x 2) in ~0.1 s on the fixture and ~0.2 s
-  on the export (141.4 ms and 194.8 ms) -- more than the cap alone would
-  suggest. Neither moved by as much as 1.4x between the two scales, because
-  every batch these open is a single-track batch and scans one track whatever
-  else the export holds. The Vercel headroom is therefore read off the export
-  rather than off any fixture figure: the worst legal shape QA measured there
-  on 2026-09-15 came to 390 ms, some 38x inside the 15 s function, so the
-  headroom is tens of times over and not the sixty an earlier revision
-  inferred from fixture readings. AU-050 flattened the fan-out under one
-  parent; it does not flatten a document that spends itself on parents.
+  (52 x 2 + 2) in 68 ms on the fixture and 69 ms on the export -- in ms for
+  the same reason as the shape above, since ~0.07 s sits on the 0.065
+  boundary and a re-run reading 64 ms rounds to 0.06 instead -- while 52
+  parents naming 52 *different* activities cannot share and issue 208
+  (52 x 2 + 52 x 2) in ~0.1 s on the fixture and ~0.2 s on the
+  export (128.9 ms and 166.3 ms) -- more than the cap alone would suggest.
+  Neither moved by as much as 1.4x between the two scales, and neither moved
+  with CUI-0019 either, for the same reason: every batch these open is a
+  single-track batch and scans one track whatever else the export holds. The
+  Vercel headroom is therefore read off the export rather than off any fixture
+  figure: the worst legal shape that takes a ``track`` is
+  ``activities(limit: 64) { track(points: 156) }``, which reads ~0.3 s there,
+  some 50x inside the 15 s function. That was 390 ms and 38x when QA measured
+  it on 2026-09-15; the gain is CUI-0019's, and the conclusion -- headroom of
+  tens of times over, not the sixty an earlier revision inferred from fixture
+  readings -- is the one that was already true at 390 ms. AU-050 flattened the
+  fan-out under one parent; it does not flatten a document that spends itself
+  on parents.
 
 A document that takes no ``track`` at all spends neither budget and is not
 bounded here at all: 166 aliased ``activities`` fields fit the token limit at
-998 tokens and are served, issuing 332 statements in ~2 s on the fixture. That
-is the one reading here with no export figure beside it: QA has not measured
-this shape at production scale. What it would cost there follows the activity
-and warning rows a list field returns rather than the track rows the export is
-large in, and the export holds the same 365 activities this fixture does, so
-the gap is expected to be small -- expected, not measured. That cost belongs to
-the list fan-out, and wants its own answer; it is not what this cap is for.
+998 tokens and are served, issuing 332 statements in ~2 s on the fixture and
+~3 s on the export (2,143 ms and 3,228 ms). That export reading is new with
+CUI-0019's re-measurement and is not a CUI-0019 effect: this shape takes no
+track, so nothing the fix touched is on its path. It is nonetheless the
+*slowest legal document measured anywhere here*, five times the worst track
+shape and only some 5x inside the 15 s function, where every track shape now
+sits 50x or better. Its cost follows the activity and warning rows a list
+field returns rather than the track rows the export is large in. That cost
+belongs to the list fan-out, and wants its own answer; it is not what this cap
+is for, and no budget here bounds it.
 
 Every token and statement count above is asserted in ``tests/test_api.py``: the
 served worst cases by
@@ -168,32 +187,57 @@ because asserting a wall time in CI buys a flaky test rather than a guarantee.
 
 AU-050 has since made a page of tracks cost two statements however wide it is.
 An earlier revision of this docstring read that as weakening the round-trip
-argument for keeping this number where it is. Measurement says the opposite.
-The two statements are bought with a predicate carrying one OR arm per track
-in the batch (:func:`run365days.api.service._sample_filter`), and the whole
-disjunction is evaluated against every row the numbered subquery scans, so the
-work grows with the *square* of the batch width where the pre-AU-050 shape --
-one index-bounded statement per track -- grew with the width. QA measured it
-on 2026-09-15 at the service layer against the real export (134,041 track
-rows, ``points: 1``, median of 3), as a multiple of what the same read cost
-before AU-050: 16 tracks 0.9x, 32 tracks 1.5x, 64 -- this cap -- 2.4x, 128
-3.9x, 365 8.9x, the last being 3.8 s. Statement count fell, wall clock rose,
-and how far it rose is a function of how wide this cap lets a batch get.
+argument for keeping this number where it is; a later one read the measurement
+as saying the opposite. Both were reading the same implementation detail, and
+CUI-0019 has removed it.
 
-So raising this number is the direction this implementation is worst in, not
-one batching has made safer. Those figures are a reading rather than a bound
-and nothing asserts them; what is asserted is the shape they come from, by
-``test_the_batch_predicate_costs_more_per_track_as_the_batch_widens``, which
-holds the per-track cost of a 64-track batch above that of an 8-track one and
-would go red if the predicate ever stopped being the thing that grows. The
-superlinearity itself is CUI-0019 and belongs to
-:func:`run365days.api.service.tracks`, not to this cap.
+What AU-050 shipped bought its two statements with a predicate carrying one OR
+arm per track in the batch, and SQLite evaluated the whole disjunction against
+every row the numbered subquery scanned, so the work grew with the *square* of
+the batch width where the pre-AU-050 shape -- one index-bounded statement per
+track -- grew with the width. Widening a batch therefore made every row in it
+dearer, and this cap is what sets the width. CUI-0019 replaced the arms with a
+single ``IN`` over a key per sample
+(:func:`run365days.api.service._sample_filter`), which is one ephemeral index
+and one lookup per row at any width, so the batch read is back to growing with
+the rows it returns and nothing else.
+
+Measured at the service layer against the real export (134,041 track rows,
+``points: 1``, median of 3), in ms, against both earlier shapes:
+
+=========  ============  ========  ==========
+tracks     pre-AU-050    AU-050    CUI-0019
+=========  ============  ========  ==========
+16         16.8          15.1      10.3
+32         32.6          42.8      20.1
+64         65.2          140.0     40.6
+128        132.2         462.3     83.9
+256        268.5         1689.4    165.6
+365        375.8         3304.3    234.1
+=========  ============  ========  ==========
+
+So the objection this docstring raised to widening a batch is gone, and gone
+on the merits rather than by being argued away: at this cap the batch read is
+now 1.6x cheaper than the per-track shape that preceded batching, and it stays
+flat per track out to the whole year. Those figures are a reading rather than
+a bound and nothing asserts them; what is asserted is the shape they come
+from, by ``test_the_batch_predicate_does_not_widen_with_the_batch``, which
+holds the per-track cost of a 64-track batch at or under that of an 8-track
+one and pins the predicate at a fixed size. It replaces the test that held the
+opposite, which is what the superlinearity was doing here in the first place.
+
+None of which is an argument *for* raising this number. It removes one
+argument against, and the ones that remain are below.
 
 What survives from before: the worst case above is unshared batches, still two
-statements per field; raising this number stays a separate decision with its
-own measurement, since it is the points budget and :data:`MAX_QUERY_TOKENS`
-that would then be doing the bounding; and a cap at or above
-:data:`MAX_PAGE_SIZE` breaks the fan-out the tests reach it with.
+statements per field, and CUI-0019 does nothing for those -- a batch of one
+has no width to flatten, which is why the 52-parent readings did not move;
+raising this number stays a separate decision with its own measurement, since
+it is the points budget and :data:`MAX_QUERY_TOKENS` that would then be doing
+the bounding, and the bound-parameter ceiling behind them
+(``batch_parameters`` in ``tests/test_api.py``, which counts a parameter per
+sample and one per track); and a cap at or above :data:`MAX_PAGE_SIZE` breaks
+the fan-out the tests reach it with.
 """
 
 TRACK_BUDGET_KEY = "track_points_remaining"
