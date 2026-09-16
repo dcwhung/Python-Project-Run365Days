@@ -60,6 +60,49 @@ describe("static source", () => {
     expect(two.map((p) => p.sec)).toEqual([0, 24]);
   });
 
+  // CUI-0025. api mode's `_track_points` refuses anything outside 1..1000; this
+  // side used to accept every number and read the falsy ones as "no limit".
+  // `test_track_points_of_zero_is_refused_rather_than_read_as_no_limit` in
+  // tests/test_api.py is the other half of the pair.
+  it("refuses points: 0 the way api mode does, rather than returning the whole track", async () => {
+    const { src } = source();
+    // The trap CUI-0021 laid: `points != null ? downsample(...) : rows` would
+    // send 0 into downsample's `limit < 2` branch and return the LAST point
+    // alone -- a third behaviour, quietly wrong in a new way. Asserting the
+    // length would pass against that; asserting the throw is what does not.
+    await expect(src.track("a", 0)).rejects.toThrow("points must be between 1 and 1000, got 0");
+  });
+
+  it("refuses points above the maximum api mode allows", async () => {
+    const { src } = source();
+    await expect(src.track("a", 1001)).rejects.toThrow("points must be between 1 and 1000, got 1001");
+  });
+
+  it("refuses a non-integer points, which downsample has no defined answer for", async () => {
+    const { src } = source();
+    // downsample's own docstring puts a non-integer `limit` outside its claim:
+    // Python raises on range(2.5) where this side would quietly return 2 items.
+    // api mode cannot express it at all -- the SDL argument is `Int!`.
+    await expect(src.track("a", 2.5)).rejects.toThrow("points must be between 1 and 1000, got 2.5");
+  });
+
+  it("still returns the whole stored track when points is omitted", async () => {
+    const { src } = source();
+    // Pinned deliberately: `undefined` is not `0`. api mode has no such state
+    // to disagree with -- its SDL argument is `Int! = 150`, NonNull with a
+    // default -- and the export caps a stored track at 600 rows, so "all of it"
+    // is bounded by construction on this side.
+    expect(await src.track("a")).toHaveLength(5);
+    expect(await src.track("a", undefined)).toHaveLength(5);
+  });
+
+  it("returns the last row alone for points: 1, as both modes do", async () => {
+    const { src } = source();
+    // CUI-0004's semantics, pinned here so the new bounds check cannot be
+    // mistaken for a reason to reject 1 as well.
+    expect((await src.track("a", 1)).map((p) => p.sec)).toEqual([24]);
+  });
+
   it("applies date ranges to weight, weather and warnings", async () => {
     const { src } = source();
     expect((await src.weight({ fromDate: "2021-01-09" })).map((w) => w.date)).toEqual(["2021-01-09"]);

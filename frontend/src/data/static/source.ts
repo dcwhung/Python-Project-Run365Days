@@ -28,6 +28,33 @@ const inRange = (date: string, range: DateRange) =>
   (!range.fromDate || date >= range.fromDate) && (!range.toDate || date <= range.toDate);
 
 /**
+ * Ceiling for `track(points)`, mirroring `MAX_TRACK_POINTS` in `src/api/schema.py`.
+ *
+ * Static mode has no server to protect, so this is not here as a DoS bound the
+ * way it is on the api side. It is here so the two modes answer the same
+ * question the same way: a client that computes a `points` and sends it should
+ * not have to know which deployment it is talking to before it knows whether
+ * the value is legal (CUI-0025).
+ */
+export const MAX_TRACK_POINTS = 1000;
+
+/**
+ * Bounds-check `points` the way api mode's `_track_points` does, or throw.
+ *
+ * Rejects the same values and says the same sentence, so a client writes one
+ * error path rather than one per mode. Non-integers are refused too: api mode
+ * cannot even express one (its SDL argument is `Int!`), and `downsample`'s
+ * contract explicitly does not cover a non-integer `limit` -- Python raises on
+ * `range(2.5)` where this side would quietly return two items.
+ */
+function checkPoints(points: number): number {
+  if (!Number.isInteger(points) || points < 1 || points > MAX_TRACK_POINTS) {
+    throw new RangeError(`points must be between 1 and ${MAX_TRACK_POINTS}, got ${points}`);
+  }
+  return points;
+}
+
+/**
  * DataSource over the JSON files written by `run365-export --static-dir`.
  * Filtering and aggregation happen in the browser; each file is fetched
  * once and memoised for the page's lifetime.
@@ -63,8 +90,15 @@ export function createStaticSource(base: string, fetcher: Fetcher = defaultFetch
       return (await allActivities()).find((a) => a.id === id) ?? null;
     },
     async track(id: string, points?: number): Promise<TrackPoint[]> {
+      // Checked before the fetch, so an illegal `points` costs no request.
+      // `undefined` is the one value that skips the check rather than failing
+      // it: omitting the argument still means "the whole stored track", which
+      // api mode has no way to ask for (`points: Int! = 150` is NonNull with a
+      // default) and so has no answer to disagree with. `0` used to land here
+      // too, because it is falsy; that is the divergence CUI-0025 closed.
+      const limit = points === undefined ? undefined : checkPoints(points);
       const rows = mapTrack(await load<StaticTrack>(`tracks/${id}.json`));
-      return points ? downsample(rows, points) : rows;
+      return limit === undefined ? rows : downsample(rows, limit);
     },
     async weight(range: DateRange = {}) {
       return (await load<StaticWeight[]>("weight.json")).map(mapWeight).filter((w) => inRange(w.date, range));

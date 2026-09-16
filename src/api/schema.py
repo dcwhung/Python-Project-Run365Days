@@ -667,9 +667,11 @@ def _track_rows(info: Info, activity_id: str, page: tuple[str, ...], points: int
 
 
 TRACK_DESCRIPTION = (
-    "GPS track, evenly downsampled to at most `points` samples. "
+    f"GPS track, evenly downsampled to at most `points` (1-{MAX_TRACK_POINTS}) samples. "
     "`points: 1` has nothing to space evenly and returns the track's last row "
-    "alone, not its first. "
+    "alone, not its first. Outside that range the field is refused rather than "
+    "clamped -- `points: 0` in particular, which reads as `no limit` in every "
+    "language whose falsy rules invite it, and is the fan-out AU-001 closed. "
     f"One request may read at most {MAX_TRACK_FIELDS_PER_REQUEST} `track` fields, "
     f"totalling {MAX_TRACK_POINTS_PER_REQUEST} points. Both are counted across every "
     "`track` field in the request; points are charged on `points` as asked for, not "
@@ -693,6 +695,21 @@ LIST_ROWS_NOTE = (
 Part of those fields' contract, so a client reading the SDL can see why a wide
 fan-out is refused without having to trigger the error first -- the same reason
 :data:`TRACK_DESCRIPTION` states both track budgets.
+"""
+
+PAGE_WINDOW_NOTE = (
+    f" The window is `limit` (1-{MAX_PAGE_SIZE}) rows from `offset` (0 or more); "
+    "either side of that range is refused rather than clamped."
+)
+"""Sentence appended to every field that takes a ``limit``/``offset`` page window.
+
+Separate from :data:`LIST_ROWS_NOTE` because the two do not cover the same
+fields: ``year`` spends the row budget without taking a window, so it carries
+that note and not this one (S-053).
+
+:data:`MAX_PAGE_SIZE` otherwise lived only in a Python docstring and the text of
+a runtime error, which a client reading the SDL never sees until it has already
+sent the request that trips it (CUI-0025).
 """
 
 COUNT_DESCRIPTION = (
@@ -955,7 +972,9 @@ class Query:
         )
 
     @strawberry.field(
-        description="Runs in start order, optionally filtered (dates inclusive)." + LIST_ROWS_NOTE
+        description="Runs in start order, optionally filtered (dates inclusive)."
+        + LIST_ROWS_NOTE
+        + PAGE_WINDOW_NOTE
     )
     def activities(
         self,
@@ -993,7 +1012,9 @@ class Query:
     def activity(self, info: Info, id: strawberry.ID) -> Activity | None:
         return _activity(service.activity(info.context["session"], str(id)))
 
-    @strawberry.field(description="Daily weigh-ins (dates inclusive)." + LIST_ROWS_NOTE)
+    @strawberry.field(
+        description="Daily weigh-ins (dates inclusive)." + LIST_ROWS_NOTE + PAGE_WINDOW_NOTE
+    )
     def weight(
         self,
         info: Info,
@@ -1015,7 +1036,9 @@ class Query:
     ) -> int:
         return service.weight_count(info.context["session"], _iso(from_date), _iso(to_date))
 
-    @strawberry.field(description="HKO daily weather (dates inclusive)." + LIST_ROWS_NOTE)
+    @strawberry.field(
+        description="HKO daily weather (dates inclusive)." + LIST_ROWS_NOTE + PAGE_WINDOW_NOTE
+    )
     def weather(
         self,
         info: Info,
@@ -1037,7 +1060,11 @@ class Query:
     ) -> int:
         return service.daily_weather_count(info.context["session"], _iso(from_date), _iso(to_date))
 
-    @strawberry.field(description="HKO warnings and signals (dates inclusive)." + LIST_ROWS_NOTE)
+    @strawberry.field(
+        description="HKO warnings and signals (dates inclusive)."
+        + LIST_ROWS_NOTE
+        + PAGE_WINDOW_NOTE
+    )
     def warnings(
         self,
         info: Info,
