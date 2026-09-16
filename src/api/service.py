@@ -211,9 +211,25 @@ def _sample_key(numbered) -> ColumnElement:
     against the keys :func:`_sample_filter` builds in Python, which is what
     keeps the predicate the same size at any batch width (CUI-0019).
 
-    The cast is not decoration: ``position`` is an integer column, and
-    SQLAlchemy renders ``concat`` on an integer as arithmetic addition rather
-    than as ``||``.
+    The cast is explicitness, not necessity, and an earlier revision of this
+    docstring had both of its reasons wrong. ``numbered.c.position`` is not an
+    integer column: it is a label over ``row_number() OVER (...) - 1``, which
+    SQLAlchemy cannot type and leaves as ``NullType``. And ``concat`` does not
+    render as arithmetic addition on an integer -- ``+`` does, but ``concat``
+    is the explicit ``concat_op`` and renders ``||`` whatever the operand type,
+    a real ``Integer`` column included. SQLite then coerces an integer to text
+    across ``||`` by itself, so dropping the cast changes neither the value nor
+    any test. What it changes is the type: without it the expression the ``IN``
+    binds against is ``NullType`` rather than ``String``, and neither the SQL
+    nor the SQLAlchemy expression says that this is text concatenation. The
+    cast is what puts that in writing, which is why it stays.
+
+    What the keys do rest on is that both sides render a position identically:
+    Python's ``str(int)`` and SQLite's ``CAST(... AS VARCHAR)`` agree on every
+    integer, which is why :func:`_even_positions` must keep returning ``int``.
+    A float would build ``2.0`` on the Python side against ``2`` on the SQL
+    side and match nothing -- thinning the wrong rows silently rather than
+    raising.
     """
     return (
         cast(numbered.c.position, String)
