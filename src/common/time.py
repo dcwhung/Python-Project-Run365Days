@@ -162,21 +162,3 @@ def pace_str(total_sec: float, distance_km: float) -> str:
     if distance_km <= 0:
         return ""
     return str(timedelta(seconds=total_sec / distance_km)).split(".")[0]
-
-
-def activity_time_range(start: datetime, end: datetime, period: int = 30):
-    """Widen a start / end pair to the surrounding *period*-minute boundaries.
-
-    Args:
-        start: Activity start time.
-        end: Activity end time.
-        period: Boundary size in minutes (default 30).
-
-    Returns:
-        ``(floor, ceiling)`` where ``floor <= start`` and ``ceiling > end``.
-    """
-    floor = start.replace(minute=0, second=0) + timedelta(minutes=(start.minute // period) * period)
-    ceiling = end.replace(minute=0, second=0) + timedelta(
-        minutes=(end.minute // period + 1) * period
-    )
-    return floor, ceiling
