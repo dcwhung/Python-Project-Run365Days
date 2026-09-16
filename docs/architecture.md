@@ -133,10 +133,13 @@ in a container or against a different year's exports.
 
 - **ruff** with `E W F I UP B SIM N D` rule sets, line length 100, Google
   docstring convention. Configuration is in `pyproject.toml`.
-- **pytest** covering geo and time helpers, MET metrics, weight parsing,
-  every builder function, the year statistics, the export writers, the
-  GraphQL API (Flask test client against a temporary database) and the
-  CLI serialiser.
+- **pytest**. `tests/` is the inventory of what is covered and this page
+  does not restate it, so there is nothing here to fall out of sync.
+  Among the areas exercised there: geo and time helpers, MET metrics,
+  weight parsing, every builder function, the year statistics, the TCX,
+  GPX and KML parsers, the weather collectors and their raw-row
+  contract, the export writers, the GraphQL API (Flask test client
+  against a temporary database) and the CLI serialiser.
 - **pre-commit** runs the same ruff checks locally.
 - **GitHub Actions** (`.github/workflows/pages.yml`) runs the ruff and
   pytest gates above, together with the frontend checks, on the branches
