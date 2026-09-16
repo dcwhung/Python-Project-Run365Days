@@ -2664,3 +2664,14 @@ def test_duplicate_ids_in_a_batch_collapse_to_one_entry(varied_session, sql_para
         "a repeated id is paying for itself again: the batch binds parameters "
         "per copy rather than per distinct track"
     )
+
+
+def test_an_empty_batch_reads_nothing_and_returns_nothing(varied_session, sql_params):
+    # The early return in `service.tracks`, which was the module's only
+    # uncovered statement (S-078). It is the one path that does not issue the
+    # grouped COUNT CUI-0033 (a) added, so what it is worth pinning is the cost,
+    # not the value: the empty mapping falls out of the comprehension above it
+    # either way, while removing the return sends an empty batch into SQL.
+    sql_params.clear()
+    assert service.tracks(varied_session, [], 7) == {}
+    assert list(sql_params) == [], "an empty batch must not reach the database"
