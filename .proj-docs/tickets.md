@@ -1104,3 +1104,33 @@ clean、`run365-schema --check` up to date、frontend `eslint` / `typecheck` / `
 
 ### 未清 Suggestion 總數：1（S-079，留畀下次 bump）
 
+
+---
+
+## 2026-09-16 Delta Re-review — documentation lane（`ea820aa..7bacce1`）
+
+報告：[`reviews/2026-09-16_review_CUI-0029_delta.md`](reviews/2026-09-16_review_CUI-0029_delta.md)
+**97/100 ✅ pass**（上一輪 86 warn）—— 0 🔴 / 0 🟡 / 3 🟢。Hard gates 8/8 pass。
+13 條計分 suggestion 全部真正清咗；S-079 按 brief 剔出計分。
+
+### 三條「lane 推翻 reviewer」—— reviewer 獨立裁決：**三條全部 lane 啱、reviewer 錯**
+
+| 議題 | 裁決依據（reviewer 自己重做） |
+|---|---|
+| **S-074** `year` 掟唔掟得出 refusal | 真 Flask app 實測：3 alias 冇事、8 alias 啱啱好 4000、**9 alias refuse**（`path:['a8']`）；8×`activities(limit:500)` + bare `year` refuse 喺 `path:['year']`。Reviewer 自認由一次 negative observation 跳去 universal claim |
+| **S-068** 寫唔寫死檔案 size | `service.py` `ea820aa`=22228 → `fee1744`=**22535**，**係 lane 自己嘅 S-071 commit 搞大咗** ⇒ 照方案 A 寫死嘅話，個數喺同一條 lane 收工前已經錯。Reviewer 自認方案 A 錯 |
+| **S-078** `== {}` 有冇牙 | Mutant（刪 early return）實測：`== {}` **存活**、SQL parameter assertion **殺到**。而且後果比 lane 講嘅重 —— mutant 會行一個 **0 參數嘅全表 grouped COUNT**（~134k 行）＋ `SADeprecationWarning` |
+
+Reviewer 亦核實咗 main agent 對佢自己 `fd252a3` 歸因嘅更正，並確認**錯咗兩樣**：錯歸因（遮蔽從未喺 runtime 咬過人）＋錯數目（兩個 cycle 唔係一個）。決定性證據係 `12c31fe` 個 body 引嘅真錯誤 `could not import api/graphql.py at from flask import ...` —— **講緊 rename 之前嗰個檔名**。
+
+### 新開 Suggestion（S-080 … S-082，全部係 `.proj-docs/tickets.md` 記錄準確性）
+
+| ID | 內容 | 狀態 |
+|---|---|---|
+| **S-080** | S-074 suggestion row 仍然原文載住本 lane 已推翻嘅 claim（「`year` 根本掟唔出 refusal」），仲帶住 ✅ Done，更正只喺同一檔案 54 行之後。同一個 commit 入面 S-077 row 就有 inline ⚠️ 更正 ⇒ 處理不對稱 | ✅ **Done** `1994d17` |
+| **S-081** | lane log 把兩條唔同嘅 refusal 路合併喺同一個 `path:["year"]` 上。實測只有**無 alias** 嗰條先出 `["year"]`；9-alias 嗰條出 `["a8"]`（GraphQL error path 用 response key）。Fixture docstring 本身寫得啱 | ✅ **Done** `6b321ea` |
+| **S-082** | S-068 row 嘅 `22228` 冇綁 revision，而佢緊接住「唔寫會過期嘅讀數」一句 —— 諷刺嘅係佢自己三個 commit 之後就過期咗 | ✅ **Done** `95fbdef` |
+
+### 未清 Suggestion 總數：1（S-079）
+
+⚠️ **S-079 冇任何自動化提醒** —— 下次 version bump 前記得 `grep -rn "S-079" .proj-docs/`。
