@@ -236,8 +236,12 @@ Two tests in ``tests/test_api.py`` hold that last sentence, and until CUI-0028
 nothing did -- this constant could be set to a decimal digit, or dropped
 entirely, with the whole suite still green.
 ``test_the_sample_key_separator_cannot_occur_in_a_position`` asserts the
-property itself over the positions the suite's track lengths render, and is
-the one that says which way this constant may not be changed.
+property itself over the positions ``COLLIDING_TRACK_LENGTHS`` and
+``VARIED_TRACK_LENGTHS`` render -- not every track length in the suite, which
+is what an earlier revision of this sentence claimed. It does not need them:
+the sweep is held to rendering all ten decimal digits, so a separator set to a
+digit the narrower set never produced cannot slip through. That is what makes
+it the test that says which way this constant may not be changed.
 ``test_a_batch_of_variable_length_ids_thins_each_track_independently`` proves
 the consequence on the only fixture shape that can show it: activity ids that
 are pure decimal and not all one width (``COLLIDING_IDS``). Every other
