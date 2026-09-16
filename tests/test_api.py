@@ -165,6 +165,21 @@ that the position arithmetic has to survive.
 VARIED_IDS = tuple(f"v{i}" for i in range(len(VARIED_TRACK_LENGTHS)))
 """Activity ids of the varied fixture, in the order ``activities`` returns them."""
 
+OVER_CAP_LENGTH = max(VARIED_TRACK_LENGTHS)
+"""The longest track the varied fixture stores, which is over ``MAX_TRACK_POINTS``.
+
+Derived rather than spelled out so the two cannot drift: the value that matters
+is "longer than the ceiling", and CUI-0033 (a) is only testable at all because
+one length above it exists. ``1250`` was already in
+:data:`VARIED_TRACK_LENGTHS` -- put there for the sampler, not for this -- and
+is what a real ``run365-export --points 1200`` produces, so this needs no
+fixture of its own. Tests using it assert the inequality rather than assume it,
+since shortening the fixture would otherwise turn them green and empty.
+"""
+
+OVER_CAP_ID = VARIED_IDS[VARIED_TRACK_LENGTHS.index(OVER_CAP_LENGTH)]
+"""Id of the activity storing :data:`OVER_CAP_LENGTH` rows."""
+
 
 @pytest.fixture
 def varied_db(tmp_path):
@@ -413,6 +428,54 @@ def test_track_does_not_materialise_every_stored_point(year_session):
 def test_track_returns_every_stored_point_when_more_are_requested(year_session):
     rows = service.track(year_session, TRACKED_ACTIVITY_ID, MAX_TRACK_POINTS)
     assert len(rows) == STORED_TRACK_POINTS
+
+
+# ── CUI-0033 (a): the ceiling bounds the output, not only the ask ──────────
+def test_an_omitted_points_is_capped_at_the_ceiling_the_field_refuses_above(varied_session):
+    # The asymmetry CUI-0033 (a) measured: the same module refuses "give me
+    # 1250 points" and then handed 1250 rows to a caller that named no number
+    # at all, so MAX_TRACK_POINTS bounded what could be asked for and not what
+    # could come back. Capping here is what makes the two the same bound.
+    assert OVER_CAP_LENGTH > MAX_TRACK_POINTS, (
+        "the fixture must store more rows than the ceiling or this test asserts nothing"
+    )
+
+    rows = service.track(varied_session, OVER_CAP_ID)
+
+    assert len(rows) == MAX_TRACK_POINTS
+    # Against the explicit ask, not just against a length: a cap written as
+    # "first MAX_TRACK_POINTS rows" is also 1000 rows long and would pass a
+    # length assertion while returning the front of the track instead of an
+    # even sample of it. The two calls must come out of the same sampler.
+    assert rows == service.track(varied_session, OVER_CAP_ID, MAX_TRACK_POINTS)
+
+
+def test_a_points_over_the_ceiling_is_capped_where_the_rows_are_read(varied_session):
+    # `_track_points` refuses this value, so it cannot arrive here through the
+    # schema -- which is exactly why the cap is worth having at this layer too.
+    # It makes "at most MAX_TRACK_POINTS rows per track" a property of the
+    # function that materialises the rows rather than of the check standing in
+    # front of it, so a second caller reaching `service` directly cannot widen
+    # what one track costs. The two layers differ in what they do with an
+    # over-large ask -- the boundary refuses it, this clamps it -- because only
+    # one of them has a client to answer.
+    rows = service.track(varied_session, OVER_CAP_ID, OVER_CAP_LENGTH)
+
+    assert len(rows) == MAX_TRACK_POINTS
+    assert rows == service.track(varied_session, OVER_CAP_ID, MAX_TRACK_POINTS)
+
+
+def test_an_omitted_points_still_returns_every_stored_row_under_the_ceiling(varied_session):
+    # The other half of the decision: omitted still means "all of it". Today
+    # every exported track is well under the ceiling, which is why capping is
+    # not a breaking change -- this is the assertion that says so, across every
+    # length the batching fixture carries rather than at one of them.
+    batched = service.tracks(varied_session, VARIED_IDS)
+
+    assert {aid: len(rows) for aid, rows in batched.items()} == {
+        aid: min(stored, MAX_TRACK_POINTS)
+        for aid, stored in zip(VARIED_IDS, VARIED_TRACK_LENGTHS, strict=True)
+    }
 
 
 def test_track_points_above_the_maximum_are_rejected(year_client):

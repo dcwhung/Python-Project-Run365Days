@@ -28,13 +28,19 @@ const inRange = (date: string, range: DateRange) =>
   (!range.fromDate || date >= range.fromDate) && (!range.toDate || date <= range.toDate);
 
 /**
- * Ceiling for `track(points)`, mirroring `MAX_TRACK_POINTS` in `src/api/schema.py`.
+ * Ceiling for `track(points)`, mirroring `MAX_TRACK_POINTS` in `src/api/service.py`.
  *
  * Static mode has no server to protect, so this is not here as a DoS bound the
  * way it is on the api side. It is here so the two modes answer the same
  * question the same way: a client that computes a `points` and sends it should
  * not have to know which deployment it is talking to before it knows whether
  * the value is legal (CUI-0025).
+ *
+ * It bounds the answer as well as the question: an omitted `points` is capped
+ * at this figure rather than returning however many rows the export happened
+ * to write (CUI-0033 (a)). `src/api/service.py` caps its own omitted ask the
+ * same way, which is why the constant is quoted from there -- it used to live
+ * in `src/api/schema.py`, one layer above where the rows are actually read.
  */
 export const MAX_TRACK_POINTS = 1000;
 
@@ -114,6 +120,16 @@ export function createStaticSource(base: string, fetcher: Fetcher = defaultFetch
       // default) and so has no answer to disagree with. `0` used to land here
       // too, because it is falsy; that is the divergence CUI-0025 closed.
       //
+      // Skipping the check is not the same as having no bound (CUI-0033 (a)).
+      // "The whole stored track" is capped at MAX_TRACK_POINTS before the
+      // thinning, so the ceiling bounds what comes back and not only what may
+      // be asked for -- this module refused `points: 1250` while happily
+      // returning 1250 rows to a caller that named no number, and a stored
+      // track that long is one `run365-export --points 1250` away. Nothing an
+      // export writes today reaches it: the longest is 600 rows and comes back
+      // entire, `downsample` returning a copy when `n <= limit`.
+      // `run365days.api.service.tracks` caps its own omitted ask identically.
+      //
       // Checking first is also why an unknown `id` reads differently in the
       // two modes (CUI-0033 (c)): `track("no-such-activity", 0)` throws the
       // bounds error here, having sent no request, while api mode answers
@@ -128,9 +144,9 @@ export function createStaticSource(base: string, fetcher: Fetcher = defaultFetch
       // for an unknown id, because coercion precedes every resolver.
       // `test_an_unknown_activity_swallows_an_illegal_points_that_static_mode_refuses`
       // in tests/test_api.py holds the api-mode side of this.
-      const limit = points === undefined ? undefined : checkPoints(points);
+      const limit = points === undefined ? MAX_TRACK_POINTS : checkPoints(points);
       const rows = mapTrack(await load<StaticTrack>(`tracks/${id}.json`));
-      return limit === undefined ? rows : downsample(rows, limit);
+      return downsample(rows, limit);
     },
     async weight(range: DateRange = {}) {
       return (await load<StaticWeight[]>("weight.json")).map(mapWeight).filter((w) => inRange(w.date, range));

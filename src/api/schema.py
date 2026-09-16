@@ -29,16 +29,18 @@ from run365days.export.records import TRACK_COLUMNS
 DEFAULT_TRACK_POINTS = 150
 """Track points returned per activity unless the query asks for more."""
 
-MAX_TRACK_POINTS = 1000
-"""Ceiling for ``track(points:)``.
+MAX_TRACK_POINTS = service.MAX_TRACK_POINTS
+"""Ceiling for ``track(points:)``, re-exported from the service that enforces it.
 
-Deliberately above 600, the most track rows the export stores for one run
-(``run365-export --points``, whose default is ``DEFAULT_POINT_LIMIT``), so a
-client asking for the maximum always gets the whole stored track back.
+Bound in two places by one number. This module refuses a ``points`` outside
+``1..MAX_TRACK_POINTS`` before any SQL goes out (:func:`_track_points`), and
+:func:`run365days.api.service.tracks` caps what comes back at the same figure
+even for a caller that names no ``points`` at all -- so the ceiling is the
+ceiling on the output, not only on the question (CUI-0033 (a)).
 
-Not to be read as a bound on ``Activity.num_points``: that field counts the
-raw samples the source file held *before* the export downsampled them, so it
-runs past 600 for the occasional long run and the two numbers do diverge.
+It lives in the service because that is the lower of the two layers and the
+service may not import Strawberry. Kept importable from here because the SDL
+text, the bounds check and every test that reads the contract are on this side.
 """
 
 MAX_TRACK_POINTS_PER_REQUEST = 10000
