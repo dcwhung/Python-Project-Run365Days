@@ -11,7 +11,7 @@
 | 項目 | 內容 |
 |---|---|
 | 名稱 | Run365Days（`dcwhung/Python-Project-Run365Days`） |
-| 版本 | v3.0.0 |
+| 版本 | v3.1.1 |
 | 用途 | 個人跑步分析：Garmin activity 解析、天氣關聯、體重追蹤、dashboard |
 | Python | 3.10+（package 名 `run365days`，src-layout，`package-dir = { "run365days" = "src" }`） |
 | Backend | Flask 3 + Strawberry GraphQL（code-first），read-only 行喺 SQLite export 之上 |
