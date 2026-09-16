@@ -123,6 +123,8 @@ Commit：Conventional Commits（`feat` / `fix` / `refactor` / `chore` / `docs` /
 | Vercel 依賴 | Vercel 由 `pyproject.toml` 裝但**唔裝 optional extras**，所以 Flask / Strawberry 係 core dependency |
 | `tzdata` | 無條件宣告，唔加 platform marker（slim / distroless container 一樣冇 `/usr/share/zoneinfo`） |
 | 環境錯誤 | `MissingTimeZoneDataError` 刻意繼承 `RuntimeError`，令 `parse_all` 任何 except 分支都食唔到 |
+| `graphql` 名字遮蔽（只係 tooling 層）| `[tool.ruff] src` 包含 `api/`，而 Vercel 只認 `api/graphql.py` ⇒ ruff 將 bare `from graphql import ...` 當成本 repo 自己嘅 module，迫佢入 first-party block（`src/api/schema.py`、`tests/test_api.py`）。已用 `known-third-party = ["graphql"]` 釘死；移走呢個 setting 兩個檔案即刻 `I001` 紅。⚠️ **唔好為咗閃開遮蔽而改 entry 名** —— `fd252a3` 改做 `api/index.py`、`e506531` 改做 `api/graphql_api.py`，兩個都被 Vercel 個 functions pattern 拒，最後 `5aa1b2f` 改返。而且 `5aa1b2f` 查明**真正嘅 crash 由頭到尾係欠 Flask 依賴**（`12c31fe` 修），遮蔽從來冇喺 runtime 咬過人 ——兩個 deploy cycle 蝕喺一個誤診度。遮蔽只喺 import-sorting 層有影響，喺嗰層解 |
+| Mutation testing 用 stale `.pyc` | 改完源碼即刻重跑，可以行到**舊** bytecode（mtime 係秒精度，size 又啱 ⇒ cache 判定為有效），令 mutant 假綠。`python -B` **救唔到**（佢擋寫唔擋讀），而且單一次觀察**判定唔到**成因（stale `.pyc` 定 `sys.modules` 已 import 都解釋得晒）。要開嘅係**方法**唔係一個補救指令：in-process `setattr` 落 mutant → assert 個 mutant 真係生效咗（唔好假設）→ 用一個獨立 oracle 驗結果 |
 
 ---
 

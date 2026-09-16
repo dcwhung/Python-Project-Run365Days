@@ -7,10 +7,6 @@ from pathlib import Path
 from types import MappingProxyType
 
 import pytest
-from sqlalchemy import create_engine, event
-from sqlalchemy.engine import Engine
-from sqlalchemy.orm import Session
-
 from graphql import (
     GraphQLInterfaceType,
     GraphQLList,
@@ -21,6 +17,10 @@ from graphql import (
     parse,
 )
 from graphql import build_schema as build_schema_from_sdl
+from sqlalchemy import create_engine, event
+from sqlalchemy.engine import Engine
+from sqlalchemy.orm import Session
+
 from run365days.api import db, service
 from run365days.api.app import GRAPHQL_PATH, HEALTH_PATH, create_app
 from run365days.api.schema import (
