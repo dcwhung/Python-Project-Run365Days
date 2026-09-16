@@ -1035,12 +1035,12 @@ documentation suggestion 債驅動（7 條舊 open + 7 條新開），**冇一�
 
 | ID | 類別 | 內容 | 狀態 |
 |---|---|---|---|
-| **S-073** | 🟢 Suggestion | `tests/test_api.py:173-175` `OVER_CAP_LENGTH` docstring 話 1250 係 `run365-export --points 1200` 嘅產物；export 實際會 downsample 到 limit（`src/export/records.py:230`），1250 係 activity `7264441638` 嘅**原始**取樣數，`--points 1200` 只會寫 1200。同源錯法亦見於 `frontend/src/data/static/source.test.ts:26`（將 `--points 1250` 叫做「開票嗰個實測」，實測係 `--points 1200`）。票上 (a) 段本身寫得啱 | pending |
-| **S-074** | 🟢 Suggestion | `OverviewView.test.tsx:31-35` / `YearView.test.tsx:29-33` fixture 聲稱「Captured from a real run against the Flask API」，但真 `YearQuery`（`frontend/src/data/api/queries.ts:46`）**冇 variables**，而 `year` 根本掟唔出 list-row budget refusal。同一個 1247 字元數字被引畀三個唔同 document。**測試本身冇問題**，錯嘅只係 provenance 句 | pending |
-| **S-075** | 🟢 Suggestion | `src/api/schema.py` `BudgetExceededError.__init__` —— 個 tripwire 測試喺 `_raw_info` 改名時確實會紅，但係經 `budget exhausted` message assertion 而紅；佢命名所指嘅 `locations` / `path` assertion 其實**捱得住**改名（graphql-core 會圍住由此而生嘅 `AttributeError` 重建佢哋）| pending |
-| **S-076** | 🟢 Suggestion | `docs/deployment.md:55` —— budget refusal 而家低過 logging 預設 threshold，Vercel log 預設**見唔到**；冇任何 operator-facing 文件講要將 `strawberry.execution` 調落 INFO 先睇到 | pending |
+| **S-073** ✅ | 🟢 Suggestion | `tests/test_api.py:173-175` `OVER_CAP_LENGTH` docstring 話 1250 係 `run365-export --points 1200` 嘅產物；export 實際會 downsample 到 limit（`src/export/records.py:230`），1250 係 activity `7264441638` 嘅**原始**取樣數，`--points 1200` 只會寫 1200。同源錯法亦見於 `frontend/src/data/static/source.test.ts:26`（將 `--points 1250` 叫做「開票嗰個實測」，實測係 `--points 1200`）。票上 (a) 段本身寫得啱 | ✅ **Done** (`c3ef00b`) |
+| **S-074** ✅ | 🟢 Suggestion | `OverviewView.test.tsx:31-35` / `YearView.test.tsx:29-33` fixture 聲稱「Captured from a real run against the Flask API」，但真 `YearQuery`（`frontend/src/data/api/queries.ts:46`）**冇 variables**，而 `year` 根本掟唔出 list-row budget refusal。同一個 1247 字元數字被引畀三個唔同 document。**測試本身冇問題**，錯嘅只係 provenance 句 | ✅ **Done** (`07e74c5`) |
+| **S-075** ✅ | 🟢 Suggestion | `src/api/schema.py` `BudgetExceededError.__init__` —— 個 tripwire 測試喺 `_raw_info` 改名時確實會紅，但係經 `budget exhausted` message assertion 而紅；佢命名所指嘅 `locations` / `path` assertion 其實**捱得住**改名（graphql-core 會圍住由此而生嘅 `AttributeError` 重建佢哋）| ✅ **Done** (`ed14e2c`) |
+| **S-076** ✅ | 🟢 Suggestion | `docs/deployment.md:55` —— budget refusal 而家低過 logging 預設 threshold，Vercel log 預設**見唔到**；冇任何 operator-facing 文件講要將 `strawberry.execution` 調落 INFO 先睇到 | ✅ **Done** (`7fb32e4`) |
 | **S-077** | 🟢 Suggestion | `src/api/schema.py:25` `from graphql import GraphQLError` 排喺 first-party block —— 實測**係被迫嘅**（搬去第三方 block 會被 ruff `I001` 拒），因為 `[tool.ruff] src` 包含 `api/` 而 Vercel 規定 `api/graphql.py`，令 graphql-core 個名被遮。production 入面 inert。建議加 `known-third-party = ["graphql"]` + CLAUDE.md §6 trap-table 一行；本 repo 已經為呢個遮蔽輸過一個 deploy cycle（`fd252a3`）。⚠️ 同 **S-028** 同源，S-028 當時只係觀察，本條有實證 | pending |
-| **S-078** | 🟢 Suggestion | `src/api/service.py:382` empty-batch early return 係成個 module 唯一未覆蓋嘅 statement（99%）；`tracks(session, [])` 一行測試就到 100% | pending |
+| **S-078** ✅ | 🟢 Suggestion | `src/api/service.py:382` empty-batch early return 係成個 module 唯一未覆蓋嘅 statement（99%）；`tracks(session, [])` 一行測試就到 100% | ✅ **Done** (`ce7ac78`) |
 | **S-079** | 🟢 Suggestion | `docs/CHANGELOG.md` —— v3.1.1 已 tag，其後 develop 上已落兩個 production 行為改動（CUI-0029 log level、CUI-0033(a) output cap）加一個 user-visible 文案改動，但檔案聲稱跟 Keep a Changelog 而**冇 `[Unreleased]` section**。同本 repo「bump 時先寫」嘅慣例一致，所以**唔算本批缺陷** —— 留畀下次 bump | pending |
 
 ### Reviewer 獨立重做、推翻或確認咗嘅講法
@@ -1065,3 +1065,42 @@ documentation suggestion 債驅動（7 條舊 open + 7 條新開），**冇一�
 
 全部係一至兩行 docstring / 註釋 / config 改動。Reviewer 建議**一個 documentation-only lane 一次過清晒**，
 之後 re-review 預期直上 ~99。
+
+---
+
+## 2026-09-16 Documentation-only lane — S-063 … S-078（12 條一次清）
+
+Branch `chore/docs/S-063_clear-open-suggestions`，base `ea820aa`。
+一條 suggestion 一個 commit，**production 行為零改動**：`src/api/schema.py` 同
+`src/api/service.py` 剝走 docstring + comment 之後嘅 AST 同 `ea820aa` **逐字相同**
+（`ast.dump` 比對，另以一個 canary mutation 驗過個工具捉得到真改動）。
+
+Gates 全綠：`pytest` **418 passed**（417 + S-078 嗰條）、`ruff check` / `ruff format --check`
+clean、`run365-schema --check` up to date、frontend `eslint` / `typecheck` / `npm test`
+**141 passed / 25 files**。`pytest --cov=src` 之下 `src/api/service.py` **100%**
+（原本 99%，唯一漏行就係 S-078 嗰條），`src/api/schema.py` 維持 100%，total 95%。
+
+| ID | Commit | 改咗乜 |
+|---|---|---|
+| **S-063** ✅ | `064c69a` | `schema.py`：「At that widest」點名返係 90-alias `{ id }` 而唔係 30-alias `ActivityFields`。重量：90×`{id}` 95.7 ms / 180 stmt，30×`ActivityFields` 71.2 ms / 60 stmt |
+| **S-064** ✅ | `373627c` | `schema.py`：「一半係 per-field dispatch」換成量到嘅講法。10/30/45/90 alias sweep 兩條 path 都線性、intercept ≈ 2 ms（讀數嘅 2–3%），per-statement 0.536 vs 0.518 ms；332×`activitiesCount` 85.0 ms / 332 stmt = 0.256 ms/stmt，即成本跟 statement 做乜走。import / first-execution 兩個數補咗「係機器讀數唔係 schema 性質」 |
+| **S-065** ✅ | `3eec3a1` | `test_api.py`：`"4000" in description` 改為 `LIST_ROWS_NOTE.strip() in description`。Mutation 驗過：把 `year` description 降級成「… Limit 4000.」舊 assertion 照綠、新 assertion 紅 |
+| **S-068** ✅ | `77a94c8` | `CUI-0028.md`：10/10/9 係**最小重現模組**嘅 size。實測 `src/api/service.py` 係 22228 / 22228 / 22227，宣告嗰行 26 / 26 / 25。改成寫「關係 + 重量方法」，唔寫會過期嘅讀數 |
+| **S-069** ✅ | `123b505` | `CUI-0028.md`：「兩個都重現過」改成「兩個候選成因，證唔到當時就係佢」。實測第三個候選（同 process re-import / `sys.modules` 命中）**三個 case 全部解釋得到**，包括 stale `.pyc` 解釋唔到嗰個 `""`。防範措施改為綁方法 |
+| **S-070** ✅ | `88d5681` | `test_api.py`：`COLLIDING_IDS` docstring 由點名一對改成三對。實測 `points=7` 之下 `"05"` 回 `[0,1,2,3,17,33,50,67,83,100]`，stray 係 row 1/2/3，由 `"5"` 嘅 sampled position 10/20/30 拉入 |
+| **S-071** ✅ | `1d901b3` | `service.py`：sweep 範圍寫實（`COLLIDING_TRACK_LENGTHS` + `VARIED_TRACK_LENGTHS`），並把「點解夠」（十個數字全出現）由測試 inline comment 搬入 docstring。核實 `PREFETCH_DB_STORED=12` 確實喺 sweep 之外 |
+| **S-073** ✅ | `c3ef00b` | `test_api.py` + `source.test.ts`：`--points 1200` 寫 1200 唔係 1250。真數據重量：全 365 條入面得 `7264441638` 過 1000 raw row，啱好 1250；`--points 1200`→1200、`--points 1250`→1250 |
+| **S-074** ✅ | `07e74c5` | Overview / Year fixture provenance 改成「照真實形狀砌」。⚠️ **推翻 reviewer 一半**：`year` **掟得出** budget refusal（`schema.py:1204` charge `DEFAULT_PAGE_SIZE`），9 個 aliased `year` 或者 8×`activities(limit:500)` + `year{year}` 就 refuse 喺 `path:["year"]`。真正唔成立嘅只係「真 `YearQuery` 帶 variables」 |
+| **S-075** ✅ | `ed14e2c` | `schema.py`：tripwire 註釋點名 `message` assertion。實測 rename 之後兩個 case 都紅喺 `test_api.py:1716`，而 `locations`=`[{line:1,column:275}]`、`path`=`["year"]` 同真 refusal 一模一樣 ⇒ 另外兩句**根本冇可能**守得住呢個 tripwire |
+| **S-076** ✅ | `7fb32e4` | `docs/deployment.md` 加 operator section：點樣把 `strawberry.execution` 調落 INFO。端到端驗過（開咗見到 refusal、唔開就冇），亦驗過真 fault 唔受影響，照樣 ERROR + traceback |
+| **S-078** ✅ | `ce7ac78` | `test_api.py` 加 `test_an_empty_batch_reads_nothing_and_returns_nothing`。釘 cost 唔淨係釘 value —— `== {}` 對 mutant 照綠，要連 SQL parameter assertion 先紅。`service.py` 99% → **100%** |
+
+### 刻意未做
+
+| ID | 原因 |
+|---|---|
+| **S-077** | 涉及 `pyproject.toml` ruff section 同 `CLAUDE.md`，係 user decision，已另行提交畀 user。本 lane 明確 out-of-scope |
+| **S-079** | 依本 repo「bump 時先寫」嘅慣例，留畀下次 release |
+
+### 未清 Suggestion 總數：2（S-077、S-079）
+

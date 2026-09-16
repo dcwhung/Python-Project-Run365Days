@@ -1,6 +1,6 @@
 # 項目文件索引 — Run365Days
 
-**最後更新**：2026-09-16（**CUI-0029 / 0030 / 0031 / 0033 / 0034 Round 1 code review 完成**：86/100 warn，0 🔴 / 0 🟡 / 7 🟢（S-073…S-079），hard gates 6/6 pass；Python 417 tests / 前端 141 tests / coverage 95%（`api/schema.py` 100%）；`npm audit` 首次執行 —— prod 0 vuln，14 條全屬 dev toolchain；warn 純由 12 條未清 documentation suggestion 驅動，功能上唔阻 merge 或 QA）
+**最後更新**：2026-09-16（**documentation-only lane S-063…S-078 完成**：12 條 open suggestion 一次清，一條一個 commit，production 行為零改動（`api/schema.py` / `api/service.py` 剝 docstring + comment 後 AST 同 `ea820aa` 相同）；Python **418 tests**、前端 141 tests / 25 files、`api/service.py` coverage 99% → **100%**、total 95%；ruff + SDL + eslint + typecheck 全綠。其中 S-074 部分推翻 reviewer —— `year` 實測掟得出 list-row budget refusal。尚餘 S-077（user decision）同 S-079（留待下次 bump）)
 
 > 本目錄為 ai-dev-team 產出文件嘅 Single Source of Truth。
 > 每次有新文件輸出，必須喺此更新條目同頂部日期。
