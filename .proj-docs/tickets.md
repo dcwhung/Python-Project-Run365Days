@@ -903,9 +903,10 @@ Hard gates：363 passed / ruff clean / format clean / SDL up to date / coverage 
 | **CUI-0022** | 🔵 Low | `activity_time_range()`（`src/common/time.py:167`）係 dead code —— 全 repo 零 caller，亦係 `time.py` 唯一未覆蓋嘅代碼（L178-182），令 93.2% 呢個 coverage 訊號被溝淡。**pre-existing，唔係 CUI-0006 引入** | pending |
 | **CUI-0023** | 🔵 Low | **CUI-0004 引嘅 coverage 依據已過期**：AU-050 令 `service.py` 由 84 → 103 statement，AU-047 C-001 嘅 `track(points: 1)` 測試順帶覆蓋咗 `_even_positions` 嗰條早返 branch。`return [total - 1]` 而家喺 L152 **已有覆蓋**，唯一未覆蓋嘅係 L257（`tracks()` 空輸入護欄，GraphQL 入唔到）。**CUI-0004 嘅核心 bug 仍然有效**（`_even_positions(600, 1) = [599]`，冇 first），只係佢個 title 同 coverage 依據要更正 | pending |
 | **CUI-0024** | 🟢 Low | 清 AU-035 嗰批 `docs/` 既有 drift：`README.md` / `docs/architecture.md` 寫「three console scripts」實際 4 個、`architecture.md` 引用已消失嘅 `write_data_js`、三處寫死嘅測試數量（133 / 93 / 87）全部過期。Main agent 已逐項核實。建議優先**移除**寫死數字而唔係更新佢哋（同 CUI-0015 揀方案 3 同一理由）。已核實「all nine views」同 CHANGELOG 嘅 `write_data_js` **正確，唔好改** | pending |
+| **CUI-0025** | 🟢 Low | **`S-011` 兩半今日仍然成立**：(a) `points: 0` 喺 api mode 被拒（`_track_points` 1–1000 bounds），喺 static mode 回全部點（`source.ts:66` `points ? downsample(...) : rows` 短路）；(b) `MAX_TRACK_POINTS` / `MAX_PAGE_SIZE` 兩個界仍然冇寫入 SDL，前端睇 `schema.graphql` 見唔到。⚠️ CUI-0021 之後 `downsample` 對 `limit < 2` 回最後一點，所以而家有三種可能行為，執票時唔可以求其揀。**唔好將 api mode 改返「0 = 攞全部」** —— 嗰個係 AU-001 堵咗嘅 DoS 向量 | pending |
 
-> 編號：掃過 `.tickets/pending/`、`.tickets/in-progress/` 同本檔，現存最高 **CUI-0023**，
-> 所以由 **CUI-0024** 起，全局唯一、無重用、無跳號。
+> 編號：掃過 `.tickets/pending/`、`.tickets/in-progress/` 同本檔，現存最高 **CUI-0024**，
+> 所以由 **CUI-0025** 起，全局唯一、無重用、無跳號。
 
 ### QA 同意 reviewer 嘅兩條 🟢 不阻塞
 
