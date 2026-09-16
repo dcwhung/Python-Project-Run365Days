@@ -195,12 +195,23 @@ def _stored_counts(session: Session, activity_ids: list[str]) -> dict[str, int]:
 SAMPLE_KEY_SEPARATOR = ":"
 """Separator joining a position to an activity id in the sample key.
 
-Any character would do, because the position comes *first*: it is a run of
-decimal digits, so the first separator in the key always ends it and the
-remainder is the whole activity id however many separators it contains. Put
-the id first instead and an id holding this character would make two different
-rows share a key -- which is why the order is the load-bearing half of this
-and the character is not.
+What makes the key injective is that one of its two halves cannot contain this
+character: a position is a run of decimal digits, so whichever end of the key
+it sits at is unambiguous, and the whole of the other half is the activity id
+however many separators that id itself holds. Nothing here ever parses a key
+back apart -- the ``IN`` compares them whole -- so injectivity is the only
+property needed.
+
+Position first is therefore an arbitrary choice, kept only because it reads
+well. An earlier revision of this docstring, of ``f57caa8``'s commit message
+and of CUI-0019 all said instead that id-first would let two rows share a key,
+and that is wrong: id-first is injective for exactly the same reason, off the
+*last* separator rather than the first. Both orders were brute-forced over ids
+holding separators, empty ids, leading zeros and non-ASCII, at zero collisions
+either way. The order is not the load-bearing half of this; the one thing the
+key does rest on is that a position never renders with this character in it
+(:func:`_sample_key`). Let that change and both orders break together, and the
+key stops matching silently rather than raising.
 """
 
 
