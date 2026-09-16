@@ -18,9 +18,12 @@ const FILES: Record<string, unknown> = {
     rows: [0, 1, 2, 3, 4].map((i) => [i * 6, 22.3, 114.2, 330 + i, i * 16, 2.7, 83, 18]),
   },
   // CUI-0033 (a). A track longer than MAX_TRACK_POINTS, which no default
-  // export writes and `run365-export --points 1250` does -- the measurement
-  // that opened the ticket. Built here rather than exported, because the point
-  // is what this module does with such a file, not how one comes to exist.
+  // export writes and `run365-export --points 1250` does -- 1250 being the raw
+  // sample count of the one activity in the export that is over the ceiling.
+  // The run that opened the ticket was `--points 1200`, which writes 1200:
+  // `--points N` caps a track at N rows, so the ask has to reach 1250 for all
+  // of them to land. Built here rather than exported, because the point is
+  // what this module does with such a file, not how one comes to exist.
   // `sec` is the row's own index, so a returned `sec` reads as "this is the
   // row the sampler picked" and an even sample is distinguishable from the
   // first 1000 rows.

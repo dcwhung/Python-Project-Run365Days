@@ -173,9 +173,19 @@ Derived rather than spelled out so the two cannot drift: the value that matters
 is "longer than the ceiling", and CUI-0033 (a) is only testable at all because
 one length above it exists. ``1250`` was already in
 :data:`VARIED_TRACK_LENGTHS` -- put there for the sampler, not for this -- and
-is what a real ``run365-export --points 1200`` produces, so this needs no
-fixture of its own. Tests using it assert the inequality rather than assume it,
-since shortening the fixture would otherwise turn them green and empty.
+is a length a real export can hold, so this needs no fixture of its own. Tests
+using it assert the inequality rather than assume it, since shortening the
+fixture would otherwise turn them green and empty.
+
+How a track gets that long, since an earlier revision of this docstring had it
+wrong: ``run365-export --points N`` writes at most N rows per track, because
+:func:`run365days.export.records.build_records` passes every track through
+``downsample(rows, point_limit)``. So ``--points 1200`` -- the run that opened
+CUI-0033 -- writes 1200, not 1250; 1250 rows takes ``--points 1250``. The
+figure comes from the raw data rather than from either run: exactly one
+activity in the export parses to more than 1000 track rows, and it holds 1250
+of them. To re-take it, count ``track_rows`` per activity before the
+downsample rather than reading the exported file, which is already capped.
 """
 
 OVER_CAP_ID = VARIED_IDS[VARIED_TRACK_LENGTHS.index(OVER_CAP_LENGTH)]
