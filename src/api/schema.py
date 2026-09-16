@@ -121,12 +121,15 @@ assertion, and a wall time in CI buys a flaky test rather than a guarantee:
 * The shortest way to saturate this cap is one list field -- not the only
   way. ``activities(limit: 64) { track(points: 1) }`` is 19 tokens and issues
   4 statements (2 for the list, 2 for the one batch its 64 tracks share) in
-  ~0.01 s on the fixture but ~0.05 s on the export (13.3 ms and 52.7 ms, a
-  4x gap), and the only reading here that moves with the export's size at
-  all, since this is the one shape whose batch is wide. That gap was 16x
-  while the sample predicate grew with the batch (QA read 165.6 ms on
-  2026-09-15); CUI-0019 is what closed it, and this is the one line in this
-  docstring that fix moves. ``limit: 65`` issues the same 4 before refusing
+  ~0.01 s on the fixture but 53 ms on the export (13.3 ms and 52.7 ms, a
+  4x gap). The export figure is given in ms rather than as ~0.05 s because it
+  sits within a hair of the 0.055 boundary: a re-run reading 58 ms rounds to
+  0.06 instead, so here the single figure is the unstable part and the ms is
+  the steady one. It is also the only reading here that moves with the
+  export's size at all, since this is the one shape whose batch is wide.
+  That gap was 16x while the sample predicate grew with the batch (QA read
+  165.6 ms on 2026-09-15); CUI-0019 is what closed it, and this is the one
+  line in this docstring that fix moves. ``limit: 65`` issues the same 4 before refusing
   the 65th -- the cap holds on a refused request, which is the point of
   charging before the SQL -- in ~0.01 s on the fixture and ~0.05 s on the
   export (13.6 ms and 53.8 ms), which is the served case beside it plus the
@@ -142,9 +145,11 @@ assertion, and a wall time in CI buys a flaky test rather than a guarantee:
   :data:`MAX_QUERY_TOKENS`, where 53 lexes to 1009 and no longer parses. Both
   are legal and fully served. What they cost turns on whether their tracks can
   share a batch: 52 parents naming *one* activity issue 106 statements
-  (52 x 2 + 2) in ~0.07 s at either scale (68.0 ms fixture and 69.4 ms
-  export), while 52 parents naming 52 *different* activities cannot share and
-  issue 208 (52 x 2 + 52 x 2) in ~0.1 s on the fixture and ~0.2 s on the
+  (52 x 2 + 2) in 68 ms on the fixture and 69 ms on the export -- in ms for
+  the same reason as the shape above, since ~0.07 s sits on the 0.065
+  boundary and a re-run reading 64 ms rounds to 0.06 instead -- while 52
+  parents naming 52 *different* activities cannot share and issue 208
+  (52 x 2 + 52 x 2) in ~0.1 s on the fixture and ~0.2 s on the
   export (128.9 ms and 166.3 ms) -- more than the cap alone would suggest.
   Neither moved by as much as 1.4x between the two scales, and neither moved
   with CUI-0019 either, for the same reason: every batch these open is a
