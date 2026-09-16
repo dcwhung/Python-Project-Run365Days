@@ -1980,6 +1980,19 @@ def test_the_widest_list_fan_out_reads_no_more_rows_than_the_budget(
 
     year_client.post(GRAPHQL_PATH, json={"query": _list_flood(widest), "variables": {}})
 
+    # `<=` with about 27% of slack on this fixture, deliberately (CUI-0027
+    # S-054). `year_db` holds 365 activities, so the eight pages the budget
+    # affords return 2,920 rows against the 4,000 they are charged, and this
+    # assertion is really 2920 <= 4000. Tightening it to that exact figure
+    # would pin the test to the fixture's size without buying protection: what
+    # it would catch is an undercharge, and `test_the_row_budget_is_the_boundary`
+    # already catches that exactly, by serving at the budget and refusing at
+    # budget + 1. Measured against a charge mutated to 75% of `limit`: that
+    # test fails, along with three others, while an exact count here would be
+    # the fourth rather than the only one. What this test is for is the
+    # question none of those answer -- whether anything bounds the shape at all
+    # -- and for that `<=` is the honest assertion. The 60,590 rows it read
+    # before the budget existed are 15x the bound, not 1.3x.
     assert activity_rows_loaded[0] <= MAX_LIST_ROWS_PER_REQUEST, (
         f"{widest} aliased list fields read {activity_rows_loaded[0]} rows; "
         f"nothing is bounding the fan-out"
