@@ -434,6 +434,73 @@ def test_track_points_of_zero_is_refused_rather_than_read_as_no_limit(year_clien
     )
 
 
+# ── CUI-0033: where "the same sentence in both modes" stops being true ─────
+UNREPRESENTABLE_POINTS = (
+    pytest.param("2.5", "non-integer", id="non-integer"),
+    pytest.param("2147483648", "32-bit", id="over-int32"),
+)
+"""``points`` literals the ``Int`` scalar cannot carry, and the word that says why.
+
+Both modes refuse both values, so the *decision* matches; only the sentence
+does not, which is the whole of CUI-0033 (b). Static mode answers each with
+``points must be between 1 and 1000, got ...`` from ``checkPoints``, because it
+has no scalar layer to be stopped by first.
+"""
+
+
+@pytest.mark.parametrize(("literal", "reason"), UNREPRESENTABLE_POINTS)
+def test_a_points_the_int_scalar_cannot_carry_is_refused_before_the_resolver(
+    year_client, literal, reason
+):
+    # CUI-0025 promised one error path for both modes. It holds for every value
+    # `Int!` can express and stops exactly here: coercion runs during execution
+    # set-up, so `_track_points` is never called and cannot contribute its
+    # sentence. Pinned so the divergence stays a documented boundary rather
+    # than being rediscovered as a bug -- and so that closing it would have to
+    # come here and say so.
+    body = year_client.post(
+        GRAPHQL_PATH,
+        json={"query": f'{{ activity(id: "r0") {{ track(points: {literal}) {{ sec }} }} }}'},
+    ).get_json()
+
+    message = " ".join(e["message"] for e in body["errors"])
+    assert "Int cannot represent" in message and reason in message
+    # The negative half carries the claim: without it this passes against a
+    # schema that reached the resolver after all and merely worded it oddly.
+    assert "points must be between" not in message
+    # A coercion failure is not a field error, so it nulls the response whole
+    # rather than nulling `track` and serving the activity around it.
+    assert body["data"] is None
+
+
+def test_an_unknown_activity_swallows_an_illegal_points_that_static_mode_refuses(year_client):
+    # CUI-0033 (c). `track` is a field on `Activity`, so a null parent means
+    # its resolver -- bounds check included -- never runs. Static mode checks
+    # `points` before it fetches anything, so the same call throws there. Not a
+    # bug on either side, but it is the last hole in "one error path", and QA
+    # asked for it written down rather than found again.
+    body = year_client.post(
+        GRAPHQL_PATH,
+        json={"query": '{ activity(id: "no-such-activity") { track(points: 0) { sec } } }'},
+    ).get_json()
+
+    assert "errors" not in body, body.get("errors")
+    assert body["data"] == {"activity": None}
+
+
+def test_an_unknown_activity_does_not_swallow_a_points_the_int_scalar_cannot_carry(year_client):
+    # The two divergences above meet here, and the second one wins: coercion
+    # happens before any resolver, so there is no null parent yet to absorb the
+    # value. So an unknown id hides an illegal `points` only while `Int!` can
+    # carry it -- a seam neither CUI-0033 (b) nor (c) covers on its own.
+    body = year_client.post(
+        GRAPHQL_PATH,
+        json={"query": '{ activity(id: "no-such-activity") { track(points: 2.5) { sec } } }'},
+    ).get_json()
+
+    assert "Int cannot represent non-integer value: 2.5" in body["errors"][0]["message"]
+
+
 # ── CUI-0025: the bounds a client can only find by tripping over them ──────
 def _field_descriptions() -> dict[str, str]:
     """Return ``{root field name: SDL description}`` for every field on Query."""
