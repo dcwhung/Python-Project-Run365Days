@@ -419,6 +419,75 @@ def test_track_points_above_the_maximum_are_rejected(year_client):
     assert str(MAX_TRACK_POINTS) in gql_errors(year_client, query)
 
 
+def test_track_points_of_zero_is_refused_rather_than_read_as_no_limit(year_client):
+    # 0 is the one value the two deployment modes used to disagree on. Before
+    # AU-001 this side read `if points:`, so 0 meant "no limit" -- the DoS
+    # vector AU-001 closed. Static mode kept that reading until CUI-0025, and
+    # `it("refuses points: 0 the way api mode does")` in
+    # frontend/src/data/static/source.test.ts is the other half of this pair.
+    # The message is asserted whole because both sides now raise it verbatim,
+    # so a client writes one error path rather than one per mode.
+    query = '{ activity(id: "r0") { track(points: 0) { sec } } }'
+    assert f"points must be between 1 and {MAX_TRACK_POINTS}, got 0" in gql_errors(
+        year_client, query
+    )
+
+
+# ── CUI-0025: the bounds a client can only find by tripping over them ──────
+def _field_descriptions() -> dict[str, str]:
+    """Return ``{root field name: SDL description}`` for every field on Query."""
+    sdl = build_schema_from_sdl(schema.as_str())
+    return {name: (f.description or "") for name, f in sdl.query_type.fields.items()}
+
+
+LIST_FIELDS = ("activities", "weight", "weather", "warnings")
+"""The four root fields that take a ``limit``/``offset`` page window."""
+
+
+def test_the_sdl_states_the_range_track_points_must_fall_in():
+    sdl = build_schema_from_sdl(schema.as_str())
+    track = sdl.type_map["Activity"].fields["track"]
+
+    # The bare number will not do: MAX_TRACK_POINTS_PER_REQUEST is 10000, whose
+    # digits contain MAX_TRACK_POINTS's, so `"1000" in description` is already
+    # true of a description that never states this range at all.
+    assert f"(1-{MAX_TRACK_POINTS})" in (track.description or ""), (
+        "MAX_TRACK_POINTS lives in a Python docstring and a runtime error; a client "
+        "reading the SDL cannot see the ceiling until it trips over it"
+    )
+
+
+@pytest.mark.parametrize("field", LIST_FIELDS)
+def test_the_sdl_states_the_range_limit_must_fall_in(field):
+    descriptions = _field_descriptions()
+
+    assert f"(1-{MAX_PAGE_SIZE})" in descriptions[field], (
+        f"`{field}` takes a limit bounded by MAX_PAGE_SIZE and says so nowhere in the SDL"
+    )
+
+
+def test_the_year_description_does_not_mention_a_limit_it_has_no_argument_for():
+    # S-053. `year` spends the same row budget as the list fields, so it carries
+    # the budget sentence -- but it takes no `limit`, and a sentence saying the
+    # charge is "on `limit` as asked for" sends its reader looking for an
+    # argument that is not there.
+    sdl = build_schema_from_sdl(schema.as_str())
+    year = sdl.query_type.fields["year"]
+    assert "limit" not in year.args, "this test is stale: `year` grew a limit argument"
+
+    assert "`limit`" not in (year.description or ""), (
+        "`year` has no `limit` argument, so its description must not explain a charge "
+        "in terms of one"
+    )
+
+
+@pytest.mark.parametrize("field", LIST_FIELDS + ("year",))
+def test_every_field_that_spends_the_row_budget_says_so(field):
+    # The half of S-053 that must survive splitting the note in two: `year`
+    # loses the `limit` sentence but keeps the shared budget one.
+    assert str(MAX_LIST_ROWS_PER_REQUEST) in _field_descriptions()[field]
+
+
 # ── AU-001: query depth and token limits ───────────────────────────────────
 def test_deepest_client_query_is_within_the_depth_limit(client):
     assert gql(client, DEEPEST_CLIENT_QUERY)["year"] is not None

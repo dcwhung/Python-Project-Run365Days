@@ -338,18 +338,63 @@ illustrative (CUI-0027 W-028):
   materialises alongside are charged no more than the identical ~380 an
   ``activities`` page pulls in the same way, so they are not a ``year`` quirk;
 * ``activity(id:)`` does not pay. It reads one row by primary key, and
-  :data:`MAX_QUERY_TOKENS` admits at most 90 of them: 90 rows and ~0.05 s on
-  the export, some 300x inside the 15 s function, so charging it would buy
-  noise;
+  :data:`MAX_QUERY_TOKENS` admits at most 90 of them -- 90 being the count for
+  the narrowest selection, ``{ id }``; a wider one costs tokens and buys fewer
+  fields, 76 at three scalars and 30 under the full ``ActivityFields``. At that
+  widest: ~95 ms on the export (91.6-95.9 over five runs), some 160x inside the
+  15 s function, so charging it would buy noise.
+
+  The figures this replaces -- ~0.05 s and some 300x -- were measured down a
+  path that never reaches the row. An id matching nothing returns before the
+  ``selectinload`` fires: 48-50 ms, 0 rows, 90 statements rather than 180
+  (S-058). Roughly half the reading either way is fixed cost, per-field
+  dispatch over 90 aliases rather than anything the database does, which is
+  why the miss is not much cheaper than the hit.
+
+  Rows, likewise, are not 90. ``service.activity`` carries
+  ``selectinload(warnings)``, so each field costs two statements and pulls its
+  activity's warning rows alongside: 164 rows for the first 90 activities of
+  this export (90 + 74 links), against a ceiling of 810 at the 8 warnings the
+  worst-served day here carries. Still fixed-size in the sense this rule means
+  -- it grows with a day's weather, not with a window the client names -- but
+  "90 rows" understated it;
 * the four ``*Count`` fields and ``meta`` do not pay either, by that same rule.
-  A count is one scan returning one row, and ``meta`` is the one-row export
-  header; neither widens with a window, so neither has a window to charge.
+  A count is one scan returning one row, and ``meta`` is the export header --
+  two rows, not one: the table is key/value and holds ``year`` and
+  ``generated_at``, which :func:`run365days.api.service.meta` reads whole with
+  ``select(models.Meta)`` and folds into one object (S-059). So the widest
+  document is 332 rows materialised, not 166. Neither field widens with a
+  window, so neither has a window to charge.
   Aliasing is the only axis that multiplies them and :data:`MAX_QUERY_TOKENS`
-  bounds that: at the widest each admits, 332 aliased counts read 77-86 ms on
-  the export (the dearest is ``activitiesCount``, ~83 ms, some 180x inside the
-  function) and 166 aliased ``meta`` reads ~46 ms, some 320x. That is the
-  ``activity(id:)`` order of magnitude above, and charging them would buy the
-  same noise.
+  bounds that: at the widest each admits, 332 aliased counts read 76-86 ms on
+  the export, some 175-195x inside the function, and 166 aliased ``meta``
+  reads ~47 ms, some 315x. 166 is the count for ``meta { year }``; a second
+  subfield costs a token and drops it to 142. That is the ``activity(id:)``
+  order of magnitude above, and charging them would buy the same noise.
+
+  No one of the four counts is reproducibly the dearest, and an earlier
+  revision naming ``activitiesCount`` was reading noise (S-060). Over 15
+  interleaved rounds their medians span 76.1-83.2 ms, 9.2%, while any single
+  field's own spread across those same rounds reaches 29-52% of its median. The
+  between-field gap is real -- ``activitiesCount`` led 12 rounds of 15 -- but it
+  sits inside the run-to-run variance, so a reader who picks one of these
+  documents to worry about has picked at random. Hence the range above and no
+  winner.
+
+  These readings do **not** need a warm page cache, which is worth stating
+  because this API runs as a Vercel function against a SQLite file and a cold
+  one is its normal state rather than an artefact. Measured with the cache
+  verifiably empty -- ``posix_fadvise(POSIX_FADV_DONTNEED)`` over the file,
+  ``mincore`` confirming 0 of 2,865 pages resident, one run per freshly
+  started process -- 332 aliased ``activitiesCount`` reads 84.6 ms against
+  83.2 ms warm, and the other three are within 3% of their warm figures too.
+  The reason is that these documents are not I/O bound: a count touches a
+  handful of pages of an 11 MB file, and what the 80-odd ms buys is 332
+  resolver dispatches. What a cold *process* costs is real and much larger --
+  ~330 ms of imports before the first query, and a first execution some 7%
+  above the second while SQLAlchemy compiles the statement -- but that is a
+  per-invocation cost the whole function pays, not something this budget bounds
+  or that aliasing multiplies.
 
 So the bound this constant states is on *windowed* reads. A request may hold
 that many rows, plus up to 90 single ones, plus the fixed-size reads that do
@@ -667,9 +712,11 @@ def _track_rows(info: Info, activity_id: str, page: tuple[str, ...], points: int
 
 
 TRACK_DESCRIPTION = (
-    "GPS track, evenly downsampled to at most `points` samples. "
+    f"GPS track, evenly downsampled to at most `points` (1-{MAX_TRACK_POINTS}) samples. "
     "`points: 1` has nothing to space evenly and returns the track's last row "
-    "alone, not its first. "
+    "alone, not its first. Outside that range the field is refused rather than "
+    "clamped -- `points: 0` in particular, which reads as `no limit` in every "
+    "language whose falsy rules invite it, and is the fan-out AU-001 closed. "
     f"One request may read at most {MAX_TRACK_FIELDS_PER_REQUEST} `track` fields, "
     f"totalling {MAX_TRACK_POINTS_PER_REQUEST} points. Both are counted across every "
     "`track` field in the request; points are charged on `points` as asked for, not "
@@ -685,14 +732,39 @@ see why a wide fan-out is refused without having to trigger the error first.
 
 LIST_ROWS_NOTE = (
     f" One request may open at most {MAX_LIST_ROWS_PER_REQUEST} rows of pages in total, "
-    "counted across every list field in it and charged on `limit` as asked for rather than "
-    "on the rows a page turns out to hold."
+    "counted across every field in it that opens one."
 )
 """Sentence appended to every field description that spends the list row budget.
 
 Part of those fields' contract, so a client reading the SDL can see why a wide
 fan-out is refused without having to trigger the error first -- the same reason
 :data:`TRACK_DESCRIPTION` states both track budgets.
+
+Says only what is true of *every* field that pays, which is why it stops where
+it does. It used to end "charged on ``limit`` as asked for", and ``year`` pays
+this budget without having a ``limit`` to be charged on -- it is charged one
+:data:`DEFAULT_PAGE_SIZE` page for a read the calendar sizes, not the client --
+so that clause sent ``year``'s reader looking through the SDL for an argument
+that is not in it (S-053). The clause now lives in :data:`PAGE_WINDOW_NOTE`,
+beside the argument it is about.
+"""
+
+PAGE_WINDOW_NOTE = (
+    f" The window is `limit` (1-{MAX_PAGE_SIZE}) rows from `offset` (0 or more); "
+    "either side of that range is refused rather than clamped, and the budget above is "
+    "charged on `limit` as asked for rather than on the rows a page turns out to hold."
+)
+"""Sentence appended to every field that takes a ``limit``/``offset`` page window.
+
+Separate from :data:`LIST_ROWS_NOTE` because the two do not cover the same
+fields: ``year`` spends the row budget without taking a window, so it carries
+that note and not this one (S-053). The four list fields carry both, in that
+order, so the budget is stated before the sentence that says what it is charged
+on.
+
+:data:`MAX_PAGE_SIZE` otherwise lived only in a Python docstring and the text of
+a runtime error, which a client reading the SDL never sees until it has already
+sent the request that trips it (CUI-0025).
 """
 
 COUNT_DESCRIPTION = (
@@ -955,7 +1027,9 @@ class Query:
         )
 
     @strawberry.field(
-        description="Runs in start order, optionally filtered (dates inclusive)." + LIST_ROWS_NOTE
+        description="Runs in start order, optionally filtered (dates inclusive)."
+        + LIST_ROWS_NOTE
+        + PAGE_WINDOW_NOTE
     )
     def activities(
         self,
@@ -993,7 +1067,9 @@ class Query:
     def activity(self, info: Info, id: strawberry.ID) -> Activity | None:
         return _activity(service.activity(info.context["session"], str(id)))
 
-    @strawberry.field(description="Daily weigh-ins (dates inclusive)." + LIST_ROWS_NOTE)
+    @strawberry.field(
+        description="Daily weigh-ins (dates inclusive)." + LIST_ROWS_NOTE + PAGE_WINDOW_NOTE
+    )
     def weight(
         self,
         info: Info,
@@ -1015,7 +1091,9 @@ class Query:
     ) -> int:
         return service.weight_count(info.context["session"], _iso(from_date), _iso(to_date))
 
-    @strawberry.field(description="HKO daily weather (dates inclusive)." + LIST_ROWS_NOTE)
+    @strawberry.field(
+        description="HKO daily weather (dates inclusive)." + LIST_ROWS_NOTE + PAGE_WINDOW_NOTE
+    )
     def weather(
         self,
         info: Info,
@@ -1037,7 +1115,11 @@ class Query:
     ) -> int:
         return service.daily_weather_count(info.context["session"], _iso(from_date), _iso(to_date))
 
-    @strawberry.field(description="HKO warnings and signals (dates inclusive)." + LIST_ROWS_NOTE)
+    @strawberry.field(
+        description="HKO warnings and signals (dates inclusive)."
+        + LIST_ROWS_NOTE
+        + PAGE_WINDOW_NOTE
+    )
     def warnings(
         self,
         info: Info,
