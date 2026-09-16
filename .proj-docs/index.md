@@ -1,6 +1,6 @@
 # 項目文件索引 — Run365Days
 
-**最後更新**：2026-09-15（**v3.1.0 已發佈並部署**：CUI-0016 + AU-048 + AU-050，6 條 lane、3 輪 review、1 輪 QA；Python 351 tests / 前端 108 tests）
+**最後更新**：2026-09-16（**low-cost wave 1 batch QA 完成**：CUI-0006 / 0017 / 0020 / 0003 / 0014，review 86→97 pass，QA ✅ pass 0 Critical、363 tests、coverage 94.71%；CUI-0020 仍 blocked on CUI-0019；新開 CUI-0022 / CUI-0023）
 
 > 本目錄為 ai-dev-team 產出文件嘅 Single Source of Truth。
 > 每次有新文件輸出，必須喺此更新條目同頂部日期。
@@ -66,6 +66,7 @@
 |---|---|---|
 | Ticket registry（AU / C-W-S / CUI 全部） | [`tickets.md`](tickets.md) | ✅ 現行 SSoT |
 | Code review 報告（2026-09-15 batch，955 行，3 輪）| [`reviews/2026-09-15_review_cui0016-au048-au050_batch.md`](reviews/2026-09-15_review_cui0016-au048-au050_batch.md)（89 warn → 99 pass → 97 pass）| ✅ 已建立 |
+| QA 報告（2026-09-16 low-cost wave 1 batch，724 行）| [`qa/2026-09-16_qa_low-cost-wave1_batch.md`](qa/2026-09-16_qa_low-cost-wave1_batch.md)（✅ pass、0 Critical、363 tests、coverage 94.71%；export→SQLite→static JSON→GraphQL 全鏈只差 `generated_at`；CUI-0020 唔可以標 completed）| ✅ 已建立 |
 | QA 報告（2026-09-15 batch，708 行）| [`qa/2026-09-15_qa_cui0016-au048-au050_batch.md`](qa/2026-09-15_qa_cui0016-au048-au050_batch.md)（0 Critical、coverage 99%、369/370 static 檔 byte-identical）| ✅ 已建立 |
 | Code review 報告 | [`reviews/2026-09-13_review_p0-batch.md`](reviews/2026-09-13_review_p0-batch.md)（84/100 pass）<br>[`reviews/2026-09-14_review_au-047.md`](reviews/2026-09-14_review_au-047.md)（66/100 **fail**，1 🔴）<br>[`reviews/2026-09-14_review_au-047_round2.md`](reviews/2026-09-14_review_au-047_round2.md)（91/100 **pass**，0 🔴）<br>[`reviews/2026-09-14_review_au-047_round3.md`](reviews/2026-09-14_review_au-047_round3.md)（87/100 **warn**，cleanup 輪驗證） | ✅ 已建立 |
 | QA 報告 | [`qa/2026-09-14_qa_p0-batch.md`](qa/2026-09-14_qa_p0-batch.md)（0 Critical）<br>[`qa/2026-09-14_qa_au-047.md`](qa/2026-09-14_qa_au-047.md)（0 Critical / 1 Major / 2 Minor，369/370 byte-identical） | ✅ 已建立 |

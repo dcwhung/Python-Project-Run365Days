@@ -860,3 +860,54 @@ AU-047 立嘅 W-017 係「**數字**值得寫低就值得 assert」。本批顯�
 
 `CUI-0017` 講嘅「實測 request 層面去到 208」喺 AU-050 之後**只對 distinct-parent 嘅形狀成立**：52 個 aliased parent 指住**同一條** activity 而家係 **106**（per-request memoization），指住 **52 條唔同** activity 先仍然係 208。修 CUI-0017 嗰陣要用返新數字。
 
+
+---
+
+## 2026-09-16 Batch QA — low-cost wave 1（CUI-0006 / 0017 / 0020 / 0003 / 0014）
+
+Review：86 → **97 pass**（`2026-09-16_review_low-cost-wave1_delta.md`）
+QA：**✅ pass，0 Critical**（`.proj-docs/qa/2026-09-16_qa_low-cost-wave1_batch.md`）
+Hard gates：363 passed / ruff clean / format clean / SDL up to date / coverage **94.71%**
+
+### 五張票嘅 QA verdict
+
+| 票 | Verdict | 狀態建議 |
+|---|---|---|
+| **CUI-0006** | ✅ pass | 標 completed |
+| **CUI-0017** | ✅ pass | 標 completed |
+| **CUI-0003** | ✅ pass | 標 completed |
+| **CUI-0014** | ✅ pass | 標 completed |
+| **CUI-0020** | ✅ pass（代碼/文件） | ⛔ **唔可以標 completed** —— 第三個 DoD（同 CUI-0019 一齊重量）未達成。留 `.tickets/in-progress/0001-0200/` 標 blocked on CUI-0019，**唔好搬 `on-hold/`**（其餘 DoD 已 100% 完成） |
+
+### QA 獨立驗證嘅關鍵數字
+
+| 項目 | 結果 |
+|---|---|
+| AST 比對（41 個 `src/**/*.py`，剝走 docstring） | **只有 `common/time.py` 嘅可執行 AST 有變**；`api/schema.py` / `weather/models.py` 純 docstring |
+| CUI-0006 blast radius | 1,087 activity record + **328,752 track point** byte-identical（深度 dump，唔經 `_activities_to_jsonl`）|
+| Negative control | scratchpad mutant 改 tz → **只有 KML 變**，證明 probe 會捉到差異 |
+| 改動分支被行過幾多次 | iso_offset **97,004**（全部 KML，全部 `+08:00`）；GPX/TCX **零次** → 改動路徑**到唔到 export** |
+| export → SQLite → static JSON | `run365.db` 邏輯 dump 136,057 行**只差 1 行**（`generated_at`）；370 個 static JSON 只有 `meta.json` 差同一個欄位 |
+| GraphQL | 13 條真實 query + SDL，base vs HEAD **全部 sha256 相同**，零 error |
+| Regex fuzz | 3,402 個無 offset 形狀 **零 false positive**；240 個 offset 拼法 **零漏網**；348 個轉換 **零 instant 偏移** |
+| `MissingTimeZoneDataError` | 六種輸入形狀（含新開嘅負 offset 路徑）一律先撞環境錯誤；仍然係 `RuntimeError` 唔係 `ValueError` ✅ |
+| CUI-0017 | 208 / 128 獨立重現；3 個 mutant（token 限制 / field cap / parent 成本）全部紅 |
+| CUI-0003 | 邊界 `max_depth=3 REFUSED / 4 served` 重現；3 個 mutant（加深一層 / union / interface）全部紅 |
+| CUI-0014 | 461 warning 行 × 6 欄位 **零缺失**（docstring 依據準確）；6 個 mutant 全紅 |
+| **CUI-0020 production 數字第一次獨立重量** | 134,041 track rows **一個不差**；16x → 實測 **15.6x**；38x → 實測 **37x**；兩個 52-parent shape 跨規模 **1.0x / 1.3x**（docstring 講「唔夠 1.4x」成立）|
+
+### QA 開嘅新 ticket（**皆不阻塞**）
+
+| ID | 級別 | 內容 | 狀態 |
+|---|---|---|---|
+| **CUI-0022** | 🔵 Low | `activity_time_range()`（`src/common/time.py:167`）係 dead code —— 全 repo 零 caller，亦係 `time.py` 唯一未覆蓋嘅代碼（L178-182），令 93.2% 呢個 coverage 訊號被溝淡。**pre-existing，唔係 CUI-0006 引入** | pending |
+| **CUI-0023** | 🔵 Low | **CUI-0004 引嘅 coverage 依據已過期**：AU-050 令 `service.py` 由 84 → 103 statement，AU-047 C-001 嘅 `track(points: 1)` 測試順帶覆蓋咗 `_even_positions` 嗰條早返 branch。`return [total - 1]` 而家喺 L152 **已有覆蓋**，唯一未覆蓋嘅係 L257（`tracks()` 空輸入護欄，GraphQL 入唔到）。**CUI-0004 嘅核心 bug 仍然有效**（`_even_positions(600, 1) = [599]`，冇 first），只係佢個 title 同 coverage 依據要更正 | pending |
+
+> 編號：掃過 `.tickets/pending/`、`.tickets/in-progress/` 同本檔，現存最高 **CUI-0021**，
+> 所以由 **CUI-0022** 起，全局唯一、無重用、無跳號。
+
+### QA 同意 reviewer 嘅兩條 🟢 不阻塞
+
+**S-042**（`sql_count` fixture-order 不變式仲有 12 個 case 靠緊）、
+**S-043**（`test_api.py:501,512` 重複 build 同一個 schema）——
+建議併入下一個掂到 `tests/test_api.py` 嘅 lane。
