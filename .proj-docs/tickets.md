@@ -1085,7 +1085,7 @@ clean、`run365-schema --check` up to date、frontend `eslint` / `typecheck` / `
 | **S-063** ✅ | `064c69a` | `schema.py`：「At that widest」點名返係 90-alias `{ id }` 而唔係 30-alias `ActivityFields`。重量：90×`{id}` 95.7 ms / 180 stmt，30×`ActivityFields` 71.2 ms / 60 stmt |
 | **S-064** ✅ | `373627c` | `schema.py`：「一半係 per-field dispatch」換成量到嘅講法。10/30/45/90 alias sweep 兩條 path 都線性、intercept ≈ 2 ms（讀數嘅 2–3%），per-statement 0.536 vs 0.518 ms；332×`activitiesCount` 85.0 ms / 332 stmt = 0.256 ms/stmt，即成本跟 statement 做乜走。import / first-execution 兩個數補咗「係機器讀數唔係 schema 性質」 |
 | **S-065** ✅ | `3eec3a1` | `test_api.py`：`"4000" in description` 改為 `LIST_ROWS_NOTE.strip() in description`。Mutation 驗過：把 `year` description 降級成「… Limit 4000.」舊 assertion 照綠、新 assertion 紅 |
-| **S-068** ✅ | `77a94c8` | `CUI-0028.md`：10/10/9 係**最小重現模組**嘅 size。實測 `src/api/service.py` 係 22228 / 22228 / 22227，宣告嗰行 26 / 26 / 25。改成寫「關係 + 重量方法」，唔寫會過期嘅讀數 |
+| **S-068** ✅ | `77a94c8` | `CUI-0028.md`：10/10/9 係**最小重現模組**嘅 size。實測 `src/api/service.py`（**喺 base `ea820aa` 量**）係 22228 / 22228 / 22227，宣告嗰行 26 / 26 / 25。改成寫「關係 + 重量方法」，唔寫會過期嘅讀數 ——本 lane 自己嘅 S-071 commit（`1d901b3`）就令 `service.py` 變成 22535，即係話照寫死個數嘅話，佢喺同一條 lane 入面三個 commit 之後已經過期 |
 | **S-069** ✅ | `123b505` | `CUI-0028.md`：「兩個都重現過」改成「兩個候選成因，證唔到當時就係佢」。實測第三個候選（同 process re-import / `sys.modules` 命中）**三個 case 全部解釋得到**，包括 stale `.pyc` 解釋唔到嗰個 `""`。防範措施改為綁方法 |
 | **S-070** ✅ | `88d5681` | `test_api.py`：`COLLIDING_IDS` docstring 由點名一對改成三對。實測 `points=7` 之下 `"05"` 回 `[0,1,2,3,17,33,50,67,83,100]`，stray 係 row 1/2/3，由 `"5"` 嘅 sampled position 10/20/30 拉入 |
 | **S-071** ✅ | `1d901b3` | `service.py`：sweep 範圍寫實（`COLLIDING_TRACK_LENGTHS` + `VARIED_TRACK_LENGTHS`），並把「點解夠」（十個數字全出現）由測試 inline comment 搬入 docstring。核實 `PREFETCH_DB_STORED=12` 確實喺 sweep 之外 |
