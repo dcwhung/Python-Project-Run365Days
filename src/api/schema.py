@@ -359,14 +359,18 @@ illustrative (CUI-0027 W-028):
   -- it grows with a day's weather, not with a window the client names -- but
   "90 rows" understated it;
 * the four ``*Count`` fields and ``meta`` do not pay either, by that same rule.
-  A count is one scan returning one row, and ``meta`` is the one-row export
-  header; neither widens with a window, so neither has a window to charge.
+  A count is one scan returning one row, and ``meta`` is the export header --
+  two rows, not one: the table is key/value and holds ``year`` and
+  ``generated_at``, which :func:`run365days.api.service.meta` reads whole with
+  ``select(models.Meta)`` and folds into one object (S-059). So the widest
+  document is 332 rows materialised, not 166. Neither field widens with a
+  window, so neither has a window to charge.
   Aliasing is the only axis that multiplies them and :data:`MAX_QUERY_TOKENS`
-  bounds that: at the widest each admits, 332 aliased counts read 77-86 ms on
-  the export (the dearest is ``activitiesCount``, ~83 ms, some 180x inside the
-  function) and 166 aliased ``meta`` reads ~46 ms, some 320x. That is the
-  ``activity(id:)`` order of magnitude above, and charging them would buy the
-  same noise.
+  bounds that: at the widest each admits, 332 aliased counts read 76-86 ms on
+  the export, some 175-195x inside the function, and 166 aliased ``meta``
+  reads ~47 ms, some 315x. 166 is the count for ``meta { year }``; a second
+  subfield costs a token and drops it to 142. That is the ``activity(id:)``
+  order of magnitude above, and charging them would buy the same noise.
 
 So the bound this constant states is on *windowed* reads. A request may hold
 that many rows, plus up to 90 single ones, plus the fixed-size reads that do
