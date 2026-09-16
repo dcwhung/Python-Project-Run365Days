@@ -338,9 +338,26 @@ illustrative (CUI-0027 W-028):
   materialises alongside are charged no more than the identical ~380 an
   ``activities`` page pulls in the same way, so they are not a ``year`` quirk;
 * ``activity(id:)`` does not pay. It reads one row by primary key, and
-  :data:`MAX_QUERY_TOKENS` admits at most 90 of them: 90 rows and ~0.05 s on
-  the export, some 300x inside the 15 s function, so charging it would buy
-  noise;
+  :data:`MAX_QUERY_TOKENS` admits at most 90 of them -- 90 being the count for
+  the narrowest selection, ``{ id }``; a wider one costs tokens and buys fewer
+  fields, 76 at three scalars and 30 under the full ``ActivityFields``. At that
+  widest: ~95 ms on the export (91.6-95.9 over five runs), some 160x inside the
+  15 s function, so charging it would buy noise.
+
+  The figures this replaces -- ~0.05 s and some 300x -- were measured down a
+  path that never reaches the row. An id matching nothing returns before the
+  ``selectinload`` fires: 48-50 ms, 0 rows, 90 statements rather than 180
+  (S-058). Roughly half the reading either way is fixed cost, per-field
+  dispatch over 90 aliases rather than anything the database does, which is
+  why the miss is not much cheaper than the hit.
+
+  Rows, likewise, are not 90. ``service.activity`` carries
+  ``selectinload(warnings)``, so each field costs two statements and pulls its
+  activity's warning rows alongside: 164 rows for the first 90 activities of
+  this export (90 + 74 links), against a ceiling of 810 at the 8 warnings the
+  worst-served day here carries. Still fixed-size in the sense this rule means
+  -- it grows with a day's weather, not with a window the client names -- but
+  "90 rows" understated it;
 * the four ``*Count`` fields and ``meta`` do not pay either, by that same rule.
   A count is one scan returning one row, and ``meta`` is the one-row export
   header; neither widens with a window, so neither has a window to charge.
