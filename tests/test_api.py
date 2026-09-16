@@ -25,6 +25,7 @@ from run365days.api import db, service
 from run365days.api.app import GRAPHQL_PATH, HEALTH_PATH, create_app
 from run365days.api.schema import (
     DEFAULT_PAGE_SIZE,
+    LIST_ROWS_NOTE,
     MAX_LIST_ROWS_PER_REQUEST,
     MAX_PAGE_SIZE,
     MAX_QUERY_DEPTH,
@@ -616,7 +617,14 @@ def test_the_year_description_does_not_mention_a_limit_it_has_no_argument_for():
 def test_every_field_that_spends_the_row_budget_says_so(field):
     # The half of S-053 that must survive splitting the note in two: `year`
     # loses the `limit` sentence but keeps the shared budget one.
-    assert str(MAX_LIST_ROWS_PER_REQUEST) in _field_descriptions()[field]
+    #
+    # Held against LIST_ROWS_NOTE itself rather than against the bare number in
+    # it. `str(MAX_LIST_ROWS_PER_REQUEST) in description` passes on any
+    # description that happens to contain those digits -- including one where
+    # the budget sentence has decayed to a stray 4000 -- and it is the shape
+    # 72dfcb5, one commit earlier in the same lane, spent a commit message
+    # explaining why the `(1-1000)` assertions do not use (S-065).
+    assert LIST_ROWS_NOTE.strip() in _field_descriptions()[field]
 
 
 # ── AU-001: query depth and token limits ───────────────────────────────────
