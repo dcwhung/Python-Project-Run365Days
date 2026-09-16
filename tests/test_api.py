@@ -1499,47 +1499,60 @@ variables" rather than degrading.
 def batch_parameters(activities: int, points: int) -> int:
     """Bound parameters the batch SELECT carries for *activities* sampled tracks.
 
-    Three terms, which is the whole of W-020: the position IN lists are the big
-    one, but they are not the only one.
+    Four terms. Three of them are small, and W-020 is why they are written out
+    rather than waved at: the sample list is the big one, but it is not the
+    only one, and the shape that binds the most is decided by the small ones.
 
-    - ``activities * points`` positions, one per sample;
-    - ``2 * activities``: every track binds its id twice, once in the
-      subquery's ``IN`` and once in its own ``_sample_filter`` ``==`` arm;
+    - ``activities * points`` sample keys, one per sample;
+    - ``activities``: every track binds its id once, in the numbered
+      subquery's ``IN``. Before CUI-0019 it bound it a second time, in the
+      ``==`` arm ``_sample_filter`` gave each track; the id now travels inside
+      the sample keys already counted above;
     - ``+ 1`` for the ``- 1`` in ``row_number() OVER (...) - 1``, which
-      SQLAlchemy binds as a parameter rather than inlining.
+      SQLAlchemy binds as a parameter rather than inlining;
+    - ``+ 1`` for ``SAMPLE_KEY_SEPARATOR`` in the key expression, bound once
+      for the whole statement however wide the batch is.
 
-    A track taken *whole* is cheaper than this -- it binds no positions and
+    A track taken *whole* is cheaper than this -- it binds no sample keys and
     joins one shared ``IN`` list -- so an all-sampled batch is the expensive
     shape, which is what both fixtures below build.
     """
-    return activities * points + 2 * activities + 1
+    return activities * points + activities + 2
 
 
-WIDEST_BATCH_ACTIVITIES = 50
+POINTS_BUDGET_BATCH_ACTIVITIES = 50
 """Activities in the batch that spends the *points* budget exactly.
 
-Chosen with WIDEST_BATCH_POINTS so their product is exactly
-MAX_TRACK_POINTS_PER_REQUEST: the most positions the points budget can let one
-batch bind. That is not the same as the most *parameters*, which this fixture
-was previously documented as being (W-020) -- see WORST_CASE_BATCH_ACTIVITIES.
+Chosen with POINTS_BUDGET_BATCH_POINTS so their product is exactly
+MAX_TRACK_POINTS_PER_REQUEST: the most sample keys the points budget can let
+one batch bind.
+
+Since CUI-0019 that also makes it the most *parameters*, which is a ranking
+this fixture has now held, lost and regained, so it is named for its shape and
+not for its rank. Both it and the field-cap shape below are measured, and
+``test_no_batch_the_budgets_allow_binds_more_parameters_than_the_maximum``
+is what decides between them rather than either docstring.
 """
 
-WIDEST_BATCH_POINTS = MAX_TRACK_POINTS_PER_REQUEST // WIDEST_BATCH_ACTIVITIES
+POINTS_BUDGET_BATCH_POINTS = MAX_TRACK_POINTS_PER_REQUEST // POINTS_BUDGET_BATCH_ACTIVITIES
 """Samples per track in that fixture, so the batch spends the budget exactly."""
 
-WORST_CASE_BATCH_ACTIVITIES = MAX_TRACK_FIELDS_PER_REQUEST
-"""Activities in the batch that really is the parameter worst case.
+FIELD_CAP_BATCH_ACTIVITIES = MAX_TRACK_FIELDS_PER_REQUEST
+"""Activities in the batch that spends the *field* cap instead.
 
-Since every track costs 2 parameters beyond its positions, spending the
-*field* cap beats spending the points budget even though it binds fewer
-positions: 64 x 156 binds 9,984 positions and 10,113 parameters, against
-50 x 200's 10,000 positions and 10,101. Measured by sweeping every
-``(activities, points)`` the budgets admit -- 64 x 156 is the maximum of all
-of them, and the shape nothing exercised while the 50 x 200 fixture claimed
-the title.
+Fewer sample keys than the shape above -- 64 x 156 is 9,984 against 50 x 200's
+10,000 -- but more tracks, and every track costs a parameter of its own beyond
+its keys. While that per-track cost was 2 (an id in the subquery's ``IN`` and
+an id in the track's own ``==`` arm) the 14 extra tracks outweighed the 16
+missing keys and this was the parameter maximum, which is what W-020 found.
+CUI-0019 removed the ``==`` arm, halving the per-track term to 1, and the
+ranking went back the other way: 10,050 here against 10,052 above.
+
+Two parameters apart is close enough that nothing should rest on which side
+wins, so both shapes stay measured.
 """
 
-WORST_CASE_BATCH_POINTS = MAX_TRACK_POINTS_PER_REQUEST // WORST_CASE_BATCH_ACTIVITIES
+FIELD_CAP_BATCH_POINTS = MAX_TRACK_POINTS_PER_REQUEST // FIELD_CAP_BATCH_ACTIVITIES
 """Samples per track there: as many as the points budget affords across the field cap."""
 
 
@@ -1577,26 +1590,30 @@ def sql_params():
     "activities,points,expected",
     [
         pytest.param(
-            WIDEST_BATCH_ACTIVITIES, WIDEST_BATCH_POINTS, 10101, id="spends-the-points-budget"
+            POINTS_BUDGET_BATCH_ACTIVITIES,
+            POINTS_BUDGET_BATCH_POINTS,
+            10052,
+            id="spends-the-points-budget",
         ),
         pytest.param(
-            WORST_CASE_BATCH_ACTIVITIES, WORST_CASE_BATCH_POINTS, 10113, id="spends-the-field-cap"
+            FIELD_CAP_BATCH_ACTIVITIES, FIELD_CAP_BATCH_POINTS, 10050, id="spends-the-field-cap"
         ),
     ],
 )
 def test_the_widest_batch_stays_under_sqlites_bound_parameter_ceiling(
     batch_session, sql_params, activities, points, expected
 ):
-    # What batching trades away. Each track contributes an IN list of its own
-    # positions, so the parameters that used to be spread over 2N statements
+    # What batching trades away. Every sample the batch wants is named by a key
+    # of its own, so the parameters that used to be spread over 2N statements
     # now arrive in one -- and a statement over the ceiling does not run slowly,
     # it raises. The points budget is what holds the total down, which is why
     # AU-050 must not be read as a reason to raise it: at 10,000 points this
     # sits inside the ceiling with room, and it scales one for one.
     #
-    # Both shapes, because the budgets bound two different things and only one
-    # of them is the parameter maximum: the second case is the real worst case
-    # and had nothing running it (W-020).
+    # Both shapes, because the budgets bound two different things and the
+    # parameter maximum is not always the same one of them: which shape wins
+    # has already moved once with W-020 and back again with CUI-0019, so
+    # neither is left unmeasured.
     assert activities <= MAX_TRACK_FIELDS_PER_REQUEST
     assert points <= MAX_TRACK_POINTS
     assert activities * points <= MAX_TRACK_POINTS_PER_REQUEST, "the points budget must allow it"
@@ -1613,31 +1630,32 @@ def test_the_widest_batch_stays_under_sqlites_bound_parameter_ceiling(
     # wrong, so a term appearing or disappearing has to turn this red rather
     # than be absorbed by an inequality.
     assert widest == batch_parameters(activities, points) == expected
-    # Not vacuous: the SELECT really does bind a position per sample, so this
-    # would have caught an IN list that grew past what the budget allows.
+    # Not vacuous: the SELECT really does bind a key per sample, so this would
+    # have caught an IN list that grew past what the budget allows.
     assert widest > MAX_TRACK_POINTS_PER_REQUEST
-    assert widest <= MAX_TRACK_POINTS_PER_REQUEST + 2 * MAX_TRACK_FIELDS_PER_REQUEST
+    assert widest <= MAX_TRACK_POINTS_PER_REQUEST + MAX_TRACK_FIELDS_PER_REQUEST + 2
     assert widest < SQLITE_BOUND_PARAMETER_CEILING
 
 
-def test_no_batch_the_budgets_allow_binds_more_parameters_than_the_worst_case(sql_params):
-    # The claim WORST_CASE_BATCH_ACTIVITIES makes, as a gate rather than as
+def test_no_batch_the_budgets_allow_binds_more_parameters_than_the_maximum(sql_params):
+    # Which of the two measured shapes is the maximum, as a gate rather than as
     # prose: of every (activities, points) the three caps admit, none binds
-    # more than the shape the test above runs. Arithmetic rather than 64 more
-    # databases -- batch_parameters is what the measured case pins it against.
-    worst = batch_parameters(WORST_CASE_BATCH_ACTIVITIES, WORST_CASE_BATCH_POINTS)
+    # more than the points-budget one the test above runs. Arithmetic rather
+    # than 64 more databases -- batch_parameters is what the measured cases pin
+    # it against, and they pin both sides of a 2-parameter gap.
+    maximum = batch_parameters(POINTS_BUDGET_BATCH_ACTIVITIES, POINTS_BUDGET_BATCH_POINTS)
     allowed = [
         (activities, min(MAX_TRACK_POINTS, MAX_TRACK_POINTS_PER_REQUEST // activities))
         for activities in range(1, MAX_TRACK_FIELDS_PER_REQUEST + 1)
     ]
 
-    assert max(batch_parameters(a, p) for a, p in allowed) == worst
-    assert batch_parameters(WIDEST_BATCH_ACTIVITIES, WIDEST_BATCH_POINTS) < worst, (
-        "the points-budget fixture must not be mistaken for the maximum again"
+    assert max(batch_parameters(a, p) for a, p in allowed) == maximum
+    assert batch_parameters(FIELD_CAP_BATCH_ACTIVITIES, FIELD_CAP_BATCH_POINTS) < maximum, (
+        "the field-cap fixture must not be mistaken for the maximum again"
     )
     # The headroom the safety conclusion rests on, stated where it can go red:
     # the ceiling is over three times the widest batch the budgets can build.
-    assert worst * 3 < SQLITE_BOUND_PARAMETER_CEILING
+    assert maximum * 3 < SQLITE_BOUND_PARAMETER_CEILING
 
 
 # ── CUI-0019: what the batch predicate costs as the batch widens ───────────
@@ -1652,6 +1670,14 @@ hold is that every track is *sampled* rather than taken whole, since a whole
 track joins one shared ``IN`` list and contributes no arm of its own.
 """
 
+BATCH_COST_WHOLE = 1
+"""Track rows the *unsampled* half of the mixed fixture stores.
+
+At or under the ``points`` those reads ask for, so those tracks come back
+whole and join the one shared ``activity_id IN (...)`` arm instead of being
+sampled.
+"""
+
 BATCH_COST_NARROW = 8
 """The narrow batch the wide one is compared against.
 
@@ -1659,25 +1685,36 @@ An eighth of MAX_TRACK_FIELDS_PER_REQUEST, so the widths differ by enough for
 the growth to show over the fixed per-statement cost that dilutes it.
 """
 
-BATCH_COST_GROWTH_FLOOR = 1.5
-"""How much dearer per track the wide batch has to be for this to count.
+BATCH_COST_SAMPLED_ARMS = 1
+"""Arms the predicate of an all-sampled batch carries, at any width.
 
-A floor, not a reading: the measured figure is about 2.15, and the gap between
-the two is the room this leaves for a SQLite build that emits a different
-number of opcodes for the same plan. The true exponent is steeper than 1.5
-suggests -- a square would be 8x here -- but most of a small batch's cost is
-the row_number subquery and the ORDER BY, which are linear and drag the
-measured ratio down. Below 1.0 would mean the cost had stopped growing per
-track, which is what CUI-0019 is for.
+One ``IN`` over the composite sample key, however many tracks the batch holds.
+This is the assertion CUI-0019 turns on: the AU-050 shape put one ``AND`` arm
+per sampled track here, and SQLite evaluated the whole disjunction against
+every row the numbered subquery scanned, so the work grew with batch width
+times batch rows. A count that tracks the width again is that bug returning,
+whatever the timings say.
+"""
+
+BATCH_COST_MIXED_ARMS = 2
+"""Arms when the batch also holds tracks short enough to come back whole.
+
+The sample key ``IN`` plus the one shared ``activity_id IN (...)`` those
+tracks join -- pinned separately from BATCH_COST_SAMPLED_ARMS so that "fixed"
+is read as fixed by construction rather than as "the fixture happens to build
+one arm". Two is the most this predicate can ever carry.
 """
 
 BATCH_COST_FLAT_CEILING = 1.1
-"""How far the whole-track control is allowed to move, per track.
+"""How far a per-track reading is allowed to move between the two widths.
 
-The same read with no sampling builds a single ``activity_id IN (...)`` arm
-instead of one arm per track, and measures 1.00 here. It is in the test to
-keep the sampled reading from being read as "wide batches touch more rows":
-this one touches sixty times as many and does not move.
+Both reads below are flat: the sampled one since CUI-0019, the whole-track
+control always. The wide batch in fact measures a little *under* the narrow
+one per track, because the fixed per-statement cost is spread over eight times
+the tracks, so this ceiling is one-sided room for a SQLite build that emits a
+different number of opcodes for the same plan rather than a measured spread.
+The control is still here to keep the sampled reading from being read as "wide
+batches touch more rows": it touches sixty times as many and does not move.
 """
 
 
@@ -1733,35 +1770,69 @@ def batch_cost_engine(tmp_path):
         engine.dispose()
 
 
-def test_the_batch_predicate_costs_more_per_track_as_the_batch_widens(batch_cost_engine):
-    # The claim MAX_TRACK_FIELDS_PER_REQUEST's docstring now makes, as a gate:
-    # AU-050 cut the statement count with a predicate whose own cost grows with
-    # the width of the batch, so this cap is the wrong number to raise. QA
-    # measured that as wall clock on the real export (CUI-0019); wall clock in
-    # CI buys a flaky test, so what runs here is the work SQLite does.
+@pytest.fixture
+def mixed_batch_cost_engine(tmp_path):
+    """The same widths, but every other track short enough to come back whole."""
+    path = tmp_path / "batch-cost-mixed.db"
+    lengths = [
+        BATCH_COST_STORED if i % 2 else BATCH_COST_WHOLE
+        for i in range(MAX_TRACK_FIELDS_PER_REQUEST)
+    ]
+    _write_track_db(path, lengths, prefix=BATCH_COST_PREFIX)
+    engine = db.make_engine(path)
+    try:
+        yield engine
+    finally:
+        engine.dispose()
+
+
+def test_the_batch_predicate_does_not_widen_with_the_batch(batch_cost_engine):
+    # CUI-0019 as a gate. AU-050 bought its two statements with a predicate
+    # carrying one OR arm per sampled track, and SQLite evaluated the whole
+    # disjunction against every row the numbered subquery scanned -- so the
+    # work grew with batch width times batch rows, and the cap on that width
+    # became the wrong number to raise. QA measured it as wall clock on the
+    # real export; wall clock in CI buys a flaky test, so what runs here is the
+    # shape of the predicate and the work SQLite does.
     narrow_steps, narrow_sql = _batch_read(batch_cost_engine, BATCH_COST_NARROW, 1)
     wide_steps, wide_sql = _batch_read(batch_cost_engine, MAX_TRACK_FIELDS_PER_REQUEST, 1)
 
     # The cause, pinned on its own so a failure below says which half moved:
-    # the predicate is exactly as wide as the batch.
-    assert _or_arms(narrow_sql) == BATCH_COST_NARROW
-    assert _or_arms(wide_sql) == MAX_TRACK_FIELDS_PER_REQUEST
+    # the predicate no longer knows how wide the batch is.
+    assert _or_arms(narrow_sql) == BATCH_COST_SAMPLED_ARMS
+    assert _or_arms(wide_sql) == BATCH_COST_SAMPLED_ARMS
 
+    # And the effect: eight times the tracks costs about eight times the work,
+    # not sixty-four. Per track, so what is compared is the slope.
     narrow_per_track = narrow_steps / BATCH_COST_NARROW
     wide_per_track = wide_steps / MAX_TRACK_FIELDS_PER_REQUEST
-    assert wide_per_track > BATCH_COST_GROWTH_FLOOR * narrow_per_track, (
-        "a track in a full batch has stopped costing more than one in a narrow "
-        "batch -- if CUI-0019 is what changed that, the paragraph on raising "
-        "MAX_TRACK_FIELDS_PER_REQUEST changes with it"
+    assert wide_per_track < BATCH_COST_FLAT_CEILING * narrow_per_track, (
+        "a track in a full batch has started costing more than one in a narrow "
+        "batch again -- the sample predicate has gone back to growing with the "
+        "width of the batch (CUI-0019)"
     )
 
     # The control: same fixture, same widths, sixty times the rows returned,
-    # one IN arm instead of sixty-four. Flat. So what grows above is the
-    # predicate, not the batch's row count.
+    # and flat before CUI-0019 as well. So what the reading above measures is
+    # the predicate, not the batch's row count.
     flat_narrow, flat_narrow_sql = _batch_read(batch_cost_engine, BATCH_COST_NARROW, None)
     flat_wide, flat_wide_sql = _batch_read(batch_cost_engine, MAX_TRACK_FIELDS_PER_REQUEST, None)
 
-    assert _or_arms(flat_narrow_sql) == _or_arms(flat_wide_sql) == 1
+    assert _or_arms(flat_narrow_sql) == _or_arms(flat_wide_sql) == BATCH_COST_SAMPLED_ARMS
     assert flat_wide / MAX_TRACK_FIELDS_PER_REQUEST < BATCH_COST_FLAT_CEILING * (
         flat_narrow / BATCH_COST_NARROW
     ), "the unsampled path is the flat one this test is calibrated against"
+
+
+def test_a_batch_mixing_sampled_and_whole_tracks_stays_at_two_arms(mixed_batch_cost_engine):
+    # The other half of "fixed by construction": the whole-track tracks join
+    # one shared IN rather than bringing arms of their own, so the widest
+    # mixture the cap admits carries the same two arms as the narrowest.
+    narrow_steps, narrow_sql = _batch_read(mixed_batch_cost_engine, BATCH_COST_NARROW, 1)
+    wide_steps, wide_sql = _batch_read(mixed_batch_cost_engine, MAX_TRACK_FIELDS_PER_REQUEST, 1)
+
+    assert _or_arms(narrow_sql) == BATCH_COST_MIXED_ARMS
+    assert _or_arms(wide_sql) == BATCH_COST_MIXED_ARMS
+    assert wide_steps / MAX_TRACK_FIELDS_PER_REQUEST < BATCH_COST_FLAT_CEILING * (
+        narrow_steps / BATCH_COST_NARROW
+    )
