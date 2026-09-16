@@ -75,6 +75,11 @@ for the same Pages deployment.
 
 The site build copies `dist/index.html` to `404.html`, so a deep link such
 as `/activity/7264441638` is served by Pages and picked up by the router.
+It also sets `VITE_BASE_PATH=/<repo>/`, which `frontend/vite.config.ts`
+reads into Vite's `base`, so the asset URLs resolve from the repository
+subpath Pages serves the site on. Vercel serves from the domain root and
+leaves it unset, where the config falls back to `/`. Both are shape facts
+rather than job steps, which is why they are written down here.
 
 The repository's `github-pages` environment must allow deployments from
 `develop` (Settings, Environments, Deployment branches). That rule lives
