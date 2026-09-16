@@ -1,6 +1,6 @@
 # 項目文件索引 — Run365Days
 
-**最後更新**：2026-09-16（**CUI-0029 批次結案**：CUI-0029 / 0030 / 0031 / 0033 / 0034 五票 QA ✅ pass、0 Critical、hard gates 8/8，全部標 `completed`；review 兩輪 86 warn → **97 pass**；未清 suggestion 14 → **1**（S-079）；QA 42 個新 edge case，喺行覆蓋 100% 之下搵到**兩個活 mutant**；新開 CUI-0037…CUI-0040 四條 non-blocking follow-up）
+**最後更新**：2026-09-16（**v3.2.0 release**：三個 breaking change（CUI-0027 list row budget、CUI-0025 `points` 契約、CUI-0033(a) omitted cap）；12 張 ticket + 27 條 review item；未清 suggestion **0**；ticket census 29 completed / 0 in-progress / 12 pending）
 
 > 本目錄為 ai-dev-team 產出文件嘅 Single Source of Truth。
 > 每次有新文件輸出，必須喺此更新條目同頂部日期。
@@ -13,7 +13,7 @@
 | 項目 | 內容 |
 |---|---|
 | 名稱 | Run365Days（`dcwhung/Python-Project-Run365Days`） |
-| 版本 | v3.1.1 |
+| 版本 | v3.2.0 |
 | Stack | Python 3.10+ package + Flask/Strawberry GraphQL API + React 19 / Vite 7 / TS 5.9 |
 | 部署 | Vercel（API mode）＋ GitHub Pages（static mode） |
 | Default branch | `master`；**整合同部署 branch 係 `develop`**（master 現時落後 54 個 commit，只行 lint/test，唔 build 唔 deploy） |
