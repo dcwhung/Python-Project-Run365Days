@@ -1,6 +1,6 @@
 # 項目文件索引 — Run365Days
 
-**最後更新**：2026-09-16（**CUI-0019 完成，PR #13 已 merge 並部署**：batch sample predicate 由 O(batch²) 變線性，64 條 track 140.0 → 40.6 ms；CUI-0020 blocker 解除；review 86/100 warn，2 個 docstring Warning 修緊；新開 CUI-0027（list fan-out 冇 budget，🟠 High）；Python 365 tests / 前端 126 tests / coverage 95%）
+**最後更新**：2026-09-16（**CUI-0027 / CUI-0022 / CUI-0024 批次完成**：list fan-out per-request row budget 落地，166 aliased `activities` ~2,900 → 161 ms；batch review 84 warn → **delta re-review 95 pass**（0 🔴 / 0 🟡 / 3 🟢）；`src/api/schema.py` coverage 100%；Python **382 tests** / 前端 126 tests。上一條：**CUI-0019 完成，PR #13 已 merge 並部署**：batch sample predicate 由 O(batch²) 變線性，64 條 track 140.0 → 40.6 ms；CUI-0020 blocker 解除；review 86/100 warn，2 個 docstring Warning 修緊；新開 CUI-0027（list fan-out 冇 budget，🟠 High）；Python 365 tests / 前端 126 tests / coverage 95%）
 
 > 本目錄為 ai-dev-team 產出文件嘅 Single Source of Truth。
 > 每次有新文件輸出，必須喺此更新條目同頂部日期。
@@ -65,6 +65,7 @@
 | 類型 | 位置 | 狀態 |
 |---|---|---|
 | Ticket registry（AU / C-W-S / CUI 全部） | [`tickets.md`](tickets.md) | ✅ 現行 SSoT |
+| Code review 報告（2026-09-16 CUI-0027 批次，2 輪）| [`reviews/2026-09-16_review_CUI-0027_batch.md`](reviews/2026-09-16_review_CUI-0027_batch.md)（84/100 **warn**，0 🔴 / 2 🟡 / 6 🟢）<br>[`reviews/2026-09-16_review_CUI-0027_delta.md`](reviews/2026-09-16_review_CUI-0027_delta.md)（**95/100 pass**，0 🔴 / 0 🟡 / 3 🟢；W-027 / W-028 mutation 獨立重做；S-057 更正咗上一輪一個事實錯誤；production 行為 AST 證明零改動）| ✅ 已建立 |
 | Code review 報告（2026-09-15 batch，955 行，3 輪）| [`reviews/2026-09-15_review_cui0016-au048-au050_batch.md`](reviews/2026-09-15_review_cui0016-au048-au050_batch.md)（89 warn → 99 pass → 97 pass）| ✅ 已建立 |
 | QA 報告（2026-09-16 low-cost wave 1 batch，724 行）| [`qa/2026-09-16_qa_low-cost-wave1_batch.md`](qa/2026-09-16_qa_low-cost-wave1_batch.md)（✅ pass、0 Critical、363 tests、coverage 94.71%；export→SQLite→static JSON→GraphQL 全鏈只差 `generated_at`；CUI-0020 唔可以標 completed）| ✅ 已建立 |
 | QA 報告（2026-09-15 batch，708 行）| [`qa/2026-09-15_qa_cui0016-au048-au050_batch.md`](qa/2026-09-15_qa_cui0016-au048-au050_batch.md)（0 Critical、coverage 99%、369/370 static 檔 byte-identical）| ✅ 已建立 |
