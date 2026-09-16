@@ -4,6 +4,7 @@ import { MONTHS, fmtShortDate } from "@/lib/format";
 import { toWeightUnit, usePrefs } from "@/lib/prefs";
 import { BASE, COLORS, GRID, NO_LEGEND, dayAxis } from "@/components/charts/theme";
 import { Card } from "@/components/Card";
+import { readableError } from "@/lib/errors";
 import { DiamondGrid } from "./DiamondGrid";
 import { monthlyHours, weightReview } from "./model";
 
@@ -25,7 +26,7 @@ export function YearView() {
   const weight = useWeight();
   const { weightUnit } = usePrefs();
   if (year.isPending || activities.isPending) return <p className="text-muted">Loading…</p>;
-  if (year.isError) return <p className="text-danger">Could not load data: {year.error.message}</p>;
+  if (year.isError) return <p className="text-danger">Could not load data: {readableError(year.error)}</p>;
   const y = year.data;
   const t = y.totals;
   const hours = monthlyHours(activities.data ?? []);

@@ -4,6 +4,7 @@ import { useActivities, useMeta } from "@/data/hooks";
 import type { Activity } from "@/data/types";
 import { MONTHS, fmtDuration, fmtKm, fmtPace, fmtShortDate } from "@/lib/format";
 import { actTemp, wxEmoji } from "@/lib/weather";
+import { readableError } from "@/lib/errors";
 import { WarningIcons } from "@/components/WarningIcons";
 import { DEFAULT_FILTERS, filterAndSort, toCsv, type Filters, type SortKey } from "./model";
 
@@ -64,7 +65,7 @@ export function ActivitiesView() {
   const rows = useMemo(() => filterAndSort(all.data ?? [], filters, sort.key, sort.dir), [all.data, filters, sort]);
 
   if (all.isPending) return <p className="text-muted">Loading…</p>;
-  if (all.isError) return <p className="text-danger">Could not load activities: {all.error.message}</p>;
+  if (all.isError) return <p className="text-danger">Could not load activities: {readableError(all.error)}</p>;
   const total = all.data.length;
   const totalKm = rows.reduce((s, a) => s + a.distanceKm, 0);
   const setSortKey = (key: SortKey) =>
