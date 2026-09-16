@@ -1,6 +1,6 @@
 # 項目文件索引 — Run365Days
 
-**最後更新**：2026-09-16（**low-cost wave 1 batch QA 完成**：CUI-0006 / 0017 / 0020 / 0003 / 0014，review 86→97 pass，QA ✅ pass 0 Critical、363 tests、coverage 94.71%；CUI-0020 仍 blocked on CUI-0019；新開 CUI-0022 / CUI-0023）
+**最後更新**：2026-09-16（**low-cost wave 2 batch review 完成**：CUI-0004 / 0021 / 0015 + S-042 / S-043，review ✅ pass 91/100、0 Critical、1 Warning（W-024）；Python 364 tests / 前端 126 tests；wave 1 已結案（4 張 completed、CUI-0020 blocked on CUI-0019）；新開 CUI-0022 / 0023 / 0024 / 0025）
 
 > 本目錄為 ai-dev-team 產出文件嘅 Single Source of Truth。
 > 每次有新文件輸出，必須喺此更新條目同頂部日期。
