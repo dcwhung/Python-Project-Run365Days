@@ -2222,3 +2222,138 @@ def test_the_fan_out_cost_does_not_widen_with_the_document(year_session):
         "narrow fan-out: the list path has picked up a term that grows with "
         "the width of the document (CUI-0019 in the other half)"
     )
+
+
+COLLIDING_IDS = ("1", "01", "5", "05", "50", "500")
+"""Activity ids that are pure decimal and, unlike every other fixture here, not one width.
+
+This is the shape the rest of the suite has no fixture for, and the reason
+:data:`~run365days.api.service.SAMPLE_KEY_SEPARATOR` could be set to a decimal
+digit or dropped entirely without a single test going red (CUI-0028). The other
+fixtures number their activities ``r0`` and ``v0``..``v8``: a non-decimal prefix
+at a fixed width, so ``position + separator + id`` stays unambiguous whatever
+sits between the halves. Production ids are pure decimal but ten characters
+wide, and a fixed width is injective for the same reason. Neither shape can
+make the separator carry anything.
+
+Variable width is what makes it load-bearing. ``position=10`` on id ``"5"`` and
+``position=1`` on id ``"05"`` are one character apart in the key and are told
+apart only by the separator: at ``":"`` they build ``"10:5"`` and ``"1:05"``, at
+a decimal digit or at ``""`` they build the same string. The ``IN`` in
+:func:`~run365days.api.service._sample_filter` compares keys whole, so a
+collision does not raise -- the loser's rows simply come back as well, and the
+track is thinned to the wrong rows in silence. That pair is live in this
+fixture: ``"05"`` comes back with 10 rows instead of 7.
+"""
+
+COLLIDING_TRACK_LENGTHS = (0, 1, 60, 101, 121, 201)
+"""Rows stored per id above, a different length each, keeping the degenerate 0 and 1."""
+
+
+def _write_id_track_db(path: Path, ids, lengths) -> None:
+    """A track database whose activity ids are given rather than derived from the index.
+
+    :func:`_write_track_db` names its activities ``prefix + index``, which can
+    only ever produce one width of id and a non-decimal prefix. This one takes
+    the ids, which is what :data:`COLLIDING_IDS` needs.
+    """
+    engine = create_engine(sqlite_url(path))
+    models.Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        session.add_all(
+            [
+                models.Meta(key="year", value="2021"),
+                models.Meta(key="generated_at", value="2026-01-01T00:00:00"),
+            ]
+        )
+        for index, (activity_id, stored) in enumerate(zip(ids, lengths, strict=True)):
+            activity = _activity_row(index, stored, has_gps=stored > 0)
+            activity.id = activity_id
+            session.add(activity)
+        session.commit()
+    engine.dispose()
+
+
+@pytest.fixture
+def colliding_session(tmp_path):
+    path = tmp_path / "colliding.db"
+    _write_id_track_db(path, COLLIDING_IDS, COLLIDING_TRACK_LENGTHS)
+    with db.session_scope(db.make_engine(path)) as session:
+        yield session
+
+
+def test_the_sample_key_separator_cannot_occur_in_a_position():
+    # The property SAMPLE_KEY_SEPARATOR's docstring names as the one thing the
+    # sample key rests on, asserted directly. Free: no database, no fixture,
+    # just the arithmetic that feeds the Python half of the key. The test below
+    # proves the consequence; this one states the intent, and is the one that
+    # says which way the constant may not be changed.
+    positions = sorted(
+        {
+            position
+            for total in COLLIDING_TRACK_LENGTHS + VARIED_TRACK_LENGTHS
+            for points in (1, 2, 3, 7, 21)
+            if 0 < points < total
+            for position in service._even_positions(total, points)
+        }
+    )
+    # Not vacuous, and not digit-blind: a separator set to a digit this sweep
+    # never rendered would otherwise slip through the loop below.
+    assert set("".join(str(position) for position in positions)) == set("0123456789")
+
+    # Called out on its own because "" is in every string, so the loop would
+    # report it as a collision at the first position rather than as what it is.
+    assert service.SAMPLE_KEY_SEPARATOR, (
+        "an empty separator sits in every key, so the two halves run together "
+        "and the key stops being injective"
+    )
+    for position in positions:
+        assert service.SAMPLE_KEY_SEPARATOR not in str(position), (
+            f"position {position} renders with SAMPLE_KEY_SEPARATOR "
+            f"{service.SAMPLE_KEY_SEPARATOR!r} inside it. Then a position and an "
+            "activity id can run together into a key another pair also builds, "
+            "and _sample_filter thins the wrong rows silently rather than raising"
+        )
+
+
+@pytest.mark.parametrize("points", [3, 5, 7, 10, 21, 37])
+def test_a_batch_of_variable_length_ids_thins_each_track_independently(colliding_session, points):
+    # The consequence, on the one fixture shape that can show it. Every id here
+    # is decimal and they are not all one width, so the sample key is injective
+    # only because of its separator -- see COLLIDING_IDS. Held against the same
+    # reference downsampler the fixed-width batch is held against, so a key
+    # collision reads as the wrong rows rather than as a count.
+    batched = service.tracks(colliding_session, COLLIDING_IDS, points)
+
+    for activity_id, stored in zip(COLLIDING_IDS, COLLIDING_TRACK_LENGTHS, strict=True):
+        expected = downsample(list(range(stored)), points)
+        got = [row["sec"] for row in batched[activity_id]]
+        assert got == expected, f"{activity_id!r}: stored={stored} points={points}"
+
+
+def test_duplicate_ids_in_a_batch_collapse_to_one_entry(varied_session, sql_params):
+    # ``tracks`` documents that duplicates are collapsed, and nothing asserted
+    # it. The returned mapping alone cannot: it is keyed by activity id, so a
+    # repeated id folds into one entry whether or not the dedupe is there. What
+    # the dedupe actually buys is bound parameters -- a repeated id would bind
+    # its own subquery id and a key per sample all over again, against a
+    # statement that raises rather than slows once it passes SQLite's ceiling
+    # (test_the_widest_batch_stays_under_sqlites_bound_parameter_ceiling). So
+    # the cost is measured, and that is the half of this test with teeth.
+    points = 7
+    repeated_ids = VARIED_IDS * 3
+    assert len(repeated_ids) > len(set(repeated_ids)), "the batch must actually repeat ids"
+
+    sql_params.clear()
+    repeated = service.tracks(varied_session, repeated_ids, points)
+    repeated_cost = list(sql_params)
+    sql_params.clear()
+    distinct = service.tracks(varied_session, VARIED_IDS, points)
+    distinct_cost = list(sql_params)
+
+    assert list(repeated) == list(VARIED_IDS), "one entry per distinct id, in the order asked"
+    assert repeated == distinct
+    assert repeated_cost == distinct_cost, (
+        "a repeated id is paying for itself again: the batch binds parameters "
+        "per copy rather than per distinct track"
+    )
