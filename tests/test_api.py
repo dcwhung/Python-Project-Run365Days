@@ -7,7 +7,6 @@ from pathlib import Path
 from types import MappingProxyType
 
 import pytest
-import strawberry
 from sqlalchemy import create_engine, event
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
@@ -33,6 +32,7 @@ from run365days.api.schema import (
     MAX_TRACK_FIELDS_PER_REQUEST,
     MAX_TRACK_POINTS,
     MAX_TRACK_POINTS_PER_REQUEST,
+    REFUSAL_LOG_LEVEL,
     Query,
     build_schema,
     schema,
@@ -1543,13 +1543,28 @@ def _rows_at(result, path) -> list:
     return node or []
 
 
+def _unbounded_schema():
+    """A schema that seeds no budgets, of the class ``build_schema`` really returns.
+
+    The class matters, not just the missing extension: the schema subclass is
+    where an unseeded budget is told apart from a refusal a client earned, so a
+    plain ``strawberry.Schema`` here would let
+    ``test_an_unseeded_budget_still_logs_its_traceback`` pass against
+    Strawberry's own default rather than against anything this module does
+    (CUI-0029). Read off the built schema rather than imported by name so that
+    it keeps meaning "whatever production builds" if the class is ever renamed
+    or swapped -- the point is the sameness, not the identifier.
+    """
+    return type(schema)(query=Query, extensions=[])
+
+
 @pytest.mark.parametrize(("document", "path"), UNSEEDED_DOCUMENTS)
 def test_a_budget_fails_closed_when_the_schema_has_no_budget_extension(
     year_session, document, path
 ):
     # A schema built without _RequestBudgets seeds nothing. Serving the field
     # anyway would mean an unbounded request, so it must refuse instead.
-    unbounded = strawberry.Schema(query=Query, extensions=[])
+    unbounded = _unbounded_schema()
 
     result = unbounded.execute_sync(document, context_value={"session": year_session})
 
@@ -1602,7 +1617,7 @@ def _strawberry_records(caplog):
 
 
 @pytest.mark.parametrize("document", REFUSED_DOCUMENTS)
-def test_a_budget_refusal_is_logged_without_a_traceback(year_client, caplog, document):
+def test_a_budget_refusal_is_not_logged_as_a_server_fault(year_client, caplog, document):
     # The refusal is what the budget exists to produce, so it is not a fault.
     # Measured before the fix: one ERROR record per refused request carrying
     # exc_info, which renders as nine frames naming absolute source paths and
@@ -1613,12 +1628,23 @@ def test_a_budget_refusal_is_logged_without_a_traceback(year_client, caplog, doc
     # a handler asks it to, so asserting on formatted output would pass or fail
     # according to the handler pytest happens to install rather than according
     # to what the record carries into a deployment's own handlers.
-    with caplog.at_level(logging.ERROR, logger="strawberry.execution"):
+    #
+    # The level is the other half, and the half a deployment feels: at ERROR
+    # the most common entry in the log is a refusal working as designed, which
+    # buries the real 500s underneath it. Captured at DEBUG so the assertion
+    # reads the level off the record rather than deciding in advance which
+    # levels are allowed to be seen at all.
+    with caplog.at_level(logging.DEBUG, logger="strawberry.execution"):
         assert gql_errors(year_client, document)
 
     records = _strawberry_records(caplog)
     assert records, "the refusal must still be logged -- silence is not the fix here"
     assert [record.exc_info for record in records] == [None] * len(records)
+    assert [record.levelno for record in records] == [REFUSAL_LOG_LEVEL] * len(records)
+    # The constant is imported rather than spelled out so this test follows the
+    # decision, and bounded here so it cannot follow it back to where it began:
+    # REFUSAL_LOG_LEVEL = logging.ERROR would satisfy the line above on its own.
+    assert REFUSAL_LOG_LEVEL < logging.ERROR, "a refusal logged at ERROR is the state being fixed"
 
 
 @pytest.mark.parametrize(("document", "path"), UNSEEDED_DOCUMENTS)
@@ -1628,9 +1654,9 @@ def test_an_unseeded_budget_still_logs_its_traceback(year_session, caplog, docum
     # built wrong or the context could not be written to: nobody's request
     # caused it and no client can act on it, so it is exactly the case a
     # traceback is for. Only the client-driven refusal loses one.
-    unbounded = strawberry.Schema(query=Query, extensions=[])
+    unbounded = _unbounded_schema()
 
-    with caplog.at_level(logging.ERROR, logger="strawberry.execution"):
+    with caplog.at_level(logging.DEBUG, logger="strawberry.execution"):
         result = unbounded.execute_sync(document, context_value={"session": year_session})
 
     assert NOT_SEEDED in result.errors[0].message
@@ -1640,6 +1666,40 @@ def test_an_unseeded_budget_still_logs_its_traceback(year_session, caplog, docum
     # Named, not just truthy: `exc_info` would also be set if the refusal had
     # simply kept raising ValueError, which is the state this ticket removes.
     assert all(issubclass(record.exc_info[0], RuntimeError) for record in records)
+    assert all(record.levelno == logging.ERROR for record in records)
+
+
+class _ResolverFaultError(Exception):
+    """An error no client asked for, raised to stand in for a real server fault."""
+
+
+def test_an_unexpected_resolver_error_is_still_logged_as_a_server_fault(
+    year_client, caplog, monkeypatch
+):
+    # The invariant the level drop is most likely to break. `process_errors`
+    # sees *every* error an operation produces -- refusals, validation errors,
+    # coercion failures and genuine faults alike -- so classifying one kind and
+    # quietly taking the rest with it is a one-line mistake that no budget test
+    # would notice. Anything unrecognised keeps Strawberry's own treatment.
+    #
+    # A resolver that breaks mid-request is that case at its starkest: there is
+    # no refusal, no client to blame and nothing in the response to act on, so
+    # the traceback in the log is all an operator gets.
+    def explode(_session):
+        raise _ResolverFaultError("the database went away")
+
+    monkeypatch.setattr(service, "meta", explode)
+
+    with caplog.at_level(logging.DEBUG, logger="strawberry.execution"):
+        assert gql_errors(year_client, "{ year { year } }")
+
+    records = _strawberry_records(caplog)
+    assert records, "a server fault must not go unlogged"
+    assert all(record.levelno == logging.ERROR for record in records)
+    # Named rather than merely truthy, for the same reason as above: this has
+    # to be *this* fault's traceback and not some other error's.
+    assert all(record.exc_info for record in records)
+    assert all(issubclass(record.exc_info[0], _ResolverFaultError) for record in records)
 
 
 @pytest.mark.parametrize("document", REFUSED_DOCUMENTS)
