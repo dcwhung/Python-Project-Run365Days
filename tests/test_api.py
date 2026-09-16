@@ -2525,8 +2525,13 @@ apart only by the separator: at ``":"`` they build ``"10:5"`` and ``"1:05"``, at
 a decimal digit or at ``""`` they build the same string. The ``IN`` in
 :func:`~run365days.api.service._sample_filter` compares keys whole, so a
 collision does not raise -- the loser's rows simply come back as well, and the
-track is thinned to the wrong rows in silence. That pair is live in this
-fixture: ``"05"`` comes back with 10 rows instead of 7.
+track is thinned to the wrong rows in silence. That pair is one of three live
+in this fixture, which is what makes the count below 10 and not 8: at
+``points=7`` the sampled positions 10, 20 and 30 on ``"5"`` build the keys that
+rows 1, 2 and 3 of ``"05"`` build too, so ``"05"`` comes back with 10 rows
+instead of 7. The same three pairs are why the ticket's own shape collides;
+that table is on CUI-0028 and this names its counterpart here rather than
+leaving the count to stand for it.
 
 These ids are not the ones CUI-0028 was filed with, and the reason is coverage
 rather than correctness: the ticket's own ``("1","01","10","2","20","002")``
