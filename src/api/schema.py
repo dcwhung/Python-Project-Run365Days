@@ -354,9 +354,13 @@ illustrative (CUI-0027 W-028):
   The figures this replaces -- ~0.05 s and some 300x -- were measured down a
   path that never reaches the row. An id matching nothing returns before the
   ``selectinload`` fires: 48-50 ms, 0 rows, 90 statements rather than 180
-  (S-058). Roughly half the reading either way is fixed cost, per-field
-  dispatch over 90 aliases rather than anything the database does, which is
-  why the miss is not much cheaper than the hit.
+  (S-058). The miss is half the hit rather than a tenth of it because it still
+  issues 90 of those 180 statements -- not, as an earlier revision of this
+  paragraph said, because roughly half of either reading is per-field dispatch.
+  Swept over 10, 30, 45 and 90 aliases both paths come out linear in their
+  statement count, at much the same cost per statement, and what does not scale
+  with the statements is a few percent of the 90-alias reading rather than half
+  of it (S-064).
 
   Rows, likewise, are not 90. ``service.activity`` carries
   ``selectinload(warnings)``, so each field costs two statements and pulls its
@@ -396,10 +400,17 @@ illustrative (CUI-0027 W-028):
   started process -- 332 aliased ``activitiesCount`` reads 84.6 ms against
   83.2 ms warm, and the other three are within 3% of their warm figures too.
   The reason is that these documents are not I/O bound: a count touches a
-  handful of pages of an 11 MB file, and what the 80-odd ms buys is 332
-  resolver dispatches. What a cold *process* costs is real and much larger --
-  ~330 ms of imports before the first query, and a first execution some 7%
-  above the second while SQLAlchemy compiles the statement -- but that is a
+  handful of pages of an 11 MB file, and what the 80-odd ms buys is its 332
+  counting statements. Their cost per statement is about half the
+  ``activity(id:)`` readings above, which is why it is read as what each
+  statement does rather than as a dispatch every field pays alike (S-064).
+
+  What a cold *process* costs is real and much larger -- several hundred
+  milliseconds of imports before the first query, and a first execution some
+  way above the second while SQLAlchemy compiles the statement. Those two are
+  given as orders rather than as readings on purpose: unlike every figure above
+  they are properties of the interpreter and the machine rather than of this
+  schema, and both moved when re-measured on another one. They are also a
   per-invocation cost the whole function pays, not something this budget bounds
   or that aliasing multiplies.
 
