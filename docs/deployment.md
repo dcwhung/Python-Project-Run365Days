@@ -56,6 +56,32 @@ The runtime log (Vercel project, Logs tab) was the only place the Flask
 error was visible; the `/api/health` fallback exists so the next start-up
 failure is readable in the browser.
 
+### Seeing budget refusals in the log
+
+A request refused for asking past one of the API's budgets is logged at
+`INFO` to the `strawberry.execution` logger, deliberately below the `WARNING`
+that `logging` applies by default (CUI-0029). A deployment that configures no
+logging — which is what Vercel runs — therefore drops those records, so the
+Logs tab shows nothing when a client is refused. That is the intended default:
+a refusal is the contract working, not a fault, and the client is told why in
+the response.
+
+An operator who does want to see them — to size the budgets, or to spot a
+client hammering this unauthenticated endpoint — opts in by lowering that one
+logger, before the app is built:
+
+```python
+import logging
+
+logging.getLogger("strawberry.execution").setLevel(logging.INFO)
+logging.basicConfig(level=logging.INFO)   # only if nothing configures handlers
+```
+
+Every refusal then appears, with the same message the client got, in the same
+stream as the genuine errors it sits beside. Real faults are unaffected by
+this: they are logged at `ERROR` with their traceback whether or not the level
+is lowered.
+
 ## GitHub Pages
 
 `.github/workflows/pages.yml` is the source of truth for this deployment:
