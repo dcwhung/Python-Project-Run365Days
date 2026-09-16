@@ -14,6 +14,7 @@ from collections.abc import Iterator, MutableMapping
 from datetime import date as date_type
 
 import strawberry
+from graphql import GraphQLError
 from strawberry.extensions import (
     DisableIntrospection,
     MaxTokensLimiter,
@@ -23,7 +24,6 @@ from strawberry.extensions import (
 from strawberry.types import ExecutionContext, Info
 from strawberry.utils.logging import StrawberryLogger
 
-from graphql import GraphQLError
 from run365days.api import service
 from run365days.dashboard import stats
 from run365days.export.records import TRACK_COLUMNS

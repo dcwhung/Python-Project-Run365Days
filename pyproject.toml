@@ -107,6 +107,10 @@ convention = "google"
 
 [tool.ruff.lint.isort]
 known-first-party = ["run365days"]
+# `src` includes api/ (Vercel mandates api/graphql.py), which makes ruff read a bare
+# `graphql` import as this repo's own module. Name graphql-core explicitly so the
+# import sorts with the other third-party packages.
+known-third-party = ["graphql"]
 
 [tool.ruff.format]
 quote-style = "double"
