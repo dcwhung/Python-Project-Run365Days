@@ -33,10 +33,16 @@ function failed(error: Error): QueryStub {
 }
 
 /**
- * A `graphql-request` ClientError exactly as it arrives: `message` is the
- * serialised response *and* request, so rendering it raw spills the whole
- * GraphQL document and its variables onto the page. Captured from a real run
- * against the Flask API — the real blob measured 1247 characters.
+ * Shaped like a `graphql-request` ClientError, not captured from one:
+ * `message` is the serialised response *and* request, so rendering it raw
+ * spills the whole GraphQL document and its variables onto the page.
+ *
+ * The document here is a stand-in. The real `YearQuery` (`@/data/api/queries.ts`)
+ * takes no variables, and one `year` field spends a single page of the row
+ * budget, so this exact request could not have produced this error. The API
+ * does refuse at `path: ["year"]` once earlier fields in the same document
+ * have spent the budget — what it never sends is this document. What the view
+ * has to survive is the shape, and the shape is what this builds.
  */
 function budgetClientError(): Error {
   const errors = [{ message: BUDGET_MESSAGE, locations: [{ line: 7, column: 5 }], path: ["year"] }];
@@ -60,7 +66,7 @@ beforeEach(() => {
 
 describe("YearView", () => {
   // Asserts on what the paragraph says, not on which helper produced it: that
-  // is what actually keeps the 1247-character blob off the page.
+  // is what actually keeps the serialised blob off the page.
   it("should show only the server's sentence when the year query fails with a ClientError", () => {
     wire(failed(budgetClientError()));
     render(<YearView />);
