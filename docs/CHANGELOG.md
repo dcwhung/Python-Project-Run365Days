@@ -71,7 +71,7 @@ receives rather than only what it may ask for.
 - The test inventory in `README.md` and `docs/architecture.md` reads as the
   partial list it is, and points at `tests/` as the source of truth rather
   than repeating counts that drift (CUI-0031, CUI-0024).
-- Twenty-two review items, almost all of them a sentence that explained why
+- Twenty-seven review items, almost all of them a sentence that explained why
   correct code was correct and got the reason wrong: a wall clock bound to
   the wrong document, a cost attributed to per-field dispatch that the
   measurements put at 2% rather than half, a byte size quoted from a minimal
