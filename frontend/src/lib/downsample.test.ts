@@ -9,7 +9,11 @@ import { downsample } from "./downsample";
  * Every row here is a case where Python's round-half-to-even and JavaScript's
  * round-half-up land on different indices, so the table only stays green while
  * this module rounds the Python way. CUI-0021 measured 10,189 such pairs among
- * the 45,117 `(track_length, points)` combinations the real export can produce.
+ * 45,117: the 123 distinct track lengths the real export writes (250 to 600,
+ * counted off `track_points` grouped by `activity_id`) crossed with every
+ * `points` the sampler can be asked for, `1 .. length - 1`. None of those
+ * pairs is reachable today, because the export caps a track at 600 rows and
+ * the only caller asks for 600 -- the last test in this file pins that.
  */
 const PYTHON_POSITIONS: ReadonlyArray<readonly [number, number, readonly number[]]> = [
   [6, 3, [0, 2, 5]],
