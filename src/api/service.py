@@ -7,7 +7,7 @@ database built from :class:`~run365days.export.records.ExportRecords`.
 
 from collections.abc import Iterable
 
-from sqlalchemy import ColumnElement, Select, String, cast, func, or_, select
+from sqlalchemy import ColumnElement, Select, String, Subquery, cast, func, or_, select
 from sqlalchemy.orm import Session, aliased, selectinload
 
 from run365days.export import models
@@ -215,7 +215,7 @@ key stops matching silently rather than raising.
 """
 
 
-def _sample_key(numbered) -> ColumnElement:
+def _sample_key(numbered: Subquery) -> ColumnElement:
     """Return the expression naming a row of *numbered* as ``position:activity_id``.
 
     One value per row, so the whole batch can be selected by a single ``IN``
@@ -249,7 +249,9 @@ def _sample_key(numbered) -> ColumnElement:
     )
 
 
-def _sample_filter(numbered, activity_ids: list[str], totals: dict[str, int], points: int):
+def _sample_filter(
+    numbered: Subquery, activity_ids: list[str], totals: dict[str, int], points: int
+) -> ColumnElement:
     """Return the predicate keeping *points* even samples of every track in the batch.
 
     Each track gets its own positions, computed by :func:`_even_positions` in
