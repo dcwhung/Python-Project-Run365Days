@@ -13,6 +13,25 @@ from sqlalchemy.orm import Session, aliased, selectinload
 from run365days.export import models
 from run365days.export.records import TRACK_COLUMNS
 
+MAX_TRACK_POINTS = 1000
+"""Ceiling for a track, both for what may be asked for and for what comes back.
+
+Deliberately above 600, the most track rows the export stores for one run under
+its default ``run365-export --points`` (``DEFAULT_POINT_LIMIT``), so a client
+asking for the maximum always gets the whole stored track back.
+
+Defined here rather than in :mod:`run365days.api.schema`, which re-exports it,
+because it has to bound :func:`tracks` -- the layer below GraphQL -- and the
+service may not import Strawberry. One definition, not two: the number is
+already written down a second time in TypeScript for static mode, and
+``frontend/schema.graphql`` is what holds those two equal (CUI-0034). A third
+copy inside Python would be outside that gate entirely.
+
+Not to be read as a bound on ``Activity.num_points``: that field counts the raw
+samples the source file held *before* the export downsampled them, so it runs
+past 600 for the occasional long run and the two numbers do diverge.
+"""
+
 _ACTIVITY_COLUMNS = (
     "id",
     "date",
@@ -348,45 +367,62 @@ def tracks(
     Args:
         session: Open read-only session.
         activity_ids: Tracks wanted. Duplicates are collapsed.
-        points: Samples per track, or ``None``/``0`` for every stored row.
+        points: Samples per track, or ``None``/``0`` for every stored row up to
+            :data:`MAX_TRACK_POINTS`.
 
     Returns:
         ``{activity_id: rows}`` in :data:`TRACK_COLUMNS` shape, ordered by
         ``seq``, with an entry for every id asked for -- an empty list for an
-        activity that stores no track.
+        activity that stores no track, and never more than
+        :data:`MAX_TRACK_POINTS` rows for one.
     """
     wanted = list(dict.fromkeys(str(a) for a in activity_ids))
     found: dict[str, list[dict]] = {activity_id: [] for activity_id in wanted}
     if not wanted:
         return found
-    if points:
-        totals = _stored_counts(session, wanted)
-        # Positions, not seq arithmetic: row_number stays evenly spaced even if
-        # a track is ever stored with gaps in seq.
-        position = (
-            func.row_number().over(
-                partition_by=models.TrackPoint.activity_id, order_by=models.TrackPoint.seq
-            )
-            - 1
-        ).label("position")
-        numbered = (
-            select(models.TrackPoint, position)
-            .where(models.TrackPoint.activity_id.in_(wanted))
-            .subquery()
+    # CUI-0033 (a). Omitting `points` still means "the whole stored track", and
+    # capping it does not change that for any track the export writes today:
+    # the longest is 600 rows under the default --points and every one of them
+    # comes back entire. What it changes is the claim MAX_TRACK_POINTS makes.
+    # It used to bound only what a client could *ask* for, so the same module
+    # refused `points: 1250` and then served 1250 rows to a caller that named
+    # no number -- and `--points 1250` is all it takes to put such a track in
+    # the database. The ceiling now bounds the output too, which is the reading
+    # every caller of this module already had of it.
+    #
+    # There is no longer a branch that reads every stored row: `points` falsy
+    # means MAX_TRACK_POINTS, not "unbounded", so the one-statement path it
+    # used to take would be unreachable. The sampler returns a track at or
+    # under the ask entire (see :func:`_sample_filter`), so what that branch
+    # used to do is what this one does, one grouped COUNT more expensively.
+    sample = min(points, MAX_TRACK_POINTS) if points else MAX_TRACK_POINTS
+    totals = _stored_counts(session, wanted)
+    # Positions, not seq arithmetic: row_number stays evenly spaced even if
+    # a track is ever stored with gaps in seq.
+    position = (
+        func.row_number().over(
+            partition_by=models.TrackPoint.activity_id, order_by=models.TrackPoint.seq
         )
-        point = aliased(models.TrackPoint, numbered)
-        stmt = select(point).where(_sample_filter(numbered, wanted, totals, points))
-        order = (numbered.c.activity_id, numbered.c.seq)
-    else:
-        stmt = select(models.TrackPoint).where(models.TrackPoint.activity_id.in_(wanted))
-        order = (models.TrackPoint.activity_id, models.TrackPoint.seq)
+        - 1
+    ).label("position")
+    numbered = (
+        select(models.TrackPoint, position)
+        .where(models.TrackPoint.activity_id.in_(wanted))
+        .subquery()
+    )
+    point = aliased(models.TrackPoint, numbered)
+    stmt = select(point).where(_sample_filter(numbered, wanted, totals, sample))
+    order = (numbered.c.activity_id, numbered.c.seq)
     for row in session.scalars(stmt.order_by(*order)):
         found[row.activity_id].append({col: getattr(row, col) for col in TRACK_COLUMNS})
     return found
 
 
 def track(session: Session, activity_id: str, points: int | None = None) -> list[dict]:
-    """Return the stored track for an activity, optionally downsampled to *points*.
+    """Return the stored track for an activity, downsampled to *points*.
+
+    Omitting *points* asks for the whole stored track, which
+    :func:`tracks` bounds at :data:`MAX_TRACK_POINTS` rows like any other ask.
 
     A batch of one, so the single-activity path and the fan-out path cannot
     drift apart in what they sample -- there is only one sampler.

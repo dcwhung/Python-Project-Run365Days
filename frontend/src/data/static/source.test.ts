@@ -17,6 +17,17 @@ const FILES: Record<string, unknown> = {
     columns: ["sec", "lat", "lon", "elevation_m", "distance_m", "speed_mps", "cadence", "temp_c"],
     rows: [0, 1, 2, 3, 4].map((i) => [i * 6, 22.3, 114.2, 330 + i, i * 16, 2.7, 83, 18]),
   },
+  // CUI-0033 (a). A track longer than MAX_TRACK_POINTS, which no default
+  // export writes and `run365-export --points 1250` does -- the measurement
+  // that opened the ticket. Built here rather than exported, because the point
+  // is what this module does with such a file, not how one comes to exist.
+  // `sec` is the row's own index, so a returned `sec` reads as "this is the
+  // row the sampler picked" and an even sample is distinguishable from the
+  // first 1000 rows.
+  "/data/tracks/long.json": {
+    columns: ["sec", "lat", "lon", "elevation_m", "distance_m", "speed_mps", "cadence", "temp_c"],
+    rows: Array.from({ length: 1250 }, (_, i) => [i, 22.3, 114.2, 330, i * 4, 2.7, 83, 18]),
+  },
   "/data/weight.json": [
     { date: "2021-01-08", weight_lbs: 154.8, weight_kg: 70.28, bmi: 24.3 },
     { date: "2021-01-09", weight_lbs: 154.2, weight_kg: 70.01, bmi: 24.2 },
@@ -113,10 +124,31 @@ describe("static source", () => {
     const { src } = source();
     // Pinned deliberately: `undefined` is not `0`. api mode has no such state
     // to disagree with -- its SDL argument is `Int! = 150`, NonNull with a
-    // default -- and the export caps a stored track at 600 rows, so "all of it"
-    // is bounded by construction on this side.
+    // default. What bounds "all of it" is MAX_TRACK_POINTS and nothing else:
+    // the 600 rows a default export writes is `run365-export --points`'s
+    // default value, not a property of the format, and `--points 1250` writes
+    // 1250 of them (CUI-0033 (a) measured exactly that against real data).
+    // Every track under the ceiling still comes back entire, which is this.
     expect(await src.track("a")).toHaveLength(5);
     expect(await src.track("a", undefined)).toHaveLength(5);
+  });
+
+  // CUI-0033 (a). The other half: the ceiling is a ceiling on the output, so
+  // the same module cannot refuse `points: 1250` and then hand 1250 rows to a
+  // caller that named no number. `test_an_omitted_points_is_capped_at_the
+  // _ceiling_the_field_refuses_above` in tests/test_api.py is the api-mode
+  // half of the pair.
+  it("caps an omitted points at the ceiling it refuses above", async () => {
+    const { src } = source();
+    const all = await src.track("long");
+
+    expect(all).toHaveLength(MAX_TRACK_POINTS);
+    // Against the explicit ask rather than against a length alone: `rows
+    // .slice(0, MAX_TRACK_POINTS)` is also 1000 rows long and would pass a
+    // length assertion while returning the front of the track instead of an
+    // even sample of it. The last `sec` is 1249 here and would be 999 there.
+    expect(all).toEqual(await src.track("long", MAX_TRACK_POINTS));
+    expect(all[all.length - 1].sec).toBe(1249);
   });
 
   it("returns the last row alone for points: 1, as both modes do", async () => {
@@ -128,8 +160,9 @@ describe("static source", () => {
 
   // CUI-0034. `MAX_TRACK_POINTS` is written down twice, once per language, and
   // until now only one direction was guarded. Editing the constant below turns
-  // three assertions red because they spell `1000` out; editing
-  // src/api/schema.py turns `run365-schema --check` red, but regenerating the
+  // three assertions red because they spell `1000` out; editing the Python one
+  // (src/api/service.py since CUI-0033 (a), quoted into the SDL text by
+  // src/api/schema.py) turns `run365-schema --check` red, but regenerating the
   // SDL clears that -- and nothing downstream compares the regenerated file to
   // this side, so the two modes could enforce different ceilings with every
   // gate green.

@@ -8,6 +8,7 @@ session from ``info.context["session"]`` and delegate to
 
 from __future__ import annotations
 
+import logging
 import os
 from collections.abc import Iterator, MutableMapping
 from datetime import date as date_type
@@ -19,7 +20,8 @@ from strawberry.extensions import (
     QueryDepthLimiter,
     SchemaExtension,
 )
-from strawberry.types import Info
+from strawberry.types import ExecutionContext, Info
+from strawberry.utils.logging import StrawberryLogger
 
 from graphql import GraphQLError
 from run365days.api import service
@@ -29,16 +31,18 @@ from run365days.export.records import TRACK_COLUMNS
 DEFAULT_TRACK_POINTS = 150
 """Track points returned per activity unless the query asks for more."""
 
-MAX_TRACK_POINTS = 1000
-"""Ceiling for ``track(points:)``.
+MAX_TRACK_POINTS = service.MAX_TRACK_POINTS
+"""Ceiling for ``track(points:)``, re-exported from the service that enforces it.
 
-Deliberately above 600, the most track rows the export stores for one run
-(``run365-export --points``, whose default is ``DEFAULT_POINT_LIMIT``), so a
-client asking for the maximum always gets the whole stored track back.
+Bound in two places by one number. This module refuses a ``points`` outside
+``1..MAX_TRACK_POINTS`` before any SQL goes out (:func:`_track_points`), and
+:func:`run365days.api.service.tracks` caps what comes back at the same figure
+even for a caller that names no ``points`` at all -- so the ceiling is the
+ceiling on the output, not only on the question (CUI-0033 (a)).
 
-Not to be read as a bound on ``Activity.num_points``: that field counts the
-raw samples the source file held *before* the export downsampled them, so it
-runs past 600 for the occasional long run and the two numbers do diverge.
+It lives in the service because that is the lower of the two layers and the
+service may not import Strawberry. Kept importable from here because the SDL
+text, the bounds check and every test that reads the contract are on this side.
 """
 
 MAX_TRACK_POINTS_PER_REQUEST = 10000
@@ -1216,6 +1220,85 @@ class Query:
         )
 
 
+REFUSAL_LOG_LEVEL = logging.INFO
+"""Level a budget refusal is logged at, below the ``ERROR`` a fault gets.
+
+``INFO`` rather than ``WARNING`` for two reasons, one about meaning and one
+measured. A refusal is not a degraded state or a near miss: the request asked
+for more than the contract offers, the contract said no, and the client was
+told why in a message it can act on. Nothing on the server needs attention, so
+nothing should reach a level that asks for it.
+
+The measured half is that ``logging``'s default threshold is ``WARNING``. A
+deployment that configures nothing -- which is the Vercel default and the
+condition CUI-0029 was measured under -- therefore drops these records
+entirely, so the log-volume amplification the ticket costed at 998 tokens per
+refused request goes to zero rather than to one line per request. An operator
+who wants to watch refusals, whether to size the budgets or to spot a client
+hammering them, opts in by lowering the level and gets every one of them.
+
+What is deliberately *not* traded away: the refusal still reaches the same
+logger with the same message, so it is silenced by default rather than
+discarded at the source.
+"""
+
+EXECUTION_LOGGER = StrawberryLogger.logger
+"""The logger Strawberry itself hands every GraphQL error to (``strawberry.execution``).
+
+Taken from Strawberry rather than named again here so a refusal cannot end up
+somewhere a fault does not: an operator raising the level to read refusals must
+get them in the same stream, from the same name, as the errors they sit
+between. Reaching for the attribute also fails loudly at import if Strawberry
+ever moves it, which spelling the string out would not.
+"""
+
+
+class RefusalAwareSchema(strawberry.Schema):
+    """A schema that logs a refusal the client earned apart from a server fault.
+
+    Strawberry hands every error an operation produces to
+    :meth:`process_errors`, which logs all of them at ``ERROR``. That is right
+    for a fault and wrong for a refusal: :class:`BudgetExceededError` is raised
+    because a client's own document asked for more than the contract offers,
+    which is the budget working rather than anything failing. Carrying the
+    resolver's ``path`` already took the traceback off those records; this
+    takes them off ``ERROR`` as well, so the most common entry in a deployment's
+    log stops being a refusal working as designed (CUI-0029).
+
+    Only that one class is reclassified. Everything else -- validation errors,
+    ``Int`` coercion failures, an unseeded budget's ``RuntimeError``, a resolver
+    that breaks mid-request -- is handed to ``super()`` untouched and keeps its
+    ``ERROR`` and its ``exc_info``. The distinction is the exception type, not a
+    substring of the message: a filter matching on wording would silence a real
+    fault that happened to mention a budget, and would stop silencing these the
+    day the wording changes. ``test_an_unexpected_resolver_error_is_still
+    _logged_as_a_server_fault`` is what holds that line, since no budget test
+    would notice a classifier that swept up everything.
+    """
+
+    def process_errors(
+        self, errors: list[GraphQLError], execution_context: ExecutionContext | None = None
+    ) -> None:
+        """Log budget refusals below ``ERROR``, and everything else as Strawberry would.
+
+        Args:
+            errors: Every error this operation produced.
+            execution_context: The operation's context, passed straight through
+                to the default handler for the errors it still takes.
+        """
+        faults = []
+        for error in errors:
+            if isinstance(error, BudgetExceededError):
+                # Logged the way StrawberryLogger logs one -- the error object
+                # as the message, no exc_info -- so a deployment's handlers see
+                # the same record they saw before, at a different level.
+                EXECUTION_LOGGER.log(REFUSAL_LOG_LEVEL, error)
+            else:
+                faults.append(error)
+        if faults:
+            super().process_errors(faults, execution_context)
+
+
 def build_schema(
     max_depth: int = MAX_QUERY_DEPTH, max_tokens: int = MAX_QUERY_TOKENS
 ) -> strawberry.Schema:
@@ -1227,9 +1310,10 @@ def build_schema(
 
     Returns:
         A schema that rejects over-deep or over-large documents during
-        parsing and validation, before any resolver opens a query.
+        parsing and validation, before any resolver opens a query, and that
+        logs a refusal apart from a fault (:class:`RefusalAwareSchema`).
     """
-    return strawberry.Schema(
+    return RefusalAwareSchema(
         query=Query,
         extensions=[
             # Factories, not instances: Strawberry builds a fresh extension per
