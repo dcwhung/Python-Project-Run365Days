@@ -21,6 +21,7 @@ from strawberry.extensions import (
 )
 from strawberry.types import Info
 
+from graphql import GraphQLError
 from run365days.api import service
 from run365days.dashboard import stats
 from run365days.export.records import TRACK_COLUMNS
@@ -531,6 +532,48 @@ class _RequestBudgets(SchemaExtension):
         yield
 
 
+class BudgetExceededError(GraphQLError):
+    """A refusal the client's own document earned, raised so it is not logged as a fault.
+
+    Strawberry hands every error an operation produces to the
+    ``strawberry.execution`` logger at ``ERROR`` with
+    ``exc_info=error.original_error``, so whether a traceback reaches the log is
+    decided entirely by whether that one attribute is set. graphql-core sets it
+    on anything it had to wrap, which is every plain ``ValueError`` a resolver
+    raises -- and, measured, a bare :class:`GraphQLError` as well: the
+    pass-through in ``graphql.error.located_error`` is guarded on the raised
+    error *already carrying a path*, and a freshly constructed one carries
+    none. Subclassing on its own therefore changes nothing. Carrying the
+    resolver's own location is the whole mechanism, which is why this
+    constructor asks for ``info`` instead of leaving each call site to
+    remember.
+
+    What the client sees does not move: same message, same ``locations``, same
+    ``path``, because those are the fields being filled in here rather than
+    being left for graphql-core to rebuild. What stops is a refusal that costs
+    a client 998 tokens on a public, unauthenticated endpoint writing nine
+    frames of absolute source paths -- repository layout and the interpreter's
+    ``site-packages`` directory among them -- into the deployment's log, once
+    per refused request (CUI-0029).
+
+    Deliberately not used for a budget that was never seeded. That one means a
+    schema built without :class:`_RequestBudgets` or a context it could not
+    write to: nobody's request caused it and no client can act on it, so it
+    keeps raising ``RuntimeError`` and keeps its traceback.
+    """
+
+    def __init__(self, info: Info, message: str) -> None:
+        # Strawberry's ``Info`` publishes ``path`` but has no public accessor
+        # for ``field_nodes``, and ``locations`` cannot be reconstructed
+        # without them. Both are read off the one underlying
+        # ``GraphQLResolveInfo`` rather than from two sources that could
+        # drift. If this attribute is ever renamed,
+        # ``test_a_budget_refusal_still_tells_the_client_where_it_happened``
+        # is what goes red.
+        raw = info._raw_info
+        super().__init__(message, nodes=raw.field_nodes, path=raw.path.as_list())
+
+
 def _charge_list_rows(info: Info, rows: int) -> int:
     """Deduct a page of *rows* from this request's list row budget.
 
@@ -556,7 +599,7 @@ def _charge_list_rows(info: Info, rows: int) -> int:
         ``rows``, so the caller can charge and spend in one expression.
 
     Raises:
-        ValueError: If this operation has already spent the budget.
+        BudgetExceededError: If this operation has already spent the budget.
         RuntimeError: If the budget was never seeded -- the schema was built
             without :class:`_RequestBudgets`, or the context is a mapping that
             extension could not write to. Falling back to an unbounded request
@@ -571,9 +614,10 @@ def _charge_list_rows(info: Info, rows: int) -> int:
             "list row budget was not seeded for this request, so list fields cannot be served"
         ) from exc
     if rows_left < 0:
-        raise ValueError(
+        raise BudgetExceededError(
+            info,
             "list row budget exhausted: one request may read at most "
-            f"{MAX_LIST_ROWS_PER_REQUEST} rows"
+            f"{MAX_LIST_ROWS_PER_REQUEST} rows",
         )
     info.context[LIST_ROWS_KEY] = rows_left
     return rows
@@ -620,7 +664,7 @@ def _charge_track_field(info: Info, points: int) -> int:
         ``points``, so the caller can spend and pass it in one expression.
 
     Raises:
-        ValueError: If this operation has already spent either budget.
+        BudgetExceededError: If this operation has already spent either budget.
         RuntimeError: If the budgets were never seeded. Two ways in: the schema
             was built without :class:`_RequestBudgets`, or the context is a
             mapping that extension could not write to (a read-only ``Mapping``
@@ -637,14 +681,16 @@ def _charge_track_field(info: Info, points: int) -> int:
             "track budget was not seeded for this request, so `track` cannot be served"
         ) from exc
     if fields_left < 0:
-        raise ValueError(
+        raise BudgetExceededError(
+            info,
             "track field budget exhausted: one request may read at most "
-            f"{MAX_TRACK_FIELDS_PER_REQUEST} tracks"
+            f"{MAX_TRACK_FIELDS_PER_REQUEST} tracks",
         )
     if points_left < 0:
-        raise ValueError(
+        raise BudgetExceededError(
+            info,
             "track points budget exhausted: one request may return at most "
-            f"{MAX_TRACK_POINTS_PER_REQUEST} track points"
+            f"{MAX_TRACK_POINTS_PER_REQUEST} track points",
         )
     info.context[TRACK_FIELDS_KEY] = fields_left
     info.context[TRACK_BUDGET_KEY] = points_left

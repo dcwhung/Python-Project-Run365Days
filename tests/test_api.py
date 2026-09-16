@@ -1,4 +1,5 @@
 import importlib.util
+import logging
 import re
 from contextlib import ExitStack
 from datetime import date, timedelta
@@ -1441,6 +1442,90 @@ def test_a_budget_fails_closed_when_the_context_cannot_be_seeded(year_session, d
     assert result.errors
     assert NOT_SEEDED in result.errors[0].message
     assert _rows_at(result, path) == []
+
+
+# ── CUI-0029: a refusal the client earned is not logged as a server fault ──
+REFUSED_DOCUMENTS = (
+    pytest.param(
+        "{{ {} }}".format(
+            " ".join(f"{alias}: activities(limit: {MAX_PAGE_SIZE}) {{ id }}" for alias in "abcde")
+        ),
+        id="list-rows",
+    ),
+    pytest.param(
+        _fan_out_query(YEAR_DAYS, MAX_TRACK_POINTS),
+        id="track-points",
+    ),
+)
+"""One document per charge site that a client can drive past its budget.
+
+Both, not one: ``_charge_list_rows`` and ``_charge_track_field`` raise from two
+different call sites, and CUI-0029 measured nine absolute-path frames on each.
+A fix applied to only one of them would leave the other amplifying log volume
+exactly as before, with the suite still green.
+"""
+
+
+def _strawberry_records(caplog):
+    """The records Strawberry's execution logger emitted, refusals included."""
+    return [record for record in caplog.records if record.name == "strawberry.execution"]
+
+
+@pytest.mark.parametrize("document", REFUSED_DOCUMENTS)
+def test_a_budget_refusal_is_logged_without_a_traceback(year_client, caplog, document):
+    # The refusal is what the budget exists to produce, so it is not a fault.
+    # Measured before the fix: one ERROR record per refused request carrying
+    # exc_info, which renders as nine frames naming absolute source paths and
+    # the interpreter's site-packages directory -- on a public, unauthenticated
+    # endpoint where one refusal costs the client 998 tokens.
+    #
+    # exc_info, not the rendered text: `logging` only formats a traceback when
+    # a handler asks it to, so asserting on formatted output would pass or fail
+    # according to the handler pytest happens to install rather than according
+    # to what the record carries into a deployment's own handlers.
+    with caplog.at_level(logging.ERROR, logger="strawberry.execution"):
+        assert gql_errors(year_client, document)
+
+    records = _strawberry_records(caplog)
+    assert records, "the refusal must still be logged -- silence is not the fix here"
+    assert [record.exc_info for record in records] == [None] * len(records)
+
+
+@pytest.mark.parametrize(("document", "path"), UNSEEDED_DOCUMENTS)
+def test_an_unseeded_budget_still_logs_its_traceback(year_session, caplog, document, path):
+    # The other half of the same line, and the reason the fix cannot simply
+    # stop Strawberry logging exc_info. An unseeded budget means the schema was
+    # built wrong or the context could not be written to: nobody's request
+    # caused it and no client can act on it, so it is exactly the case a
+    # traceback is for. Only the client-driven refusal loses one.
+    unbounded = strawberry.Schema(query=Query, extensions=[])
+
+    with caplog.at_level(logging.ERROR, logger="strawberry.execution"):
+        result = unbounded.execute_sync(document, context_value={"session": year_session})
+
+    assert NOT_SEEDED in result.errors[0].message
+    records = _strawberry_records(caplog)
+    assert records, "a misconfigured schema must not go unlogged"
+    assert all(record.exc_info for record in records)
+    # Named, not just truthy: `exc_info` would also be set if the refusal had
+    # simply kept raising ValueError, which is the state this ticket removes.
+    assert all(issubclass(record.exc_info[0], RuntimeError) for record in records)
+
+
+@pytest.mark.parametrize("document", REFUSED_DOCUMENTS)
+def test_a_budget_refusal_still_tells_the_client_where_it_happened(year_client, document):
+    # `locations` and `path` are what make the refusal actionable: they name
+    # the field in the client's own document that overspent. They survive only
+    # because the refusal is raised carrying the resolver's nodes and path --
+    # drop either and graphql-core rebuilds the error around the raised one,
+    # which is precisely what puts the traceback back. So this is the assertion
+    # that fails if the mechanism above is quietly undone.
+    body = year_client.post(GRAPHQL_PATH, json={"query": document}).get_json()
+
+    error = body["errors"][0]
+    assert "budget exhausted" in error["message"]
+    assert error["locations"], "a refusal with no location cannot be traced to a field"
+    assert error["path"], "a refusal with no path cannot be traced to a field"
 
 
 # ── AU-050: one statement per batch of tracks, not two per track ───────────
