@@ -905,8 +905,14 @@ Hard gates：363 passed / ruff clean / format clean / SDL up to date / coverage 
 | **CUI-0024** | 🟢 Low | 清 AU-035 嗰批 `docs/` 既有 drift：`README.md` / `docs/architecture.md` 寫「three console scripts」實際 4 個、`architecture.md` 引用已消失嘅 `write_data_js`、三處寫死嘅測試數量（133 / 93 / 87）全部過期。Main agent 已逐項核實。建議優先**移除**寫死數字而唔係更新佢哋（同 CUI-0015 揀方案 3 同一理由）。已核實「all nine views」同 CHANGELOG 嘅 `write_data_js` **正確，唔好改** | pending |
 | **CUI-0025** | 🟢 Low | **`S-011` 兩半今日仍然成立**：(a) `points: 0` 喺 api mode 被拒（`_track_points` 1–1000 bounds），喺 static mode 回全部點（`source.ts:66` `points ? downsample(...) : rows` 短路）；(b) `MAX_TRACK_POINTS` / `MAX_PAGE_SIZE` 兩個界仍然冇寫入 SDL，前端睇 `schema.graphql` 見唔到。⚠️ CUI-0021 之後 `downsample` 對 `limit < 2` 回最後一點，所以而家有三種可能行為，執票時唔可以求其揀。**唔好將 api mode 改返「0 = 攞全部」** —— 嗰個係 AU-001 堵咗嘅 DoS 向量 | pending |
 
-> 編號：掃過 `.tickets/pending/`、`.tickets/in-progress/` 同本檔，現存最高 **CUI-0024**，
-> 所以由 **CUI-0025** 起，全局唯一、無重用、無跳號。
+> **CUI-0026 更正（2026-09-16）**：上面「149 係質數」呢個歸因**錯咗**，同質數無關。
+> 判準係 `d = limit - 1` 嘅奇偶：tie 要 `2i(n-1) = d(2k+1)`，`d` 奇數時左邊偶、右邊奇，永遠無解。
+> 即 **`limit` 偶數 ⇒ 完全免疫；`limit` 奇數 ⇒ 會 tie**。反例：`limit=64`（63 = 3²×7，非質數）零 tie。
+> Main agent 已窮舉核實（`limit` 2..400 × `n` ≤ 1000：偶數 0 個分歧、奇數 68,503 個）。
+> `TRACK_POINTS = 600` 因此有兩重保護：`n <= limit` 早返，**加上** 599 係奇數。
+
+> 編號：掃過 `.tickets/pending/`、`.tickets/in-progress/` 同本檔，現存最高 **CUI-0026**，
+> 所以由 **CUI-0027** 起，全局唯一、無重用、無跳號。
 
 ### QA 同意 reviewer 嘅兩條 🟢 不阻塞
 
@@ -962,7 +968,7 @@ reviewer 嘅定義（連續 range 2 <= total <= cap）:
 
 ```
 limit=600:   0/365 tracks 入到 sampler -> divergent = 0   （今日嘅操作點）
-limit=150: 365/365 入到 sampler        -> divergent = 0   <- 假綠！149 係質數嘅算術巧合
+limit=150: 365/365 入到 sampler        -> divergent = 0   <- 假綠！因為 149 係奇數（見 CUI-0026）
 limit= 97: 103/123 個長度分歧 (84%)     limit=193: 104/123 (85%)     limit=241: 101/123 (82%)
 ```
 
