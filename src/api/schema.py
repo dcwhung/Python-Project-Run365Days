@@ -372,6 +372,30 @@ illustrative (CUI-0027 W-028):
   subfield costs a token and drops it to 142. That is the ``activity(id:)``
   order of magnitude above, and charging them would buy the same noise.
 
+  No one of the four counts is reproducibly the dearest, and an earlier
+  revision naming ``activitiesCount`` was reading noise (S-060). Over 15
+  interleaved rounds their medians span 76.1-83.2 ms, 9.2%, while any single
+  field's own spread across those same rounds reaches 29-52% of its median. The
+  between-field gap is real -- ``activitiesCount`` led 12 rounds of 15 -- but it
+  sits inside the run-to-run variance, so a reader who picks one of these
+  documents to worry about has picked at random. Hence the range above and no
+  winner.
+
+  These readings do **not** need a warm page cache, which is worth stating
+  because this API runs as a Vercel function against a SQLite file and a cold
+  one is its normal state rather than an artefact. Measured with the cache
+  verifiably empty -- ``posix_fadvise(POSIX_FADV_DONTNEED)`` over the file,
+  ``mincore`` confirming 0 of 2,865 pages resident, one run per freshly
+  started process -- 332 aliased ``activitiesCount`` reads 84.6 ms against
+  83.2 ms warm, and the other three are within 3% of their warm figures too.
+  The reason is that these documents are not I/O bound: a count touches a
+  handful of pages of an 11 MB file, and what the 80-odd ms buys is 332
+  resolver dispatches. What a cold *process* costs is real and much larger --
+  ~330 ms of imports before the first query, and a first execution some 7%
+  above the second while SQLAlchemy compiles the statement -- but that is a
+  per-invocation cost the whole function pays, not something this budget bounds
+  or that aliasing multiplies.
+
 So the bound this constant states is on *windowed* reads. A request may hold
 that many rows, plus up to 90 single ones, plus the fixed-size reads that do
 not pay.
