@@ -345,9 +345,11 @@ illustrative (CUI-0027 W-028):
 * ``activity(id:)`` does not pay. It reads one row by primary key, and
   :data:`MAX_QUERY_TOKENS` admits at most 90 of them -- 90 being the count for
   the narrowest selection, ``{ id }``; a wider one costs tokens and buys fewer
-  fields, 76 at three scalars and 30 under the full ``ActivityFields``. At that
-  widest: ~95 ms on the export (91.6-95.9 over five runs), some 160x inside the
-  15 s function, so charging it would buy noise.
+  fields, 76 at three scalars and 30 under the full ``ActivityFields``. At the
+  widest fan-out -- the 90 aliases of ``{ id }``, not the 30 of
+  ``ActivityFields``, which is the cheaper document: ~95 ms on the export
+  (91.6-95.9 over five runs), some 160x inside the 15 s function, so charging
+  it would buy noise.
 
   The figures this replaces -- ~0.05 s and some 300x -- were measured down a
   path that never reaches the row. An id matching nothing returns before the
