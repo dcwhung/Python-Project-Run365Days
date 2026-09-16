@@ -1299,14 +1299,27 @@ def test_a_skipped_track_is_not_charged(year_client):
     assert len(rows[0]["charged"]) == 1
 
 
-# ── AU-047 W-014: the budgets fail closed when they were never seeded ──────
+# ── AU-047 W-014 / CUI-0027 W-027: every budget fails closed when never seeded ──
 TRACK_QUERY = f'{{ activity(id: "{TRACKED_ACTIVITY_ID}") {{ track(points: 10) {{ sec }} }} }}'
 
+UNSEEDED_DOCUMENTS = [
+    pytest.param(TRACK_QUERY, ("activity", "track"), id="track"),
+    pytest.param("{ activities { id } }", ("activities",), id="activities"),
+    pytest.param("{ year { year } }", ("year",), id="year"),
+]
+"""One document per charge site _RequestBudgets seeds a budget for, and where its rows land.
 
-def _track_rows(result) -> list:
-    activity = (result.data or {}).get("activity") or {}
-    return activity.get("track") or []
+``track`` reaches :func:`_charge_track_field`; ``activities`` and ``year`` reach
+``_charge_list_rows``, which the extension's own docstring says "reads it the
+same way". Until CUI-0027 W-027 only the track half had an assertion behind
+that sentence, so a change to the seeding would turn ``track`` red while the
+list half went quietly unbounded -- the exact state CUI-0027 fixed, restored
+with nobody watching.
 
+``year`` is listed beside ``activities`` because it reaches the same charge
+from its own call site, on :data:`DEFAULT_PAGE_SIZE` rather than on a client
+``limit``, so ``activities`` alone would not cover it.
+"""
 
 NOT_SEEDED = "not seeded"
 """Words from the unseeded-budget refusal, asserted rather than left to truthiness.
@@ -1317,36 +1330,48 @@ budget as ``.get(KEY, MAX_...)`` instead: the frozen context below still comes
 back with an error, but it is ``'mappingproxy' object does not support item
 assignment``, raised where the charge writes the counter back. The refusal is
 incidental to that context and does not generalise -- the same mutant, given a
-plain ``dict``, serves the track unbounded. Naming the message is what tells
-those two apart.
+plain ``dict``, serves the field unbounded. Naming the message is what tells
+those two apart, on every document above.
 """
 
 
-def test_track_fails_closed_when_the_schema_has_no_budget_extension(year_session):
-    # A schema built without _TrackBudget seeds nothing. Serving the track
+def _rows_at(result, path) -> list:
+    """Rows *result* served under *path*, or ``[]`` where the refusal nulled it away."""
+    node = result.data or {}
+    for key in path:
+        node = (node or {}).get(key) or {}
+    return node or []
+
+
+@pytest.mark.parametrize(("document", "path"), UNSEEDED_DOCUMENTS)
+def test_a_budget_fails_closed_when_the_schema_has_no_budget_extension(
+    year_session, document, path
+):
+    # A schema built without _RequestBudgets seeds nothing. Serving the field
     # anyway would mean an unbounded request, so it must refuse instead.
     unbounded = strawberry.Schema(query=Query, extensions=[])
 
-    result = unbounded.execute_sync(TRACK_QUERY, context_value={"session": year_session})
+    result = unbounded.execute_sync(document, context_value={"session": year_session})
 
     assert result.errors
     assert NOT_SEEDED in result.errors[0].message
-    assert _track_rows(result) == []
+    assert _rows_at(result, path) == []
 
 
-def test_track_fails_closed_when_the_context_cannot_be_seeded(year_session):
-    # A read-only Mapping is not a MutableMapping, so _TrackBudget skips it --
-    # but info.context["session"] still reads, so track is reachable. The
-    # invariant is that the *missing budget* is what refuses the field. This
-    # context happens to reject the write back as well, so it would error
-    # either way; NOT_SEEDED is what pins the reason rather than the symptom.
+@pytest.mark.parametrize(("document", "path"), UNSEEDED_DOCUMENTS)
+def test_a_budget_fails_closed_when_the_context_cannot_be_seeded(year_session, document, path):
+    # A read-only Mapping is not a MutableMapping, so _RequestBudgets skips it
+    # -- but info.context["session"] still reads, so the field is reachable. The
+    # invariant is that the *missing budget* is what refuses it. This context
+    # happens to reject the write back as well, so it would error either way;
+    # NOT_SEEDED is what pins the reason rather than the symptom.
     frozen = MappingProxyType({"session": year_session})
 
-    result = schema.execute_sync(TRACK_QUERY, context_value=frozen)
+    result = schema.execute_sync(document, context_value=frozen)
 
     assert result.errors
     assert NOT_SEEDED in result.errors[0].message
-    assert _track_rows(result) == []
+    assert _rows_at(result, path) == []
 
 
 # ── AU-050: one statement per batch of tracks, not two per track ───────────
@@ -1955,6 +1980,19 @@ def test_the_widest_list_fan_out_reads_no_more_rows_than_the_budget(
 
     year_client.post(GRAPHQL_PATH, json={"query": _list_flood(widest), "variables": {}})
 
+    # `<=` with about 27% of slack on this fixture, deliberately (CUI-0027
+    # S-054). `year_db` holds 365 activities, so the eight pages the budget
+    # affords return 2,920 rows against the 4,000 they are charged, and this
+    # assertion is really 2920 <= 4000. Tightening it to that exact figure
+    # would pin the test to the fixture's size without buying protection: what
+    # it would catch is an undercharge, and `test_the_row_budget_is_the_boundary`
+    # already catches that exactly, by serving at the budget and refusing at
+    # budget + 1. Measured against a charge mutated to 75% of `limit`: that
+    # test fails, along with three others, while an exact count here would be
+    # the fourth rather than the only one. What this test is for is the
+    # question none of those answer -- whether anything bounds the shape at all
+    # -- and for that `<=` is the honest assertion. The 60,590 rows it read
+    # before the budget existed are 15x the bound, not 1.3x.
     assert activity_rows_loaded[0] <= MAX_LIST_ROWS_PER_REQUEST, (
         f"{widest} aliased list fields read {activity_rows_loaded[0]} rows; "
         f"nothing is bounding the fan-out"
