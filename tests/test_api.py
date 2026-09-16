@@ -1088,6 +1088,12 @@ def test_a_flood_of_aliased_parents_issues_more_statements_than_the_field_cap_bo
     track_statements = MAX_TRACK_FIELDS_PER_REQUEST * SQL_PER_TRACK_BATCH
     ceiling = parents * SQL_PER_ACTIVITY_FIELD + track_statements
 
+    # Reset before the first half as well as the second: what this counts is
+    # the request, not whatever the fixtures issued setting themselves up.
+    # Without this the half below is safe only because `year_client` happens to
+    # be built before `sql_count` starts listening, which is an argument-order
+    # invariant nothing states or holds.
+    sql_count[0] = 0
     assert gql(year_client, _distinct_parent_flood(parents)), "the widest flood is served whole"
     assert sql_count[0] > track_statements, "the cap alone would under-count this request"
     assert sql_count[0] <= ceiling
