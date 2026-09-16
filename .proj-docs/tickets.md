@@ -913,3 +913,85 @@ Hard gates：363 passed / ruff clean / format clean / SDL up to date / coverage 
 **S-042**（`sql_count` fixture-order 不變式仲有 12 個 case 靠緊）、
 **S-043**（`test_api.py:501,512` 重複 build 同一個 schema）——
 建議併入下一個掂到 `tests/test_api.py` 嘅 lane。
+
+### ⚠️ W-024 更正（2026-09-16，QA 裁決）—— 核心 finding 係 false positive
+
+Round 2 review 開嘅 **W-024**（🟡）指 `frontend/src/lib/downsample.ts` /
+`downsample.test.ts` 寫嘅「45,117 組合 / 10,189 分歧 / 22.6%」重現唔到，
+並判定「**唔係範圍定義差異，係量錯咗**」。QA 於 2026-09-16 用重建嘅真實 export 獨立裁決：
+
+**判定：核心 finding 不成立。原始數字係啱嘅，reviewer 嘅推論錯。**
+
+| 爭議 | 裁決 |
+|---|---|
+| 「45,117 / 10,189 / 22.6% 量錯咗」 | ❌ 三個數字**逐個精確重現** |
+| 「22.6% 係達唔到嘅」 | ❌ 只喺**連續 range** 之內成立 |
+| 「唔係範圍定義差異」 | ❌ **正正就係範圍定義差異** |
+| 「the export can produce」措辭同 A3 矛盾 | ✅ **成立**，但屬 🟢 措辭歧義 |
+
+**決定性證據 —— 同一個 probe 一次過重現咗爭議雙方嘅全部數字：**
+
+```
+lane 嘅定義（export 真正持有嘅 123 個相異 track length，250..600，points = 1..L-1）:
+    combinations = 45,117   divergent = 10,189   ratio = 22.584%  -> 22.6%     全中
+
+reviewer 嘅定義（連續 range 2 <= total <= cap）:
+    cap= 250:  31,125 /  6,634 / 21.31%      cap= 300:  44,850 /  9,652 / 21.52%
+    cap= 309:  47,586 / 10,221 / 21.48%      cap= 600: 179,700 / 38,530 / 21.44%
+    cap=1000: 499,500 /105,181 / 21.06%      五行全中
+    highest ratio over every cap 2..1000 = 21.91% at cap = 103     亦全中
+```
+
+兩個 model **完全一致**，分別**純粹**喺枚舉邊啲長度。Export 實測
+`COUNT(DISTINCT cnt) = 123`、範圍 `250..600`，而 `Σ(L−1) = 45,240 − 123 = **45,117**`
+——呢個數字**直接由算術跌出嚟**，唔係湊。
+
+**後續建議**
+
+- **W-024 由 🟡 降為 🟢**，範圍由「數字量錯」收窄為「註釋欠缺範圍定義」。
+- **唔改**嗰份有日期嘅 review 報告本身（同 reviewer 自己喺 S-041 用嘅文件倫理一致），更正記喺呢度。
+- **反對 reviewer 方案 A**（換成 `2 <= length <= 1000` 嘅 105,181 / 499,500）：
+  呢個係**虛構**長度集（999 個入面 876 個 export 永遠見唔到），
+  會用無關數字換走貼題數字，而且冇解決真正缺陷（範圍定義冇寫出嚟）。
+- **支持 followup lane 方向**：保留 45,117 / 10,189 / 22.6% + 補範圍定義，
+  **但必須同時**拆走 “the export can produce” 嘅歧義 —— reviewer 第二半係啱嘅，唔可以只修一半。
+- **CUI-0021** line 27 嗰組數字**係啱嘅，唔使改**；同樣建議補一句範圍定義。
+- **唔需要開新 ticket**（數字冇錯，措辭已有 lane 處理中）。
+
+**順帶實測 —— 「今日不可達」比想像中脆：**
+
+```
+limit=600:   0/365 tracks 入到 sampler -> divergent = 0   （今日嘅操作點）
+limit=150: 365/365 入到 sampler        -> divergent = 0   <- 假綠！149 係質數嘅算術巧合
+limit= 97: 103/123 個長度分歧 (84%)     limit=193: 104/123 (85%)     limit=241: 101/123 (82%)
+```
+
+`TRACK_POINTS` 由 600 一調去 97 / 193 / 241 呢類值，**超過 80% 嘅長度即刻分歧**。
+`roundHalfToEven` 守住嘅唔係理論風險。⚠️ 另記：**用 `limit=150` 做 smoke test 會出假綠。**
+
+**補充（QA 覆核 lane 嘅實際修復，`58e1086`，仍未 merge）**
+
+Lane 嘅新註釋文字我逐句對住重建嘅 export 核實過，**六項全中**：
+
+```
+"123 distinct track lengths between 250 and 600"   -> 123, 250..600                    OK
+"45,117 pairs ... 10,189 of them (22.6%)"          -> 45,117 / 10,189 / 22.6%          OK
+"every length in 2..1000 ... gives 21.1%"          -> 499,500 / 105,181 / 21.1%        OK
+"every real call is n <= limit" (TRACK_POINTS=600) -> 0/365 tracks reach the sampler   OK
+"The export caps a track at 600 rows"              -> longest stored track = 600       OK
+CUI-0021 補回嘅「2..1000 任何一個 cap 最高只到 21.91%」                                  OK
+```
+
+佢**確實有修埋第二半**：`the export can produce` 已改成
+`the pairs the sampler can be *asked* for`，並明文寫低
+「none of those 10,189 pairs is reachable today」。
+**✅ `fix/frontend/W-024_reproducible-divergence-figure` 可以 merge。**
+
+🟢 一個唔阻 merge 嘅小瑕疵：註釋寫 `SELECT COUNT(*) FROM track_points GROUP BY activity_id`
+「yields 123 distinct track lengths」—— 嗰句 query 實際出 365 行，要
+`SELECT COUNT(DISTINCT cnt) FROM (SELECT COUNT(*) AS cnt FROM track_points GROUP BY activity_id)`
+先可以複製貼上直接出 123。順手先改，唔值得單開 commit。
+
+> 註：QA 嘅量度仍然有效 —— `git diff a0de0cd..HEAD -- src/export/ src/dashboard/ src/activities/ src/common/`
+> 為空，export pipeline 由量度嗰刻至今零改動，所以嗰份 `run365.db`（134,041 rows / 123 個長度）
+> 仍然係現時 HEAD 會產生嘅同一份。

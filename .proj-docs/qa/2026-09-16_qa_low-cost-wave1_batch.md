@@ -528,6 +528,228 @@ hourly: 17,984 rows
 
 ---
 
+## Section F — W-024 裁決（額外驗證請求，超出本批 5 張票範圍）
+
+> Coordinator 額外委託：因為我已經重建咗真實 export，順手裁決 Round 2 review 嘅 **W-024**
+> 同 followup lane 之間嘅爭議。本節**唔影響**上面五張票嘅 verdict。
+>
+> 爭議點：`frontend/src/lib/downsample.ts:5-6` 同 `downsample.test.ts:11-12` 寫嘅
+> 「45,117 個組合入面 10,189 個（22.6%）」。Reviewer 掃連續 range 重現唔到，
+> 判定「唔係範圍定義差異，係量錯咗」；followup lane 反駁話原始定義係
+> **真實 export 入面真正出現過嗰批相異 track length**，唔係連續 range。
+
+### F.1 裁決結論
+
+| 爭議 | 裁決 |
+|---|---|
+| **「45,117 / 10,189 / 22.6% 量錯咗」** | ❌ **Reviewer 判斷錯誤 —— false positive**。三個數字喺原始定義之下**逐個精確重現** |
+| **「22.6% 係達唔到嘅」** | ❌ **範圍講漏咗**。呢句只喺**連續 range** 之內成立；喺 export 真實長度集之上量到 **22.584%** |
+| **「呢個唔係範圍定義差異」** | ❌ **錯**。我重現咗**兩邊**嘅全部數字，兩個 model **完全一致**，分別**純粹**喺枚舉邊啲長度 |
+| **「the export can produce」措辭同 A3 矛盾」** | ✅ **成立**，但係 🟢 級嘅**措辭歧義**，唔係 🟡 級嘅數字錯誤 |
+
+**整體：W-024 應由 🟡 Warning 降為 🟢 Suggestion，範圍由「數字量錯」收窄為「註釋欠缺範圍定義」。**
+Followup lane 講得啱。
+
+### F.2 點 1 — 123 個相異長度、範圍 250..600
+
+用我 §A.4 重建嗰個 `run365.db`（134,041 track rows），行 coordinator 指定嘅 query：
+
+```sql
+SELECT COUNT(DISTINCT cnt) FROM (SELECT COUNT(*) AS cnt FROM track_points GROUP BY activity_id)
+```
+
+```
+  COUNT(DISTINCT cnt) = 123
+  activities with a track = 365   | total track rows = 134,041
+  distinct lengths        = 123   | range = 250 .. 600
+  sum(distinct lengths)   = 45,240  ->  sum(L-1) = 45,117
+  first 10: [250, 261, 266, 270, 271, 273, 280, 281, 299, 302]
+  last 10 : [427, 431, 434, 443, 448, 457, 466, 496, 593, 600]
+```
+
+✅ **123 同 250..600 兩項都準確。**
+
+而且 **45,117 直接由算術跌出嚟**：123 個長度、每個配 `points = 1..L-1`，
+即 `Σ(L-1) = Σ L − 123 = 45,240 − 123 = 45,117`。呢個唔係湊出嚟嘅數。
+
+### F.3 點 2 — 45,117 組合、10,189 分歧
+
+枚舉嗰 123 個長度 × `points = 1..L-1`，比較 Python `round()`（half-to-even）
+同改前 TS `Math.round()`（half-up）嘅 index list（`total <= points` 唔經 sampler，計作不分歧）：
+
+```
+=== THE LANE'S DEFINITION: the distinct track lengths the real export actually holds ===
+  distinct lengths = 123   range = 250..600
+  combinations = 45,117   divergent = 10,189   ratio = 22.584%  -> rounds to 22.6%
+  claim in downsample.test.ts: 45,117 combinations / 10,189 divergent
+  claim in downsample.ts     : 22.6%
+  MATCH: combos=True  divergent=True  pct=True
+```
+
+✅ **三個數字全中**，一個都冇差。
+
+Sanity check —— CUI-0021 引嘅 worked example：
+
+```
+(250, 3): Python [0, 124, 249]   JS [0, 125, 249]      ticket 寫 Python 124 / JS 125  ✅
+```
+
+### F.4 我同時重現咗 reviewer 成張表（呢個先係決定性嘅部分）
+
+如果我淨係重現到 lane 嘅數字，仲可以話係兩個 model 唔同。所以我用**同一個 probe**
+去跑 reviewer 嘅連續 range 定義：
+
+| cap（`2 <= total <= cap`）| 我量到組合 | 我量到分歧 | 我量到比率 | Reviewer 寫 | |
+|---|---|---|---|---|---|
+| 250 | 31,125 | 6,634 | 21.31% | 31,125 / 6,634 / 21.31% | ✅ |
+| 300 | 44,850 | 9,652 | 21.52% | 44,850 / 9,652 / 21.52% | ✅ |
+| 309 | 47,586 | 10,221 | 21.48% | 47,586 / 10,221 / 21.48% | ✅ |
+| 600 | 179,700 | 38,530 | 21.44% | 179,700 / 38,530 / 21.44% | ✅ |
+| 1000 | 499,500 | 105,181 | 21.06% | 499,500 / 105,181 / 21.06% | ✅ |
+
+連 reviewer 嗰句關鍵論據都重現到：
+
+```
+highest ratio over every contiguous cap 2..1000: 21.91% at cap = 103
+reviewer wrote: 21.91% at cap = 103   ->  MATCH: True
+```
+
+**呢個先係決定性嘅：同一個 probe、同一份代碼、同一個 divergence 定義，
+一次過重現咗爭議雙方嘅全部數字。** 即係話 reviewer 嘅算術**完全冇錯**，
+lane 嘅算術亦**完全冇錯** —— 兩邊 model 一致，**分別只喺枚舉邊啲長度**。
+
+所以 reviewer 寫嘅「所以呢個數字唔係範圍定義差異，係量錯咗」呢句推論唔成立：
+**佢正正就係範圍定義差異。** Reviewer 試過「`total` cap 由 2 掃到 1000」，
+但冇試過「唔係連續 range，而係 export 真正持有嗰 123 個長度」——
+而嗰個先係原始 QA §8「掃過真實 export **所有** `(track_length, points)` 組合」嘅意思。
+
+### F.5 Reviewer 第二半（措辭矛盾）仍然成立，但要降級
+
+Reviewer 指「the pairs **the export can produce**」同 A3「export 造得出嘅 track 全部原樣回傳、
+分歧 pair 係 0」互相矛盾。我實測咗現行操作點：
+
+```
+limit=600 (ActivityView.TRACK_POINTS / DEFAULT_TRACK_POINTS / export point_limit):
+    0/365 tracks even reach the sampler;  divergent activities = 0
+```
+
+✅ **Reviewer 呢點啱**：今日 `TRACK_POINTS = 600` 而 export `point_limit = 600`，
+所有已存 track ≤ 600，根本入唔到 rounding，**實際分歧 = 0**。
+
+所以 “the export can produce” 呢句**真係有歧義**：
+
+- 讀成「export 嘅長度可以砌出嘅 (length, points) pair」→ 45,117 個，22.6% 分歧（lane 嘅讀法，數字啱）
+- 讀成「export 實際會產生嘅 pair」→ 0 個分歧（reviewer 嘅讀法，亦講得通）
+
+**呢個歧義正正就係成件事嘅根因。** 如果註釋原本寫咗
+「the 123 distinct track lengths the export holds, each paired with `points = 1..L-1`」，
+reviewer 第一次就重現到，W-024 根本唔會開。
+
+**但呢個係 🟢 措辭問題，唔係 🟡 數字錯誤** —— 兩者嘅修法完全唔同（見 F.6）。
+
+### F.6 對 reviewer 方案 A 嘅異議
+
+Reviewer 方案 A 建議換成「105,181 of the 499,500 pairs with `2 <= length <= 1000` (21.1%)」。
+**我唔同意，建議唔好咁做**，兩個理由：
+
+1. **會用一個無關嘅數字換走一個貼題嘅數字。** `2 <= length <= 1000` 係一個
+   **虛構**嘅長度集：export 嘅 track 長度實測只喺 **250..600**，
+   999 個長度入面有 876 個係呢個 codebase 永遠見唔到嘅。
+   而 45,117 嗰組講緊嘅係**呢個 export 真係持有嘅嘢**。
+2. **佢冇解決真正嘅缺陷。** 缺陷係「範圍定義冇寫出嚟」，唔係「揀錯範圍」。
+   換一個範圍但照樣唔寫清楚點枚舉，下一個人一樣重現唔到。
+
+**建議做法（即 lane 嘅方向）**：保留 45,117 / 10,189 / 22.6%，
+補上範圍定義，同時拆走 “the export can produce” 嘅歧義。例如：
+
+> 10,189 of the 45,117 `(length, points)` pairs formed by the 123 distinct track
+> lengths this export holds (250..600) and `points = 1..length-1` — 22.6%.
+> None is reachable today: `TRACK_POINTS` is 600 and no stored track exceeds it,
+> so the sampler returns every track whole.
+
+### F.7 順帶實測：「今日不可達」係幾脆？
+
+CUI-0021 同 A3 都講「今日零影響」。我量咗呢個「今日」有幾窄：
+
+```
+limit=600:   0/365 tracks reach the sampler   -> divergent = 0
+limit=150: 365/365 tracks reach the sampler   -> divergent = 0   <- 睇落安全
+limit=100: 365/365 tracks reach the sampler   -> divergent = 0
+```
+
+⚠️ **`limit=150` 零分歧係算術巧合，唔係一般性質。** `step = (L-1)/149`，
+而 **149 係質數**，所以 `i*step` 喺 `i < 150` 之內幾乎冚唪唥落唔到 `.5`。
+掃勻 `limit = 2..600`：
+
+```
+limits with ZERO divergence: 359 of 598
+limits where the MOST of the 123 export lengths diverge:
+    limit=385:  37/ 42 lengths diverge (88%)
+    limit=193: 104/123 lengths diverge (85%)
+    limit= 97: 103/123 lengths diverge (84%)
+    limit=241: 101/123 lengths diverge (82%)
+```
+
+即係話 `TRACK_POINTS` 一旦由 600 調去 97 / 193 / 241 呢類值，
+**123 個長度入面有超過 80% 即刻分歧**。呢個佐證咗 `roundHalfToEven` 呢個修復
+**唔係為咗一個理論風險** —— 佢守住嘅係一個「改一個常數就即刻踩到」嘅門檻。
+（`limit=150` 剛好安全呢件事，本身就係一個值得寫低嘅陷阱：
+用佢做 smoke test 會出假綠。）
+
+### F.8 建議後續
+
+| 項目 | 建議 |
+|---|---|
+| Round 2 review 嘅 W-024 | **記低更正**：由 🟡 降 🟢，理由係「範圍定義缺失」而非「數字錯誤」。**我建議唔好改嗰份有日期嘅 review 報告本身**（同 reviewer 自己喺 S-041 用嘅文件倫理一致：唔篡改當日紀錄），改為喺 `.proj-docs/tickets.md` 加更正條目 —— 已加 |
+| Followup lane 兩條 branch | ✅ **裁決支持，而且我已核實過實際內容**（見 F.9）。`fix/frontend/W-024_reproducible-divergence-figure`（`58e1086`）**可以 merge** |
+| 新 ticket | **唔需要**。數字冇錯，措辭問題已有 lane 處理中 |
+| CUI-0021 | 佢 line 27 嗰組數字**係啱嘅**，唔使改；但同樣建議補一句範圍定義 |
+
+
+### F.9 補充核實（報告 commit 之後追加）
+
+寫完 F.1–F.8 之後，主 checkout 已經推進（我份報告同兩張 ticket 已 commit 為 `ec71634`，
+其後 S-042 / S-043 / CUI-0015 / CUI-0025 / CUI-0021 / CUI-0004 陸續落地）。
+兩件事要交代：
+
+**(a) 我嘅量度仍然有效。** `git diff --stat a0de0cd..HEAD -- src/export/ src/dashboard/ src/activities/ src/common/`
+**為空** —— export pipeline 由我量嗰刻到而家零改動，所以 §F.2–F.4 用嘅
+`run365.db`（134,041 rows / 123 個長度）仍然係現時 HEAD 會產生嘅同一份。
+（期間變過嘅 `src/` 只有 `api/schema.py` + `api/service.py`，屬 API 讀取層，唔寫 export。）
+
+**(b) Lane 嘅修復文字我逐句核實過。** `58e1086` **仲未 merge**（仍喺
+`fix/frontend/W-024_reproducible-divergence-figure`），但我讀咗佢個 diff。
+佢做嘅嘢同我喺 F.5 / F.6 嘅建議**完全一致**：保留 45,117 / 10,189 / 22.6%、
+補上範圍定義、而且**確實拆走咗** “the export can produce”，改成
+“the pairs the sampler can be *asked* for”，並明文寫低「none of those 10,189 pairs
+is reachable today」。即係話 F.8 原本嗰句「請確認佢有冇修埋第二半」——**確認咗，有修。**
+
+新文字入面每個可核實嘅數字，我都對住自己重建嘅 export 行過一次：
+
+```
+"123 distinct track lengths between 250 and 600"  -> 123, 250..600                    OK
+"45,117 pairs ... 10,189 of them (22.6%)"         -> 45,117 / 10,189 / 22.6%          OK
+"every length in 2..1000 ... gives 21.1%"         -> 499,500 / 105,181 / 21.1%        OK
+"every real call is n <= limit" (TRACK_POINTS=600)-> 0/365 tracks reach the sampler   OK
+"The export caps a track at 600 rows"             -> longest stored track = 600       OK
+```
+
+**六項全中。** 佢亦已經將範圍定義補返落 `CUI-0021.md`，
+連「2..1000 任何一個 cap 最高只到 21.91%」呢句（即 reviewer 原本嘅論據）都保留低做紀錄 ——
+處理得比單純改個數字好，因為佢令下一個人**唔使**重新發現呢場爭議。
+
+**唯一一個雞蛋裡挑骨頭（🟢，唔阻 merge）**：新註釋寫
+「`SELECT COUNT(*) FROM track_points GROUP BY activity_id` yields 123 distinct track lengths」——
+嚴格嚟講嗰句 query 出 365 行，要 `COUNT(DISTINCT …)` 包一層先直接出 123。
+原意讀得明（「佢結果入面嘅相異值有 123 個」），但如果順手想收緊，
+寫成 `SELECT COUNT(DISTINCT cnt) FROM (SELECT COUNT(*) AS cnt FROM track_points GROUP BY activity_id)`
+就可以複製貼上直接跑。**唔值得為佢單開一個 commit。**
+
+### Section F verdict：**W-024 核心 finding = false positive**；次要嘅措辭 finding 成立但應降為 🟢。
+
+
+---
+
 ## 跨 fix 互動評估（batch 模式必做）
 
 | 檢查 | 方法 | 結果 |
@@ -720,5 +942,5 @@ tickets_pass: CUI-0006, CUI-0017, CUI-0003, CUI-0014
 tickets_blocked: CUI-0020 — 最後一個 DoD（同 CUI-0019 一齊重量）未達成，CUI-0019 仍喺 pending 未郁 batch predicate；建議留喺 .tickets/in-progress/0001-0200/ 並標 blocked，唔好搬去 on-hold/（其餘 DoD 已全數完成）
 new_tickets: CUI-0022（activity_time_range 係 dead code 兼 common/time.py 唯一未覆蓋代碼）, CUI-0023（CUI-0004 引嘅 coverage 依據已過期：service.py:150 而家有覆蓋，唯一未覆蓋嘅係 L257）
 next_action: invoke-devops
-notes: 5 張票行為驗證全部通過；CUI-0006 由產出物層面獨立確認零分歧（1,087 record + 328,752 track point byte-identical，另有 negative control 證明 probe 會捉到差異），export→SQLite→static JSON→GraphQL 全鏈只差 generated_at；AST 比對確認 41 個 src 檔案只有 common/time.py 有可執行改動；CUI-0020 嘅 production 數字第一次被獨立重量（134,041 track rows 對得上，16x→15.6x、38x→37x）；hard gates 全綠 363 passed / coverage 94.71%；新開兩張 🔵 Low ticket 皆不阻塞。
+notes: 5 張票行為驗證全部通過；CUI-0006 由產出物層面獨立確認零分歧（1,087 record + 328,752 track point byte-identical，另有 negative control 證明 probe 會捉到差異），export→SQLite→static JSON→GraphQL 全鏈只差 generated_at；AST 比對確認 41 個 src 檔案只有 common/time.py 有可執行改動；CUI-0020 嘅 production 數字第一次被獨立重量（134,041 track rows 對得上，16x→15.6x、38x→37x）；hard gates 全綠 363 passed / coverage 94.71%；新開兩張 🔵 Low ticket 皆不阻塞。【額外委託】**W-024 核心 finding 裁定為 false positive**：我用同一個 probe 一次過重現咗爭議雙方全部數字（lane 嘅 45,117 / 10,189 / 22.584%→22.6% 逐個精確命中，reviewer 成張表五行連同 21.91%@cap=103 亦全部命中），證明兩邊 model 一致、分別純粹喺枚舉邊啲長度；export 實測 123 個相異 track length（250..600），Σ(L-1)=45,117 直接由算術跌出。Reviewer「唔係範圍定義差異、係量錯咗」呢句推論不成立，建議 W-024 由 🟡 降 🟢、範圍收窄為「註釋欠缺範圍定義」；但 reviewer 第二半（「the export can produce」同 A3 矛盾）成立，修復唔可以只做一半。反對 reviewer 方案 A（用 2..1000 嘅虛構長度集換走貼題數字）。
 ```
