@@ -687,25 +687,35 @@ see why a wide fan-out is refused without having to trigger the error first.
 
 LIST_ROWS_NOTE = (
     f" One request may open at most {MAX_LIST_ROWS_PER_REQUEST} rows of pages in total, "
-    "counted across every list field in it and charged on `limit` as asked for rather than "
-    "on the rows a page turns out to hold."
+    "counted across every field in it that opens one."
 )
 """Sentence appended to every field description that spends the list row budget.
 
 Part of those fields' contract, so a client reading the SDL can see why a wide
 fan-out is refused without having to trigger the error first -- the same reason
 :data:`TRACK_DESCRIPTION` states both track budgets.
+
+Says only what is true of *every* field that pays, which is why it stops where
+it does. It used to end "charged on ``limit`` as asked for", and ``year`` pays
+this budget without having a ``limit`` to be charged on -- it is charged one
+:data:`DEFAULT_PAGE_SIZE` page for a read the calendar sizes, not the client --
+so that clause sent ``year``'s reader looking through the SDL for an argument
+that is not in it (S-053). The clause now lives in :data:`PAGE_WINDOW_NOTE`,
+beside the argument it is about.
 """
 
 PAGE_WINDOW_NOTE = (
     f" The window is `limit` (1-{MAX_PAGE_SIZE}) rows from `offset` (0 or more); "
-    "either side of that range is refused rather than clamped."
+    "either side of that range is refused rather than clamped, and the budget above is "
+    "charged on `limit` as asked for rather than on the rows a page turns out to hold."
 )
 """Sentence appended to every field that takes a ``limit``/``offset`` page window.
 
 Separate from :data:`LIST_ROWS_NOTE` because the two do not cover the same
 fields: ``year`` spends the row budget without taking a window, so it carries
-that note and not this one (S-053).
+that note and not this one (S-053). The four list fields carry both, in that
+order, so the budget is stated before the sentence that says what it is charged
+on.
 
 :data:`MAX_PAGE_SIZE` otherwise lived only in a Python docstring and the text of
 a runtime error, which a client reading the SDL never sees until it has already

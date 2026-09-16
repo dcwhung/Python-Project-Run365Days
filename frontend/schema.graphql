@@ -77,7 +77,7 @@ type Query {
   meta: Meta!
 
   """
-  Runs in start order, optionally filtered (dates inclusive). One request may open at most 4000 rows of pages in total, counted across every list field in it and charged on `limit` as asked for rather than on the rows a page turns out to hold. The window is `limit` (1-1000) rows from `offset` (0 or more); either side of that range is refused rather than clamped.
+  Runs in start order, optionally filtered (dates inclusive). One request may open at most 4000 rows of pages in total, counted across every field in it that opens one. The window is `limit` (1-1000) rows from `offset` (0 or more); either side of that range is refused rather than clamped, and the budget above is charged on `limit` as asked for rather than on the rows a page turns out to hold.
   """
   activities(fromDate: Date = null, toDate: Date = null, minKm: Float = null, hasGps: Boolean = null, limit: Int! = 500, offset: Int! = 0): [Activity!]!
 
@@ -90,7 +90,7 @@ type Query {
   activity(id: ID!): Activity
 
   """
-  Daily weigh-ins (dates inclusive). One request may open at most 4000 rows of pages in total, counted across every list field in it and charged on `limit` as asked for rather than on the rows a page turns out to hold. The window is `limit` (1-1000) rows from `offset` (0 or more); either side of that range is refused rather than clamped.
+  Daily weigh-ins (dates inclusive). One request may open at most 4000 rows of pages in total, counted across every field in it that opens one. The window is `limit` (1-1000) rows from `offset` (0 or more); either side of that range is refused rather than clamped, and the budget above is charged on `limit` as asked for rather than on the rows a page turns out to hold.
   """
   weight(fromDate: Date = null, toDate: Date = null, limit: Int! = 500, offset: Int! = 0): [WeightEntry!]!
 
@@ -100,7 +100,7 @@ type Query {
   weightCount(fromDate: Date = null, toDate: Date = null): Int!
 
   """
-  HKO daily weather (dates inclusive). One request may open at most 4000 rows of pages in total, counted across every list field in it and charged on `limit` as asked for rather than on the rows a page turns out to hold. The window is `limit` (1-1000) rows from `offset` (0 or more); either side of that range is refused rather than clamped.
+  HKO daily weather (dates inclusive). One request may open at most 4000 rows of pages in total, counted across every field in it that opens one. The window is `limit` (1-1000) rows from `offset` (0 or more); either side of that range is refused rather than clamped, and the budget above is charged on `limit` as asked for rather than on the rows a page turns out to hold.
   """
   weather(fromDate: Date = null, toDate: Date = null, limit: Int! = 500, offset: Int! = 0): [DailyWeather!]!
 
@@ -110,7 +110,7 @@ type Query {
   weatherCount(fromDate: Date = null, toDate: Date = null): Int!
 
   """
-  HKO warnings and signals (dates inclusive). One request may open at most 4000 rows of pages in total, counted across every list field in it and charged on `limit` as asked for rather than on the rows a page turns out to hold. The window is `limit` (1-1000) rows from `offset` (0 or more); either side of that range is refused rather than clamped.
+  HKO warnings and signals (dates inclusive). One request may open at most 4000 rows of pages in total, counted across every field in it that opens one. The window is `limit` (1-1000) rows from `offset` (0 or more); either side of that range is refused rather than clamped, and the budget above is charged on `limit` as asked for rather than on the rows a page turns out to hold.
   """
   warnings(fromDate: Date = null, toDate: Date = null, limit: Int! = 500, offset: Int! = 0): [WeatherWarning!]!
 
@@ -120,7 +120,7 @@ type Query {
   warningsCount(fromDate: Date = null, toDate: Date = null): Int!
 
   """
-  Aggregates for the exported year (or a given year). Reads a whole year of runs, so it spends one default page (500 rows) of the same budget the list fields spend. One request may open at most 4000 rows of pages in total, counted across every list field in it and charged on `limit` as asked for rather than on the rows a page turns out to hold.
+  Aggregates for the exported year (or a given year). Reads a whole year of runs, so it spends one default page (500 rows) of the same budget the list fields spend. One request may open at most 4000 rows of pages in total, counted across every field in it that opens one.
   """
   year(year: Int = null): YearSummary!
 }

@@ -466,6 +466,28 @@ def test_the_sdl_states_the_range_limit_must_fall_in(field):
     )
 
 
+def test_the_year_description_does_not_mention_a_limit_it_has_no_argument_for():
+    # S-053. `year` spends the same row budget as the list fields, so it carries
+    # the budget sentence -- but it takes no `limit`, and a sentence saying the
+    # charge is "on `limit` as asked for" sends its reader looking for an
+    # argument that is not there.
+    sdl = build_schema_from_sdl(schema.as_str())
+    year = sdl.query_type.fields["year"]
+    assert "limit" not in year.args, "this test is stale: `year` grew a limit argument"
+
+    assert "`limit`" not in (year.description or ""), (
+        "`year` has no `limit` argument, so its description must not explain a charge "
+        "in terms of one"
+    )
+
+
+@pytest.mark.parametrize("field", LIST_FIELDS + ("year",))
+def test_every_field_that_spends_the_row_budget_says_so(field):
+    # The half of S-053 that must survive splitting the note in two: `year`
+    # loses the `limit` sentence but keeps the shared budget one.
+    assert str(MAX_LIST_ROWS_PER_REQUEST) in _field_descriptions()[field]
+
+
 # ── AU-001: query depth and token limits ───────────────────────────────────
 def test_deepest_client_query_is_within_the_depth_limit(client):
     assert gql(client, DEEPEST_CLIENT_QUERY)["year"] is not None
