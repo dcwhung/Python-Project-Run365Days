@@ -11,7 +11,15 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
-from graphql import GraphQLList, GraphQLNonNull, GraphQLObjectType, GraphQLSyntaxError, parse
+from graphql import (
+    GraphQLInterfaceType,
+    GraphQLList,
+    GraphQLNonNull,
+    GraphQLObjectType,
+    GraphQLSyntaxError,
+    GraphQLUnionType,
+    parse,
+)
 from graphql import build_schema as build_schema_from_sdl
 from run365days.api import db, service
 from run365days.api.app import GRAPHQL_PATH, HEALTH_PATH, create_app
@@ -447,6 +455,11 @@ def _deepest_selection(gql_type, seen=()):
     the ``max_depth`` the same document needs is one less than this returns.
     ``seen`` carries the types already on this path: the graph is acyclic
     today, and this is what keeps the walk finite on the day it stops being.
+
+    Only object types are walked. An interface or a union would be counted as
+    a leaf, so anything nested under one would be missed and the depth
+    *under-reported* -- which is why the caller asserts the schema has none
+    before trusting what this returns.
     """
     if not isinstance(gql_type, GraphQLObjectType) or gql_type.name in seen:
         return 0
@@ -485,6 +498,17 @@ def test_the_type_graph_stays_one_level_below_the_depth_limit():
     # one and that silently becomes "fires on the deepest legal document", which
     # is a change worth noticing rather than discovering from a client. This is
     # what notices it.
+    sdl_types = build_schema_from_sdl(schema.as_str()).type_map.values()
+    assert not [
+        t.name for t in sdl_types if isinstance(t, GraphQLInterfaceType | GraphQLUnionType)
+    ], (
+        "the SDL grew an abstract type; _deepest_selection only walks object types and "
+        "counts an interface or union as a leaf, so it now under-reports depth and this "
+        "guard would stay green while MAX_QUERY_DEPTH quietly becomes able to fire. "
+        "Teach _deepest_selection to walk an interface's fields and a union's possible "
+        "types before trusting the number below"
+    )
+
     root = build_schema_from_sdl(schema.as_str()).query_type
     reachable = _deepest_selection(root) - 1
 
