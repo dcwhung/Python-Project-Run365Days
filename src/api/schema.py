@@ -101,24 +101,25 @@ Measured through the Flask client against the ``year_db`` fixture in
 track -- 600 track rows in the database, not 365 x 600. Statement counts do
 not depend on that; the wall-clock readings below do, and are one machine's
 reading rather than a bound. The real export holds 134,041 track rows, 223x
-what this fixture holds, and since AU-050 the batch read is the one path here
-whose cost follows that total -- so a fixture reading of a *wide* batch does
-not carry to production, while a reading of anything else roughly does. QA
-measured both scales on 2026-09-15 (CUI-0020) and every figure below names the
-scale it came from; none of them is asserted, so none of them goes red on
-its own. They are quoted to one significant figure on purpose: an earlier
-revision wrote two of them as two-figure intervals (``0.07-0.08``,
-``0.17-0.21``) and both were narrower than the same machine produced on a
-re-run, which reads as a measured bound when it is not one (S-033). If a
-figure here ever needs to be tight enough to matter, it needs an assertion,
-and a wall time in CI buys a flaky test rather than a guarantee:
+what this fixture holds -- 134,041 / 600 is 223.4, rounded down here and up
+to 224x in QA's 2026-09-15 batch report -- and since AU-050 the batch read is
+the one path here whose cost follows that total, so a fixture reading of a
+*wide* batch does not carry to production, while a reading of anything else
+roughly does. QA measured both scales on 2026-09-15 (CUI-0020) and every
+figure below names the scale it came from; none of them is asserted, so none
+of them goes red on its own. They are quoted to one significant figure on
+purpose: an earlier revision wrote two of them as two-figure intervals
+(``0.07-0.08``, ``0.17-0.21``) and both were narrower than the same machine
+produced on a re-run, which reads as a measured bound when it is not one
+(S-033). If a figure here ever needs to be tight enough to matter, it needs an
+assertion, and a wall time in CI buys a flaky test rather than a guarantee:
 
 * The shortest way to saturate this cap is one list field -- not the only
   way. ``activities(limit: 64) { track(points: 1) }`` is 19 tokens and issues
   4 statements (2 for the list, 2 for the one batch its 64 tracks share) in
-  ~0.01 s on the fixture but ~0.2 s on the export (10.4 ms and 165.6 ms) --
-  the 16x above, and the only reading here that moves with the export's size
-  at all, since this is the one shape whose batch is wide. ``limit: 65``
+  ~0.01 s on the fixture but ~0.2 s on the export (10.4 ms and 165.6 ms, a
+  16x gap), and the only reading here that moves with the export's size at
+  all, since this is the one shape whose batch is wide. ``limit: 65``
   issues the same 4 before refusing the 65th -- the cap holds on a refused
   request, which is the point of charging before the SQL -- in ~0.01 s on the
   fixture, unmeasured on the export and bounded there by the served case
