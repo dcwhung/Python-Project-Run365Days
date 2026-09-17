@@ -29,7 +29,7 @@ on:
         required: true
         type: string
       release:
-        description: "Also create a GitHub Release with notes from docs/CHANGELOG.md"
+        description: "Also create a GitHub Release with notes from docs/CHANGELOG.md (ignored when notes_only is true)"
         required: false
         default: true
         type: boolean
