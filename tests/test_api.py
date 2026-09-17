@@ -1662,7 +1662,26 @@ def test_a_budget_refusal_is_not_logged_as_a_server_fault(year_client, caplog, d
     # The constant is imported rather than spelled out so this test follows the
     # decision, and bounded here so it cannot follow it back to where it began:
     # REFUSAL_LOG_LEVEL = logging.ERROR would satisfy the line above on its own.
-    assert REFUSAL_LOG_LEVEL < logging.ERROR, "a refusal logged at ERROR is the state being fixed"
+    #
+    # Bounded against WARNING rather than ERROR (CUI-0038). The property
+    # CUI-0029 sold is not "quieter than a fault", it is "emitted by nothing at
+    # all under the configuration Vercel runs", and WARNING is the threshold
+    # that decides that -- so `< logging.ERROR` left the WARNING mutant alive.
+    # Measured on this branch, in-process, with the mutant's own level read
+    # back as an oracle: at WARNING one bounds refusal writes 103 bytes to
+    # stderr and one budget refusal 341, where INFO writes 0 for both, and all
+    # 432 tests stayed green.
+    assert REFUSAL_LOG_LEVEL < logging.WARNING, (
+        "a refusal at WARNING or above is emitted by a deployment that configures nothing"
+    )
+    # The premise of the line above, asserted rather than assumed: WARNING is
+    # the threshold only because `logging.lastResort` -- the handler a process
+    # that has configured nothing falls back to -- carries that level. If
+    # CPython ever moves it, the reasoning moves with it and this says so
+    # rather than going quietly wrong.
+    assert logging.lastResort.level == logging.WARNING, (
+        "the configureless threshold is read off `logging` rather than restated here"
+    )
 
 
 @pytest.mark.parametrize(("document", "path"), UNSEEDED_DOCUMENTS)
@@ -1842,6 +1861,84 @@ def test_an_int_coercion_failure_is_not_reclassified_as_a_client_refusal(
     records = _strawberry_records(caplog)
     assert records, "a coercion failure must not go unlogged"
     assert all(record.levelno == logging.ERROR for record in records)
+
+
+# ── CUI-0038: the level's promise is silence, so silence is what is measured ─
+CONFIGURELESS_REFUSALS = REFUSED_DOCUMENTS + tuple(
+    pytest.param(param.values[0], id=param.id) for param in BOUNDS_REFUSED_DOCUMENTS
+)
+"""Every refusal a client can earn, as a bare document.
+
+Both kinds, because one constant and one ``isinstance`` decide the whole set:
+a regression in either puts all of them back on stderr. The bounds half is
+re-wrapped rather than re-spelled so the two lists cannot drift -- its params
+carry an argument name these tests have no use for.
+"""
+
+
+def _unconfigured_logging(monkeypatch):
+    """Put ``logging`` back into the state a process that configures nothing starts in.
+
+    pytest configures a great deal -- a capturing handler on the root logger,
+    levels raised and lowered around each test -- and every bit of it makes
+    records visible that a Vercel function would never emit. Stripping the
+    chain the execution logger propagates along leaves ``logging.lastResort``
+    as the only thing that can write, which is the condition CUI-0029 measured
+    its zero under and the only condition :data:`REFUSAL_LOG_LEVEL` decides
+    anything in.
+
+    Root keeps ``WARNING`` because that is its own default, not because this
+    test wants it: the level under test has to be compared against the real
+    default rather than against one chosen here.
+    """
+    for name in ("strawberry.execution", "strawberry", ""):
+        logger = logging.getLogger(name)
+        monkeypatch.setattr(logger, "handlers", [])
+        monkeypatch.setattr(logger, "disabled", False)
+        monkeypatch.setattr(logger, "propagate", True)
+        monkeypatch.setattr(logger, "level", logging.WARNING if name == "" else logging.NOTSET)
+
+
+@pytest.mark.parametrize("document", CONFIGURELESS_REFUSALS)
+def test_a_refusal_writes_nothing_where_no_logging_is_configured(
+    year_client, capfd, monkeypatch, document
+):
+    # The property itself, rather than an inequality that restates the
+    # constant. CUI-0029's headline number is "0 bytes on a deployment that
+    # configures nothing", and nothing asserted it: the suite only knew the
+    # refusal was quieter than a fault, which `logging.WARNING` also satisfies
+    # while writing every refusal out (CUI-0038).
+    #
+    # Bytes on fd 2, not a record on a handler, because the handler is exactly
+    # what is absent in the case being modelled.
+    _unconfigured_logging(monkeypatch)
+    capfd.readouterr()
+
+    assert gql_errors(year_client, document)
+
+    assert capfd.readouterr().err == "", (
+        "a refusal reached stderr on a deployment that configured no logging"
+    )
+
+
+def test_a_fault_still_writes_where_no_logging_is_configured(year_client, capfd, monkeypatch):
+    # The control, and the reason the test above is not vacuous: strip enough
+    # of `logging` and everything writes nothing, which would make silence
+    # prove the harness rather than the level. A fault goes out at ERROR, over
+    # `lastResort`'s threshold, so it still lands -- traceback and all, which
+    # is the half CUI-0029 deliberately kept.
+    def explode(_session):
+        raise _ResolverFaultError("the database went away")
+
+    monkeypatch.setattr(service, "meta", explode)
+    _unconfigured_logging(monkeypatch)
+    capfd.readouterr()
+
+    assert gql_errors(year_client, "{ year { year } }")
+
+    err = capfd.readouterr().err
+    assert "_ResolverFaultError" in err, "a server fault must survive a configureless deployment"
+    assert "Traceback" in err, "and it must keep the traceback that is all an operator gets"
 
 
 # ── AU-050: one statement per batch of tracks, not two per track ───────────
