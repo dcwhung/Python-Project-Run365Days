@@ -592,11 +592,26 @@ ARGUMENT_OUT_OF_RANGE_CODE = "ARGUMENT_OUT_OF_RANGE"
 
 Remedy: change the value. **Not** worth retrying unchanged -- and that, not the
 argument's name, is the distinction a client acts on, which is why one code
-covers ``limit``, ``offset`` and ``points`` and both ends of each range. The
-field and the argument are already in ``path`` and ``locations``, which
-CUI-0037 made load-bearing, and the legal range is in the field's description,
-so splitting this three ways would publish a third copy of what the client can
-already read off the response and the schema.
+covers ``limit``, ``offset`` and ``points`` and both ends of each range.
+
+The *field* is already in ``path`` and ``locations``, which CUI-0037 made
+load-bearing, and the legal range is in the field's description. The *argument*
+is not, and an earlier draft of this paragraph claimed it was:
+:class:`ClientRefusalError` passes ``nodes=raw.field_nodes``, so ``locations``
+points at the field name and never at the argument. Measured, the two bounded
+arguments of one list field are indistinguishable on the wire --
+``{ activities(limit: 1000, offset: -1) { id } }`` and
+``{ activities(limit: -5, offset: 0) { id } }`` both come back with ``path``
+``["activities"]`` and ``locations`` line 1 column 3, the ``a`` of
+``activities``; only ``message`` differs.
+
+For ``track`` that costs nothing: ``points`` is its only argument, so ``path``
+already names the one thing that can be out of range. For the four list fields
+it is a real gap -- two bounded arguments, one refusal, and only the English
+says which. The gap is left open knowingly, because the remedy does not depend
+on the answer and the client knows what it sent. If one ever needs to branch on
+it, the fix is an ``extensions.argument`` key, not a third and fourth code
+(W-035).
 
 Four codes rather than two (one per exception class) or one (a flat
 "refused"): the split follows what the client must *change*, and the three
