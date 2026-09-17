@@ -31,11 +31,18 @@ function failed(error: Error): QueryStub {
 }
 
 /**
- * A `graphql-request` ClientError exactly as it arrives: `message` is the
+ * A `graphql-request` ClientError in the shape one arrives in: `message` is the
  * serialised response *and* request, so rendering it raw spills the whole
- * GraphQL document and its variables onto the page. Captured from a real run
- * against the Flask API — the real blob measured 1247 characters, and the
- * `ActivitiesQuery` this view sends really does carry these four variables.
+ * GraphQL document and its variables onto the page.
+ *
+ * Hand-built, not captured, and two measurements say so. The document below
+ * declares four variables and uses one, which `graphql-core` rejects against
+ * the real schema with three "Variable '$x' is never used" errors — so a real
+ * run would have been refused at validation and never reached the list row
+ * budget this fixture blames. And the blob it builds is 708 characters, not
+ * the 1247 the previous wording claimed. What *is* true, and is the part worth
+ * keeping, is that `ActivitiesQuery` in `src/data/api/queries.ts` really does
+ * carry these four variables (S-100, same family as S-074).
  */
 function budgetClientError(): Error {
   const errors = [{ message: BUDGET_MESSAGE, locations: [{ line: 7, column: 5 }], path: ["activities"] }];
@@ -66,7 +73,8 @@ beforeEach(() => {
 
 describe("ActivitiesView", () => {
   // Asserts on what the paragraph says, not on which helper produced it: that
-  // is what actually keeps the 1247-character blob off the page.
+  // is what actually keeps the serialised blob off the page. (It measures 708
+  // characters, not the 1247 this comment used to quote -- S-100.)
   it("should show only the server's sentence when the activities query fails with a ClientError", () => {
     wire(failed(budgetClientError()));
     renderView();

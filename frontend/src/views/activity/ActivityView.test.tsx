@@ -73,8 +73,17 @@ const TRACK_DOCUMENT =
 /**
  * A `graphql-request` ClientError as it actually arrives: `message` is the
  * serialised response *and* request, so rendering it raw leaks the whole
- * GraphQL document and variables onto the page. Captured from a real run
- * against the Flask API (activity 7213538827, TRACK_POINTS = 600).
+ * GraphQL document and variables onto the page.
+ *
+ * Hand-built to that shape, not captured. `TRACK_DOCUMENT` asks for one
+ * activity's one `track(points: 600)`, and measured against the real schema
+ * that document cannot be refused at all: 600 is inside the per-field range
+ * 1-1000, one `track` field is inside `MAX_TRACK_FIELDS_PER_REQUEST` (64), and
+ * 600 points is inside `MAX_TRACK_POINTS_PER_REQUEST` (10000). The "captured
+ * from a real run against the Flask API" this replaces described a response
+ * the server has never produced (S-100, same family as S-074). The `message`
+ * is the sentence `src/api/schema.py` builds, verbatim; the envelope is
+ * `graphql-request`'s `ClientError` shape.
  */
 function clientError(): QueryStub {
   // CUI-0018 (b) changed the left-hand side of this capture. `data` used to be
