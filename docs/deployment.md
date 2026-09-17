@@ -139,6 +139,17 @@ author can act on. Which threshold is in force is a policy fact rather than a
 job step, which is why it is written down here; the commands themselves, and
 the reasoning behind each threshold, are in `pages.yml` beside the steps.
 
+Both gates sit upstream of deployment. They run in `lint-test` and `frontend`,
+`build` needs both, and `deploy` needs `build`, so on `develop` -- the only
+branch that deploys, and one that deploys on every push -- an advisory
+published upstream and unrelated to anything in this repository can hold every
+deployment, a hotfix included. That is the accepted price of hard gates rather
+than advisory ones, and it is stated here so the trade reads as a decision
+already taken rather than one discovered during an incident. Decoupling the
+audits from the deployment path is open as CUI-0052; `continue-on-error` is
+not the answer, since it would leave the gate on the page while removing its
+only effect.
+
 The repository's `github-pages` environment must allow deployments from
 `develop` (Settings, Environments, Deployment branches). That rule lives
 in the repository settings, not in the workflow file, so it has to be
