@@ -1,3 +1,5 @@
-# Vercel installs this for the api/ Python function. The package itself
-# carries every runtime dependency, Flask and Strawberry included.
+# Vercel installs this for the api/ Python function. The package's core
+# dependencies are request-time only (Flask, SQLAlchemy, Strawberry); the
+# parsing stack lives in the `pipeline` extra, which the build installs
+# separately so it never reaches the function bundle.
 .
