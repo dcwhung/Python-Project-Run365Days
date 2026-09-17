@@ -476,6 +476,48 @@ def test_a_points_over_the_ceiling_is_capped_where_the_rows_are_read(varied_sess
     assert rows == service.track(varied_session, OVER_CAP_ID, MAX_TRACK_POINTS)
 
 
+@pytest.mark.parametrize("points", [-1, -5, -1000])
+def test_a_negative_points_is_refused_where_the_rows_are_read(varied_session, points):
+    # The same argument as the test above, run off the other end of the range
+    # (CUI-0040). `min(points, MAX_TRACK_POINTS)` returned a negative unchanged
+    # and `_even_positions` turns anything under 2 into the last row alone, so
+    # every negative came back as exactly one row. Measured against a
+    # 1250-row track before the fix: -1, -5 and -1000 all returned 1, which is
+    # what `points=1` returns, leaving a caller unable to tell a broken
+    # argument from a legitimate one.
+    #
+    # Refused rather than clamped, and the choice is argued in `tracks`'s own
+    # docstring because the two are not interchangeable here: clamping would
+    # have to clamp upward to MAX_TRACK_POINTS, since that is what falsy
+    # already means at this layer.
+    with pytest.raises(ValueError, match="points must not be negative"):
+        service.tracks(varied_session, [OVER_CAP_ID], points)
+
+
+@pytest.mark.parametrize("points", [None, 0, False])
+def test_a_falsy_points_still_means_the_ceiling_rather_than_a_refusal(varied_session, points):
+    # The boundary the refusal above must not cross. `0` and `None` mean "I did
+    # not ask", which this layer reads as the ceiling -- the reading CUI-0025
+    # settled and CUI-0033 (a) made binding on the answer as well as the ask.
+    # `False` is here because it is an `int` that is falsy and negative-adjacent
+    # in every naive check, and it has to land with `0` rather than with `-1`.
+    rows = service.tracks(varied_session, [OVER_CAP_ID], points)[OVER_CAP_ID]
+
+    assert len(rows) == MAX_TRACK_POINTS
+
+
+def test_a_negative_points_never_reaches_the_service_from_a_client(year_client):
+    # What must not move: the refusal above is for a caller inside this
+    # repository, and no client can drive it. `_track_points` refuses first and
+    # answers in its own words, which `checkPoints` in
+    # `frontend/src/data/static/source.ts` matches -- so the sentence a client
+    # reads is the same in both deployment modes, and it is not the service's.
+    message = gql_errors(year_client, '{ activity(id: "r0") { track(points: -5) { sec } } }')
+
+    assert f"points must be between 1 and {MAX_TRACK_POINTS}, got -5" in message
+    assert "must not be negative" not in message
+
+
 def test_an_omitted_points_still_returns_every_stored_row_under_the_ceiling(varied_session):
     # The other half of the decision: omitted still means "all of it". Today
     # every exported track is well under the ceiling, which is why capping is
