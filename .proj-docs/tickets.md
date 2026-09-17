@@ -90,7 +90,7 @@
 | **CUI-0044** | 🟡 Medium | Python 側依然冇依賴審計 gate —— `pip-audit` 從來冇入過 CI，而 Flask / Strawberry 係 core dependency，直接入 Vercel production runtime。CUI-0036 只做咗前端一半（user 當時明確只揀咗 `npm audit --omit=dev`）| ⏳ pending | `pending/` |
 | **CUI-0045** | 🟢 Low | `tests/test_api.py` 已經 **3,543 行 / 228 個測試**（票原寫 3,166/197，已漂）（實測 **3,543 行 / 228 個**）；Vercel entry（deploy shim，唔係 `src/api/` 一部分）嘅測試應該抽做 `tests/test_vercel_entry.py`。pre-existing；7 條測試純機械搬走，`GRAPHIQL_ENV` 因 W-008 仍在用而兩邊各自定義 | ✅ done | `completed/` |
 | **CUI-0046** | 🟢 Low | `ActivitiesView.test.tsx:13` 個 `BUDGET_MESSAGE` hardcode 咗 `4000`（= `MAX_LIST_ROWS_PER_REQUEST`）冇守衛 —— **S-101 同一個病嘅第二宗**。S-101 只授權咗 `10000` 嗰條，cleanup lane 守範圍冇郁佢 | ✅ done | `completed/` |
-| **CUI-0047** | 🟢 Low | `haversine_distance` 守到「非有限」但**守唔到「唔係座標」** —— `lat=400` 回 4447.8 km、`lat=lon=1e308` 回 `nan`，而 `pandas.sum()` 會靜靜跌走個 `nan` ⇒ CUI-0001/0008 要滅嗰個「距離報細咗」形狀由另一道門返咗嚟 | ⏳ pending | `pending/` |
+| **CUI-0047** | 🟢 Low | `haversine_distance` 守到「非有限」但**守唔到「唔係座標」** —— `lat=400` 回 4447.8 km、`lat=lon=1e308` 回 `nan`，而 `pandas.sum()` 會靜靜跌走個 `nan` ⇒ CUI-0001/0008 要滅嗰個「距離報細咗」形狀由另一道門返咗嚟 | ✅ done | `pending/` |
 | **CUI-0048** | 🟢 Low | `service.tracks` 個 negative guard 漏咗 `-0.0`（`-0.0 < 0` 係 `False`，而且 falsy ⇒ 回成條 track），`2.5` 掟未記錄嘅 `TypeError`。到唔到 client | ⏳ pending | `pending/` |
 | **CUI-0049** | 🟡 Medium | `pages.yml` 註釋寫嗰 14 條 dev 樹 advisory「tracked separately in CUI-0036」，但 CUI-0036 已搬 `completed/` ⇒ 冇咗 owner。要 bump `@graphql-codegen/*` + `vitest` 再剷走 `--omit=dev` | ⏳ pending | `pending/` |
 | **CUI-0050** | 🟢 Low | 四條 list field 嘅 `ARGUMENT_OUT_OF_RANGE` 分唔開 `limit` 定 `offset`（`path`/`locations`/`code` 三樣一樣，只有 message 唔同）⇒ client 照 SDL 講嘅「branch on the code」做唔到修正。W-035 方案 B 嘅承接票 | ⏳ pending | `pending/` |

@@ -106,3 +106,109 @@ class TestTotalTrackDistance:
         dist_total, num = total_track_distance([a, b, c])
         assert num == 2
         assert dist_total == pytest.approx(dist_ab + dist_bc, rel=1e-6)
+
+
+def _unguarded_haversine(origin, destination):
+    """Textbook haversine with no input screen at all -- the pre-CUI-0047 shape.
+
+    Kept as an independent oracle so the readings quoted in
+    ``TestHaversineRejectsImpossibleCoords`` and in ``geo.haversine_distance``'s
+    docstring stay bound to an assertion (W-017). It deliberately does not go
+    through ``haversine_distance``: the point is to record what the formula
+    answers for an input the guard now refuses, which the guarded function can
+    no longer be asked.
+    """
+    import numpy as np
+
+    lat1, lon1 = origin
+    lat2, lon2 = destination
+    phi1, phi2 = np.radians(lat1), np.radians(lat2)
+    delta_phi = np.radians(lat2 - lat1)
+    delta_lambda = np.radians(lon2 - lon1)
+    a = np.sin(delta_phi / 2) ** 2 + np.cos(phi1) * np.cos(phi2) * np.sin(delta_lambda / 2) ** 2
+    return 6371 * 2 * np.arctan2(np.sqrt(a), np.sqrt(1 - a))
+
+
+class TestHaversineRejectsImpossibleCoords:
+    """A finite number is not automatically a coordinate (CUI-0047)."""
+
+    @pytest.mark.parametrize(
+        ("origin", "destination"),
+        [
+            ((400.0, 0.0), (0.0, 0.0)),
+            ((91.0, 0.0), (0.0, 0.0)),
+            ((-90.0001, 0.0), (0.0, 0.0)),
+            ((0.0, 200.0), (0.0, 0.0)),
+            ((0.0, -180.0001), (0.0, 0.0)),
+            ((0.0, 0.0), (400.0, 0.0)),
+            ((0.0, 0.0), (0.0, 200.0)),
+            ((1e20, 1e20), (-1e20, -1e20)),
+            ((1e308, 1e308), (-1e308, -1e308)),
+        ],
+    )
+    def test_out_of_range_degrees_raise(self, origin, destination):
+        with pytest.raises(ValueError):
+            haversine_distance(origin, destination)
+
+    @pytest.mark.parametrize(
+        ("origin", "destination", "pre_fix_reading"),
+        [
+            ((400.0, 0.0), (0.0, 0.0), 4447.797065782349),
+            ((91.0, 0.0), (0.0, 0.0), 10118.738324654845),
+            ((0.0, 200.0), (0.0, 0.0), 17791.188263129396),
+            ((1e20, 1e20), (-1e20, -1e20), 5560.056317082926),
+        ],
+    )
+    def test_refused_inputs_used_to_answer_a_plausible_number(
+        self, origin, destination, pre_fix_reading
+    ):
+        # This is the shape CUI-0047 is about: the formula does not fail on an
+        # impossible coordinate, it answers a number that looks like a distance.
+        # The oracle pins what the caller used to be handed, so the guard is
+        # demonstrably removing a wrong answer and not a crash.
+        assert _unguarded_haversine(origin, destination) == pytest.approx(pre_fix_reading)
+        with pytest.raises(ValueError):
+            haversine_distance(origin, destination)
+
+    def test_enormous_finite_degrees_used_to_answer_nan_behind_a_warning(self):
+        # The worst shape of all, and the one that reopens CUI-0001: 1e308 is
+        # finite, so parse_finite_float accepts it and CUI-0008's screen waves
+        # it through, but np.sin overflows to nan behind a RuntimeWarning that
+        # nobody reads -- and pandas' sum drops nan silently, so the track just
+        # reports short. The oracle pins both halves of that: nan, and the
+        # warning. Promoting warnings to errors shows the guard now fires first.
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            assert math.isnan(_unguarded_haversine((1e308, 1e308), (-1e308, -1e308)))
+        assert any("invalid value encountered" in str(w.message) for w in caught)
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            with pytest.raises(ValueError):
+                haversine_distance((1e308, 1e308), (-1e308, -1e308))
+
+    @pytest.mark.parametrize(
+        ("origin", "destination"),
+        [
+            ((90.0, 0.0), (-90.0, 0.0)),
+            ((0.0, 180.0), (0.0, -180.0)),
+            ((90.0, 180.0), (-90.0, -180.0)),
+            ((-90.0, -180.0), (90.0, 180.0)),
+        ],
+    )
+    def test_the_extremes_of_the_real_globe_are_still_accepted(self, origin, destination):
+        # +-90 / +-180 are legal coordinates, not sentinels: an inclusive bound
+        # is load-bearing here. A `<` in place of `<=` would refuse the poles
+        # and the antimeridian.
+        result = haversine_distance(origin, destination)
+        assert math.isfinite(result)
+        assert result >= 0.0
+
+    def test_message_names_the_range_failure_separately(self):
+        with pytest.raises(ValueError, match=r"out-of-range coordinate"):
+            haversine_distance((400.0, 0.0), (0.0, 0.0))
+
+    def test_total_track_distance_refuses_a_track_with_an_impossible_point(self):
+        coords = [(22.2800, 114.1588), (400.0, 114.16), (22.3193, 114.1694)]
+        with pytest.raises(ValueError):
+            total_track_distance(coords)
