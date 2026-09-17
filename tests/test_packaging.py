@@ -24,8 +24,14 @@ VERCEL_BUILD = PROJECT_ROOT / "scripts" / "vercel-build.sh"
 
 PIPELINE_EXTRA = "pipeline"
 DEV_EXTRA = "dev"
+# Every name here must be a package the project actually declares, because
+# test_pipeline_extra_carries_the_parsing_stack reads this set as a *floor* for
+# the pipeline extra: an undeclared name makes that test assert something the
+# repository can never satisfy. `pytz` sat here for exactly that reason -- the
+# only import of it is legacy/test.py, which `package-dir` never ships and no
+# install resolves, so no extra was ever going to carry it.
 BUILD_ONLY_PACKAGES = frozenset(
-    {"beautifulsoup4", "lxml", "numpy", "pandas", "python-dateutil", "pytz", "requests"}
+    {"beautifulsoup4", "lxml", "numpy", "pandas", "python-dateutil", "requests"}
 )
 RUNTIME_PACKAGES = frozenset({"flask", "sqlalchemy", "strawberry-graphql"})
 
