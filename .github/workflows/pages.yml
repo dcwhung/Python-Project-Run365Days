@@ -80,11 +80,16 @@ jobs:
       - name: Install
         run: npm ci
 
-      # --omit=dev audits what actually ships to a browser: the eight runtime
-      # dependencies in package.json, 16 packages resolved. That is the scope
-      # this gate can hold green, so a red here is a real exposure rather than a
-      # backlog. (No dependency audit ran in CI before this step -- the Python
-      # side's pip-audit has only ever been run by hand, in CUI-0032.)
+      # --omit=dev audits the declared `dependencies` closure: the eight runtime
+      # dependencies in package.json, 16 packages resolved. That is the
+      # browser-facing surface minus the build tools that emit INTO the bundle --
+      # vite ships its modulepreload polyfill and tailwindcss generates the whole
+      # stylesheet, and both are devDependencies. So this is a good proxy for
+      # "what reaches a browser", not the same set; widening past it means
+      # auditing the full tree. It is the scope this gate can hold green, so a
+      # red here is a real exposure rather than a backlog. (No dependency audit
+      # ran in CI before this step -- the Python side's pip-audit has only ever
+      # been run by hand, in CUI-0032.)
       #
       # The full tree is NOT clean and this step does not claim otherwise: as of
       # 2026-09-17 `npm audit` (dev included) reports 14 advisories -- 12 high,
