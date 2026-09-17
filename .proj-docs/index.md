@@ -13,7 +13,7 @@
 | 項目 | 內容 |
 |---|---|
 | 名稱 | Run365Days（`dcwhung/Python-Project-Run365Days`） |
-| 版本 | v3.2.0 |
+| 版本 | v3.3.0 |
 | Stack | Python 3.10+ package + Flask/Strawberry GraphQL API + React 19 / Vite 7 / TS 5.9 |
 | 部署 | Vercel（API mode）＋ GitHub Pages（static mode） |
 | Default branch | `master`；**整合同部署 branch 係 `develop`**（master 現時落後 54 個 commit，只行 lint/test，唔 build 唔 deploy） |
