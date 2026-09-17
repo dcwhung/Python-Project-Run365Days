@@ -47,8 +47,8 @@
 | **CUI-0009** | 🟢 Low | to_float() 對 "inf" / "nan" 字串會回傳非有限值，直接餵入 writer | ✅ completed | `completed/` |
 | **CUI-0010** | 🟡 Medium | src/weather/collectors/ 三個模組零測試覆蓋 | ✅ completed | `completed/` |
 | **CUI-0011** | 🔴 Critical（latent） | Collector 寫出嘅 schema 同 exporter 讀嘅 schema 唔夾——重新採集資料會炸爛 pipeline | ✅ completed | `completed/` |
-| **CUI-0012** | 🟡 Medium | 三處 collector HTML 解析對結構改變會硬崩或靜默錯 | ⏳ pending | `pending/` |
-| **CUI-0013** | 🟢 Low | collect_weather.py 零覆蓋且用 print()，並收拾 collector 遺留嘅小債 | ⏳ pending | `pending/` |
+| **CUI-0012** | 🟡 Medium | 三處 collector HTML 解析對結構改變會硬崩或靜默錯 | ✅ done | `pending/` |
+| **CUI-0013** | 🟢 Low | collect_weather.py 零覆蓋且用 print()，並收拾 collector 遺留嘅小債 | ✅ done | `pending/` |
 | **CUI-0014** | 🟢 Low | from_raw_row() 對缺失 STRING 欄位預設 ""，舊 code 出 None | ✅ completed | `completed/` |
 | **CUI-0015** | 🟢 Low | docs/architecture.md 嘅 CI 描述兩次過時，應改為自動同步而唔係人手維護 | ✅ completed | `completed/` |
 | **CUI-0016** | 🟡 Medium | `ActivityView` 將 track query 失敗誤報成「Activity not found.」，AU-047 為呢條路徑新增咗一個可達成因 | ✅ completed | `completed/` |
