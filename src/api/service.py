@@ -375,8 +375,9 @@ def tracks(
             :data:`MAX_TRACK_POINTS`. ``-0.0`` is one of the values that mean
             ``0`` here, not one of the negatives; see the guard's own comment.
             A count below zero is refused, not clamped; see Raises. The
-            ``float`` values named here and under Raises (``-0.0``, ``2.5``)
-            sit outside the ``int | None`` annotation above: Python does not
+            ``float`` values named here and under Raises (``-0.0``, ``2.0``,
+            ``2.5`` and the rest) sit outside the ``int | None`` annotation
+            above: Python does not
             enforce it, so what they do is contracted here rather than left to
             chance. They are not a widening of what this function accepts.
 
@@ -389,17 +390,31 @@ def tracks(
     Raises:
         ValueError: If *points* is below zero. Refused rather than clamped; the
             reasoning is in the block comment on the guard below.
-        TypeError: If *points* is a non-integral number such as ``2.5``. Raised
-            from ``range()`` inside :func:`_even_positions` rather than by a
-            check here, and documented rather than converted: a count that is
-            not a whole number is the wrong *type* of thing to count with, which
-            is what ``TypeError`` means in Python, where ``ValueError`` would
-            say the count was the right kind of thing and merely out of range.
+        TypeError: If *points* is a ``float`` that reaches the sampler.
+            ``range()`` refuses the *type* and never looks at the value, so
+            ``2.0`` raises exactly as ``2.5`` does -- "non-integral" is not the
+            line, and S-130 was opened on this sentence for drawing it there.
+            The line is whether the float survives to :func:`_even_positions`,
+            and three kinds do not: a falsy one (``0.0``, ``-0.0``) means ``0``
+            per Args; one below ``2`` is short-circuited by that function ahead
+            of its ``range()``, returning the last row alone as ``1`` does; and
+            one above :data:`MAX_TRACK_POINTS` is replaced by the ``int``
+            ceiling in the ``min`` below, returning what ``None`` returns. The
+            sampler is also skipped entirely for a batch whose every track is
+            already at or under the ask. Measured against a batch holding a
+            1250-row track: ``2.0``, ``2.5``, ``999.0`` and ``1000.0`` raise,
+            while ``1.0``, ``1.5``, ``1000.5`` and ``1500.0`` each come back a
+            track. Raised from ``range()`` rather than by a check here, and
+            documented rather than converted: a count that is not a whole
+            number is the wrong *type* of thing to count with, which is what
+            ``TypeError`` means in Python, where ``ValueError`` would say the
+            count was the right kind of thing and merely out of range.
             Converting it would also have to guess whether ``2.0`` is a mistake.
             Costs one grouped COUNT before it raises, since the sampler is
             reached after :func:`_stored_counts`; no client can drive it
-            (``Int`` coercion refuses a fractional literal three layers up), so
-            that is not worth a second guard to save.
+            (``Int`` coercion refuses a float literal three layers up --
+            ``2.0`` and ``2.5`` alike, both "Int cannot represent non-integer
+            value"), so that is not worth a second guard to save.
     """
     # CUI-0040, and the half of it that was a choice rather than a bug.
     # `min(points, MAX_TRACK_POINTS)` passed a negative straight through, and
