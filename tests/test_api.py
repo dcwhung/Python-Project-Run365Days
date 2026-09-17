@@ -1842,9 +1842,12 @@ def test_a_budget_refusal_is_not_logged_as_a_server_fault(year_client, caplog, d
     #
     # Bounded from *below* as well (W-030), because the line above alone is
     # still one-sided -- which is the very defect CUI-0038 was opened over.
-    # Measured on this branch: REFUSAL_LOG_LEVEL = logging.DEBUG passed all
-    # 522 tests, patched in-process on both modules that bind the name and
-    # with a real refusal's record level read back as an oracle. DEBUG keeps
+    # Measured at `4a625a9`, the commit before this bound: REFUSAL_LOG_LEVEL =
+    # logging.DEBUG passed all 522 tests that existed there, patched in-process
+    # on both modules that bind the name and with a real refusal's record level
+    # read back as an oracle. `pytest --collect-only` at that commit collects
+    # 522; the figure is anchored rather than bare for the reason W-061 gives
+    # on PUBLISHED_EXTENSION_KEYS below. DEBUG keeps
     # the silence, so the security property survives untouched; what it breaks
     # is the affordance this constant's own docstring sells beside it, that an
     # operator "opts in by lowering the level and gets every one of them". An
@@ -2147,9 +2150,10 @@ def test_an_operator_who_lowers_the_level_gets_every_refusal(year_client, monkey
     # first half was asserted, and `logging.DEBUG` satisfies it while breaking
     # the second -- measured on this branch, in-process, with the constant
     # patched on both modules that bind the name and a real refusal's record
-    # level read back as an oracle: DEBUG passed all 522 tests, and an operator
-    # who had lowered the level to INFO exactly as the docstring instructs
-    # would have been handed nothing at all.
+    # level read back as an oracle: DEBUG passed all 522 tests that `4a625a9`
+    # collects -- the commit before the bound, since the bound itself is one of
+    # today's -- and an operator who had lowered the level to INFO exactly as
+    # the docstring instructs would have been handed nothing at all.
     #
     # This is the property the inequality beside the silence test only
     # restates, and it is the one that survives the constant being rewritten:
