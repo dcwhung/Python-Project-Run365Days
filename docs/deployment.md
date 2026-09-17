@@ -107,8 +107,54 @@ subpath Pages serves the site on. Vercel serves from the domain root and
 leaves it unset, where the config falls back to `/`. Both are shape facts
 rather than job steps, which is why they are written down here.
 
-Two dependency-audit gates run, one per language side, and both are hard
-gates: a failing audit stops the workflow like any other check.
+The two dependency-audit gates used to run in this workflow, at the end of
+`lint-test` and of `frontend`. They are now in their own workflow and have
+their own section below; nothing in the build-and-deploy path depends on
+them any more.
+
+The repository's `github-pages` environment must allow deployments from
+`develop` (Settings, Environments, Deployment branches). That rule lives
+in the repository settings, not in the workflow file, so it has to be
+updated in the same pass whenever the deploying branch in `pages.yml`
+changes — otherwise the deploy job is rejected at the environment gate
+even though the workflow itself ran.
+
+## Dependency audits
+
+`.github/workflows/audit.yml` holds both supply-chain gates, one per
+language side, and both are hard gates: a failing audit fails its job and
+reports as a red check on the commit and on the pull request.
+
+They ran inside `pages.yml` until CUI-0052. There they sat in the two jobs
+`build` needs, and `deploy` needs `build`, so both were upstream of
+deployment — and on `develop`, the only branch that deploys and one that
+deploys on every push, an advisory published upstream and unrelated to
+anything in this repository could hold every deployment, a hotfix
+included. Since both gates are *expected* to go red exactly that way, that
+was a standing hold on releases owned by nobody in this repository, which
+is why the coupling was undone rather than restated.
+
+Only the dependency edge changed. Same commands, same thresholds, same two
+branches; the audits still fail on a single advisory, and neither of them
+was ever a *required* check — there is no branch protection on `develop`
+or `master` (`GET /repos/…/branches/develop` reports `"protected": false`,
+measured 2026-09-17), so "a human sees red" was always the whole of the
+enforcement and still is. `continue-on-error` was rejected: it leaves the
+gate on the page while removing its only effect, which is the reason
+CUI-0044 rejected an `--ignore-vuln` allowlist (W-034, S-095).
+
+The daily schedule is the one addition. A gate that fires only on a push
+measures the tree at the moments someone happened to push, and upstream
+drift runs on its own clock. Two of GitHub's rules shape it, and both are
+silent, so they are stated rather than discovered: `schedule` only fires
+for workflow files on the **default branch**, which here is `master` and
+not the `develop` this repository deploys from, so the daily run does not
+happen at all until `audit.yml` reaches `master` on a release merge; and a
+scheduled run checks out the default branch, so each job names `develop`
+explicitly for that event, or the audit would cover a `master` that lags
+`develop` between releases. The `push` and `pull_request` triggers carry
+no such restriction and are what replaces the old coupling from the moment
+the file lands on `develop`.
 
 The frontend gate audits the whole npm tree, devDependencies included. It
 carried `--omit=dev` until the development tree's advisories were cleared by
@@ -132,39 +178,26 @@ no pull request here can cause. That is deliberate. `pip-audit` always skips
 `run365days` itself, which is installed from the checkout and is not on PyPI,
 so the gate does not run with `--strict`.
 
-Both audits run last in their jobs. Either is expected to go red on an
-upstream advisory published since the last run rather than on anything a pull
-request did, and running it from the front of a job would bury the checks the
-author can act on -- which is not hypothetical for the frontend one: it did,
-and lint, typecheck, unit tests and both builds never ran (S-097). Which
-threshold is in force is a policy fact rather than a job step, which is why it
-is written down here; the commands themselves, and the reasoning behind each
-threshold, are in `pages.yml` beside the steps.
+Each audit is the only thing in its job now, so the ordering rule that used
+to govern them — run last, never first — no longer has anything to order.
+It existed because either gate is expected to go red on an upstream advisory
+published since the last run rather than on anything a pull request did, and
+running it from the front of a shared job buried the checks the author could
+act on; that was not hypothetical for the frontend one, which did exactly
+that and left lint, typecheck, unit tests and both builds unrun (S-097).
+Splitting the audits out is a stronger form of the same fix: those checks
+now cannot be buried at all, because they are in a different workflow.
 
-Both gates sit upstream of deployment. They run in `lint-test` and `frontend`,
-`build` needs both, and `deploy` needs `build`, so on `develop` -- the only
-branch that deploys, and one that deploys on every push -- an advisory
-published upstream and unrelated to anything in this repository can hold every
-deployment, a hotfix included. That is the accepted price of hard gates rather
-than advisory ones, and it is stated here so the trade reads as a decision
-already taken rather than one discovered during an incident. Decoupling the
-audits from the deployment path is open as CUI-0052; `continue-on-error` is
-not the answer, since it would leave the gate on the page while removing its
-only effect.
-
-The repository's `github-pages` environment must allow deployments from
-`develop` (Settings, Environments, Deployment branches). That rule lives
-in the repository settings, not in the workflow file, so it has to be
-updated in the same pass whenever the deploying branch in `pages.yml`
-changes — otherwise the deploy job is rejected at the environment gate
-even though the workflow itself ran.
+Which threshold is in force is a policy fact rather than a job step, which
+is why it is written down here; the commands themselves, and the reasoning
+behind each threshold, are in `audit.yml` beside the steps.
 
 ## Switching the deploy source from `develop` to `master`
 
 `develop` is the deploy source today. Moving it to `master` means changing
-six things in four places — two of them outside the repository, where a
+seven things in five places — two of them outside the repository, where a
 checkout can neither see nor verify them. Missing one leaves the setup
-half-switched, and the failure is usually silent. Do all six together.
+half-switched, and the failure is usually silent. Do all seven together.
 
 In the repository:
 
@@ -177,7 +210,12 @@ In the repository:
    new branch, or deploys stop happening and non-deploying runs start
    sharing the deploy group.
 3. `.github/workflows/tag-release.yml` — the `ref` input default.
-4. `README.md` — the CI badge's `?branch=` query, the "Continuous
+4. `.github/workflows/audit.yml` — its own `push` and `pull_request` branch
+   lists, and the `'develop'` its two checkouts name for the scheduled run,
+   which has to follow the deploy branch or the daily audit covers the wrong
+   tree. Nothing in this file gates a deployment, which is the point of it
+   and also why getting it wrong shows up as nothing at all.
+5. `README.md` — the CI badge's `?branch=` query, the "Continuous
    integration and deployment" section, the Vercel production-branch
    sentence, and the "Versioning and branches" table with the paragraph
    under it.
@@ -185,11 +223,11 @@ In the repository:
 Outside the repository, so neither readable nor changeable from a
 checkout:
 
-5. **GitHub `github-pages` environment** (Settings, Environments,
+6. **GitHub `github-pages` environment** (Settings, Environments,
    `github-pages`, Deployment branches) — allow the new branch. Until this
    is done CI goes green and the deploy job is still rejected at the
    environment gate.
-6. **Vercel Production Branch** (project Settings, Git) — API-mode
+7. **Vercel Production Branch** (project Settings, Git) — API-mode
    deployments follow this setting, not the repository. Until this is done
    Pages and Vercel serve different commits.
 
