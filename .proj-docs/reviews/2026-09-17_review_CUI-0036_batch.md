@@ -5,14 +5,25 @@
 > | 原 | 改為 |
 > |---|---|
 > | W-042 | **W-034** |
-> | S-093 … S-099 | **S-092 … S-099** |
+> | S-093 … S-098 | **S-092 … S-098** |
 >
 
-> ⚠️ **補記（2026-09-17）**：上面個對照表原本漏咗 `S-100` —— main agent 個重編 script 用咗
-> `f"S-0{n}"`，`n=100` 會砌出 `S-0100` 而唔係 `S-100`，所以最後一條冇被換。結果係正文有
-> S-092…S-098 加一個孤兒 S-100，而 registry 嗰邊佢係 S-099。已修正：正文全部 `S-100` → **S-099**。
-> 由 CUI-0018 嗰輪 review 捉返。
-> 正文其餘部分一字未動。
+> ⚠️ **補記（2026-09-17，兩次更正）**：
+> 1. 對照表原本漏咗 `S-100` —— main agent 個重編 script 用咗 `f"S-0{n}"`，`n=100` 砌出嘅係
+>    `S-0100` 而唔係 `S-100`，所以最後一條冇被換。
+> 2. 更嚴重嘅係，單純「每個號減一」**唔等於** registry 嘅賦號 —— registry 係按
+>    **修正優先順序**重新編排，唔係按原號順序。所以正文有三個 heading 同 registry 排錯位，
+>    其中一個仲撞咗另一條 item 嘅新號。已按**內容**逐條對正：
+>
+> | 內容 | 報告原號 | 一度錯編為 | **正確（registry）** |
+> |---|---|---|---|
+> | Audit step 擺喺 Lint 之前 | S-099 | S-098 | **S-097** |
+> | `pyproject.toml` 絕對數字 stale | S-100 | （漏咗）→ S-099 | **S-098** |
+> | `tests/test_api.py` 3,166 行 | S-098 | S-097 | **S-099** |
+>
+> 兩次都由下游捉返（第一次 CUI-0018 review、第二次 cleanup lane）。
+> **SSoT 係 `.proj-docs/tickets.md`（CLAUDE.md §7）**，本檔已對齊。
+> 除 ID 外，正文其餘部分一字未動。
 
 ---
 
@@ -21,7 +32,7 @@
 
 **HEAD（第一行，按要求）**：我開場見到嘅係 **`2ff659e`**（`Merge pull request #10 from dcwhung/chore/claude/ai-dev-team-plugin`）—— 一如警告，陳舊。已 `git fetch origin claude/ai-dev-team-start-05jie2` 再 `git checkout 06ad4bd`，之後全部驗證喺 **`06ad4bd`** 上做。
 
-**Review Item ID 範圍（明文聲明）**：本報告用 **S-092 – S-099**、**W-034**（保留 W-034–W-049）、**C-011 起**（本輪冇 Critical，一個都冇用）。呢三段同另外兩位並行 reviewer 唔會撞。
+**Review Item ID 範圍（明文聲明）**：本報告用 **S-092 – S-098**、**W-034**（保留 W-034–W-049）、**C-011 起**（本輪冇 Critical，一個都冇用）。呢三段同另外兩位並行 reviewer 唔會撞。
 
 ---
 
@@ -67,7 +78,7 @@
 |---|---|---|---|
 | 正確性（Correctness） | 23 | 25 | S-092、S-093 各 −1；四個 workflow case 全部實跑對 |
 | 安全性（Security） | 14 | 20 | **W-034 −5**（gate 理由書寫闊咗）、S-096 −1 |
-| 可維護性（Maintainability） | 15 | 20 | S-094 / S-095 / S-097 / S-098 / S-099 各 −1 |
+| 可維護性（Maintainability） | 15 | 20 | S-094 / S-095 / S-099 / S-097 / S-098 各 −1 |
 | 測試覆蓋（Test Coverage） | 15 | 15 | 滿分 —— 見下方「做得好」 |
 | 性能（Performance） | 10 | 10 | 無 runtime 影響 |
 | 代碼風格（Code Style） | 10 | 10 | ruff / format / 命名全合規 |
@@ -359,7 +370,7 @@ npm audit --omit=dev       # CI gate：只審 runtime 依賴（dev 樹嘅 12 hig
 
 **推薦：方案 B。**
 
-### 🟢 S-098｜Audit step 擺喺 Lint 之前，紅咗會遮走其餘全部前端訊號
+### 🟢 S-097｜Audit step 擺喺 Lint 之前，紅咗會遮走其餘全部前端訊號
 
 **位置**：`.github/workflows/pages.yml:97`（`Install` 同 `Lint` 之間）
 
@@ -448,7 +459,7 @@ pytest tests/test_api.py -q -k "failed_start_up or failure_report or flask_itsel
 
 測試係經 `_load_vercel_entry` `exec_module()` **真嗰個 shipped file**，唔係 copy —— 呢個係好設計，代表測試唔會同 `api/graphql.py` 分歧。
 
-### 🟢 S-099｜`pyproject.toml` comment 入面嘅絕對數字喺 merge 一刻已經 stale
+### 🟢 S-098｜`pyproject.toml` comment 入面嘅絕對數字喺 merge 一刻已經 stale
 
 **位置**：`pyproject.toml:78`
 
@@ -468,7 +479,7 @@ pytest tests/test_api.py -q -k "failed_start_up or failure_report or flask_itsel
 
 **推薦：方案 A。**
 
-### 🟢 S-097｜5 條新測試放喺一個 3,166 行嘅檔案度
+### 🟢 S-099｜5 條新測試放喺一個 3,166 行嘅檔案度
 
 `tests/test_api.py` 喺 merge 後係 **3,166 行 / 197 個測試**。CLAUDE.md §2 講「一個 feature module 一個檔案」，而 `api/graphql.py`（Vercel entry）嚴格嚟講唔係 `src/api/` 嘅一部分 —— 佢係 deploy shim。新測試放喺既有 `_load_vercel_entry`（AU-001）隔籬係合理嘅局部決定，但成個檔案已經好難 navigate。
 
@@ -504,10 +515,10 @@ pytest tests/test_api.py -q -k "failed_start_up or failure_report or flask_itsel
 |---|---|---|---|---|
 | 1 | W-034 | 🟡 | `pages.yml` comment 講闊咗 `--omit=dev` 覆蓋面 | **本輪修**（唯一擋住 90 分嘅） |
 | 2 | S-095 | 🟢 | `CLAUDE.md` 「12 high」→ 14（或索性唔寫數） | 本輪順手 |
-| 3 | S-099 | 🟢 | `pyproject.toml` comment 絕對數字已 stale | 本輪順手 |
+| 3 | S-098 | 🟢 | `pyproject.toml` comment 絕對數字已 stale | 本輪順手 |
 | 4 | S-092 | 🟢 | `release` input description 補「ignored when notes_only」 | 本輪順手 |
 | 5 | S-093 | 🟢 | `notes_only` 守衛加 `gh release view` | 本輪或另飛 |
-| 6 | S-098 | 🟢 | Audit step 移到 frontend job 最尾 | 本輪或另飛 |
+| 6 | S-097 | 🟢 | Audit step 移到 frontend job 最尾 | 本輪或另飛 |
 | 7 | S-094 | 🟢 | `docs/deployment.md` 補 SCA policy（唔抄 step） | 另飛 |
 | 8 | S-096 | 🟢 | Python 側補 `pip-audit` gate | **另開 ticket** |
 
@@ -578,7 +589,7 @@ hard_gates:
 next_action: invoke_developer
 next_agent: backend-developer
 branch: "claude/ai-dev-team-start-05jie2"
-context: "CUI-0036/0042/0035 三票實現全部正確，lane 自報八條推翻逐條實測成立，0 Critical，hard gates 全綠（492 pytest / 141 vitest / 96% / audit exit 0）。唯一 Warning W-034：pages.yml 嘅 audit step comment 聲稱 --omit=dev 審「what actually ships to a browser」，但實測 vite modulepreload polyfill 同 21.64kB Tailwind CSS 都經 devDependencies 入咗 bundle；gate 行為啱，錯嘅係理由書。連同 S-092/S-095/S-099 三條純文字修正一齊改完重跑 /review 即可上 pass。"
+context: "CUI-0036/0042/0035 三票實現全部正確，lane 自報八條推翻逐條實測成立，0 Critical，hard gates 全綠（492 pytest / 141 vitest / 96% / audit exit 0）。唯一 Warning W-034：pages.yml 嘅 audit step comment 聲稱 --omit=dev 審「what actually ships to a browser」，但實測 vite modulepreload polyfill 同 21.64kB Tailwind CSS 都經 devDependencies 入咗 bundle；gate 行為啱，錯嘅係理由書。連同 S-092/S-095/S-098 三條純文字修正一齊改完重跑 /review 即可上 pass。"
 blockers:
   - "W-034: .github/workflows/pages.yml:83-84 comment 把 --omit=dev 覆蓋面講闊咗（實測 vite 同 tailwindcss 嘅產出真係入 bundle），需改寫成 declared dependencies closure + 明寫缺口；報告有完整修訂後 comment"
 ```
