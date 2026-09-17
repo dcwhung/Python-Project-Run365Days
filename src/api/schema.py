@@ -1043,8 +1043,8 @@ PAGE_WINDOW_NOTE = (
     "either side of that range is refused rather than clamped -- with "
     f"`extensions.{REFUSAL_CODE_KEY}` `{ARGUMENT_OUT_OF_RANGE_CODE}`, which retrying "
     f"unchanged never fixes, and with `extensions.{REFUSAL_ARGUMENT_KEY}` naming which "
-    "of the two was refused, since both sit at the same `path` and the same "
-    "`locations` -- and the budget above is charged on `limit` as asked for "
+    'of the two was refused (`"limit"` or `"offset"`), since both sit at the same '
+    "`path` and the same `locations` -- and the budget above is charged on `limit` as asked for "
     "rather than on the rows a page turns out to hold."
 )
 """Sentence appended to every field that takes a ``limit``/``offset`` page window.

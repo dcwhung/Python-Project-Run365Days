@@ -2556,7 +2556,15 @@ def test_the_sdl_names_the_key_that_says_which_argument_was_refused(field):
     # SDL, so a key it is expected to read has to be in the SDL rather than
     # discovered by triggering the error. `run365-schema --check` carries it
     # into `frontend/schema.graphql` from there.
-    assert REFUSAL_ARGUMENT_KEY in _field_descriptions()[field]
+    description = _field_descriptions()[field]
+    assert REFUSAL_ARGUMENT_KEY in description
+    # The values too, to the standard `track` was already held to: it spells
+    # out `argument: "points"` and asserts that value below, while these four
+    # named the key and left a client to guess whether it reads back `limit`
+    # or `Query.activities.limit`. Quoted here as they are quoted in the SDL,
+    # so the bare word `limit` elsewhere in the same sentence cannot pass this.
+    assert '"limit"' in description
+    assert '"offset"' in description
 
 
 def test_the_sdl_says_track_names_its_argument_too():
