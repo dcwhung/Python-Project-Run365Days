@@ -7,21 +7,30 @@ name = "run365days"
 version = "3.0.0"
 description = "Personal running analytics: Garmin activity parsing, weather correlation, weight tracking and a dashboard"
 requires-python = ">=3.10"
+# Request-time only. requirements.txt installs this package, so whatever is
+# listed here is exactly what Vercel bundles into the api/graphql.py function.
+# Anything needed solely to *produce* data/processed/run365.db belongs in the
+# `pipeline` extra below, or it ships ~165 MB of dead weight per deployment.
 dependencies = [
+    "flask>=3",
+    "sqlalchemy>=2.0",
+    "strawberry-graphql>=0.250",
+]
+
+[project.optional-dependencies]
+# Build-time: parsing Garmin TCX / GPX / KML exports and collecting weather.
+# Required by every console script except run365-schema; never by the API.
+pipeline = [
+    "beautifulsoup4",
+    "lxml",
     "numpy",
     "pandas",
     "python-dateutil",
     "pytz",
     "requests",
-    "beautifulsoup4",
-    "lxml",
-    "sqlalchemy>=2.0",
-    "flask>=3",
-    "strawberry-graphql>=0.250",
 ]
-
-[project.optional-dependencies]
 dev = [
+    "run365days[pipeline]",  # the suite parses fixtures, so it needs the build stack
     "pytest>=7",
     "ruff>=0.5",
     "pre-commit>=3",
