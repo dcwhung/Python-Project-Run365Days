@@ -9,7 +9,7 @@
 
 ## 📋 CUI ticket census（權威總覽）
 
-**核實日期**：2026-09-17 ｜ **總數**：46 張（CUI-0001 … CUI-0046）
+**核實日期**：2026-09-17 ｜ **總數**：51 張（CUI-0001 … CUI-0051）
 
 > 量度方法（2026-09-17，base `6576e56`）：
 > `find .tickets -name 'CUI-*.md' | wc -l` → **42**；
@@ -23,15 +23,14 @@
 
 | Bucket | 數量 | 檔案位置 |
 |---|---:|---|
-| ✅ completed | **29** | `.tickets/completed/0001-0200/` |
+| ✅ completed | **45** | `.tickets/completed/0001-0200/` |
 | 🔄 in-progress | **0** | `.tickets/in-progress/0001-0200/`（空） |
-| ⏳ pending | **17** | `.tickets/pending/0001-0200/` |
-| | **42** | |
+| ⏳ pending | **6** | `.tickets/pending/0001-0200/` |
+| **總計** | **51** | |
 
-> ⚠️ 上表數嘅係**檔案位置**，唔係狀態。2026-09-17 之後兩者唔再一一對應：
-> `pending/` 嗰堆檔案入面，**CUI-0035 / CUI-0036 / CUI-0042 / CUI-0046 已經係 ✅ done**，
-> 刻意留喺 `pending/` 等一次過搬。狀態以下面全表同 ticket 檔案為準。
-> （之前個總數寫 40，係 CUI-0041 / CUI-0042 開咗之後冇更新；已按實測改成 42。）
+> ✅ **2026-09-17 對數**：本表由 `find .tickets -name 'CUI-*.md'` 重新生成，同檔案實際位置**一一對應**。
+> QA pass 之後，13 張「內容 done 但仲留喺 `pending/`」嘅票已全部搬去 `completed/`，
+> 所以「檔案位置」同「狀態」而家一致 —— `pending/` 嗰 6 張全部真係未做。
 
 ### 編號完整性核實
 
@@ -49,20 +48,20 @@
 | **CUI-0002** | 🟡 High | AU-003 改用 zoneinfo 後未宣告 tzdata，而 pytz 變成死依賴 | ✅ completed | `completed/` |
 | **CUI-0003** | 🟢 Low | MAX_QUERY_DEPTH = 5 喺現行 schema 永遠觸發唔到 | ✅ completed | `completed/` |
 | **CUI-0004** | 🟢 Low | `track(points: 1)` 只回最後一點，同 `_even_positions` docstring 嘅承諾相反 | ✅ completed | `completed/` |
-| **CUI-0005** | 🟢 Low | `app.test_client()` 漏 DB session，超過約 130 個 request 嘅測試會撞 QueuePool 上限 | ✅ done | `pending/` |
+| **CUI-0005** | 🟢 Low | `app.test_client()` 漏 DB session，超過約 130 個 request 嘅測試會撞 QueuePool 上限 | ✅ done | `completed/` |
 | **CUI-0006** | 🟢 Low | parse_datetime 嘅 ISO-with-offset 分支完全無視 timezone 參數 | ✅ completed | `completed/` |
 | **CUI-0007** | 🟡 High | dashboard/builder.py 嘅 _num() 有同 CUI-0001 一模一樣嘅 ±inf 缺口 | ✅ completed | `completed/` |
-| **CUI-0008** | 🟢 Low | haversine_distance 對非有限座標只出 RuntimeWarning 而唔拒絕（實測：`nan` 連 warning 都冇） | ✅ done | `pending/`（檔案未搬） |
+| **CUI-0008** | 🟢 Low | haversine_distance 對非有限座標只出 RuntimeWarning 而唔拒絕（實測：`nan` 連 warning 都冇） | ✅ done | `completed/` |
 | **CUI-0009** | 🟢 Low | to_float() 對 "inf" / "nan" 字串會回傳非有限值，直接餵入 writer | ✅ completed | `completed/` |
 | **CUI-0010** | 🟡 Medium | src/weather/collectors/ 三個模組零測試覆蓋 | ✅ completed | `completed/` |
 | **CUI-0011** | 🔴 Critical（latent） | Collector 寫出嘅 schema 同 exporter 讀嘅 schema 唔夾——重新採集資料會炸爛 pipeline | ✅ completed | `completed/` |
-| **CUI-0012** | 🟡 Medium | 三處 collector HTML 解析對結構改變會硬崩或靜默錯 | ✅ done | `pending/` |
-| **CUI-0013** | 🟢 Low | collect_weather.py 零覆蓋且用 print()，並收拾 collector 遺留嘅小債 | ✅ done | `pending/` |
+| **CUI-0012** | 🟡 Medium | 三處 collector HTML 解析對結構改變會硬崩或靜默錯 | ✅ done | `completed/` |
+| **CUI-0013** | 🟢 Low | collect_weather.py 零覆蓋且用 print()，並收拾 collector 遺留嘅小債 | ✅ done | `completed/` |
 | **CUI-0014** | 🟢 Low | from_raw_row() 對缺失 STRING 欄位預設 ""，舊 code 出 None | ✅ completed | `completed/` |
 | **CUI-0015** | 🟢 Low | docs/architecture.md 嘅 CI 描述兩次過時，應改為自動同步而唔係人手維護 | ✅ completed | `completed/` |
 | **CUI-0016** | 🟡 Medium | `ActivityView` 將 track query 失敗誤報成「Activity not found.」，AU-047 為呢條路徑新增咗一個可達成因 | ✅ completed | `completed/` |
 | **CUI-0017** | 🟢 Low | `MAX_TRACK_FIELDS_PER_REQUEST` docstring 講 128 statements，漏計 parent lookup，實測 208 | ✅ completed | `completed/` |
-| **CUI-0018** | 🟢 Low | Budget 拒絕冇 `extensions.code`；non-null propagation 令一個被拒 `track` 清空成個 `data` | ✅ done | `pending/` |
+| **CUI-0018** | 🟢 Low | Budget 拒絕冇 `extensions.code`；non-null propagation 令一個被拒 `track` 清空成個 `data` | ✅ done | `completed/` |
 | **CUI-0019** | 🟠 High | AU-050 嘅 batch sample predicate 係 O(batch²)，真實 export 上 fan-out 慢一倍 | ✅ completed | `completed/` |
 | **CUI-0020** | 🟡 Medium | `MAX_TRACK_FIELDS_PER_REQUEST` 引用嘅 wall clock 同 production 規模差一個數量級 | ✅ completed | `completed/` |
 | **CUI-0021** | 🔵 Low | api mode（Python `round`）同 static mode（JS `Math.round`）嘅 track 取樣差一個 index | ✅ completed | `completed/` |
@@ -79,18 +78,23 @@
 | **CUI-0032** | 🟢 Low | `pytest-cov` 唔喺 `[dev]` extras，每次量 coverage 都要手動裝 | ✅ completed | `completed/` |
 | **CUI-0033** | 🟡 Medium | `track()` 契約仲有三個未對齊嘅邊界（`undefined` 上界、非整數/超 Int32 錯誤訊息、未知 id） | ✅ completed | `completed/` |
 | **CUI-0034** | 🟢 Low | `MAX_TRACK_POINTS` 係兩個獨立寫死嘅 1000，前端嗰個只被字面量釘住，唔係被 SDL 釘住 | ✅ completed | `completed/` |
-| **CUI-0035** | 🟡 Medium | Vercel 入口嘅 start-up 失敗路徑（`_error_app`）零測試，而且被 coverage 永久隱形 | ✅ **done 2026-09-17** | `pending/`（未搬）|
-| **CUI-0036** | 🟡 Medium | `npm audit` 從來冇喺任何 gate 行過：14 個已知漏洞（12 high）喺 devDependencies 鏈 | ✅ **done 2026-09-17**（gate；bump 未做）| `pending/`（未搬）|
-| **CUI-0037** | 🟡 Medium | `_page` / `_track_points` 嘅 bounds refusal 仍然每 request 寫 9 個絕對路徑 frame | ✅ done | `pending/` |
-| **CUI-0038** | 🟡 Medium | `REFUSAL_LOG_LEVEL` 改成 `WARNING` 可以殺死 CUI-0029 嘅頭號性質而 418 條測試全綠 | ✅ done | `pending/` |
-| **CUI-0039** | 🟡 Medium | 冇測試行過「同一 operation 同時帶 refusal 同 fault」，`process_errors` filter 係活 mutant | ✅ done | `pending/` |
-| **CUI-0040** | 🟢 Low | `service.tracks()` 收到負數 `points` 靜靜回 1 行，同 CUI-0033(a) 立嘅原則相反 | ✅ done | `pending/` |
-| **CUI-0041** | 🟢 Low | `finite_float()` 喺 `src/` 零 caller —— CUI-0011 方案 C 把 cast 收歸 `from_raw_row()`、有限性 gate 搬去 `finite()` 之後佢變死代碼；docstring 仍然宣稱佢守住九個 weather call site（實測：九個讀數分兩處 gate，6 daily 喺 `records.py`、3 hourly 喺 `builder.py`） | ✅ done | `pending/`（檔案未搬） |
-| **CUI-0042** | 🟢 Low | `tag-release.yml` 係單向流程：tag 一旦建咗，`Validate tag name` 就 `exit 1`，而 release step 只有 `gh release create` 冇 edit 路徑 ⇒ **CHANGELOG 喺 tag 之後嘅更正同步唔返落已發佈嘅 Release body**。v3.2.0 實際撞到，最後要人手喺 GitHub UI 改一隻字 | ✅ **done 2026-09-17** | `pending/`（未搬）|
-| **CUI-0043** | 🟢 Low | TCX 座標經 `optional_float` 洗成 `None`，令 CUI-0008 個有限性 guard 喺唯一真實 corrupt 路徑上射唔到（GPX/KML 用 `parse_finite_float` 擋得住）。pre-existing；查證後 W-005 **從未**就座標定案（佢處理嘅係 `optional_int` 嘅 nan/inf，理由係污染統計） | ✅ done | `pending/` |
+| **CUI-0035** | 🟡 Medium | Vercel 入口嘅 start-up 失敗路徑（`_error_app`）零測試，而且被 coverage 永久隱形 | ✅ **done 2026-09-17** | `completed/` |
+| **CUI-0036** | 🟡 Medium | `npm audit` 從來冇喺任何 gate 行過：14 個已知漏洞（12 high）喺 devDependencies 鏈 | ✅ **done 2026-09-17**（gate；bump 未做）| `completed/` |
+| **CUI-0037** | 🟡 Medium | `_page` / `_track_points` 嘅 bounds refusal 仍然每 request 寫 9 個絕對路徑 frame | ✅ done | `completed/` |
+| **CUI-0038** | 🟡 Medium | `REFUSAL_LOG_LEVEL` 改成 `WARNING` 可以殺死 CUI-0029 嘅頭號性質而 418 條測試全綠 | ✅ done | `completed/` |
+| **CUI-0039** | 🟡 Medium | 冇測試行過「同一 operation 同時帶 refusal 同 fault」，`process_errors` filter 係活 mutant | ✅ done | `completed/` |
+| **CUI-0040** | 🟢 Low | `service.tracks()` 收到負數 `points` 靜靜回 1 行，同 CUI-0033(a) 立嘅原則相反 | ✅ done | `completed/` |
+| **CUI-0041** | 🟢 Low | `finite_float()` 喺 `src/` 零 caller —— CUI-0011 方案 C 把 cast 收歸 `from_raw_row()`、有限性 gate 搬去 `finite()` 之後佢變死代碼；docstring 仍然宣稱佢守住九個 weather call site（實測：九個讀數分兩處 gate，6 daily 喺 `records.py`、3 hourly 喺 `builder.py`） | ✅ done | `completed/` |
+| **CUI-0042** | 🟢 Low | `tag-release.yml` 係單向流程：tag 一旦建咗，`Validate tag name` 就 `exit 1`，而 release step 只有 `gh release create` 冇 edit 路徑 ⇒ **CHANGELOG 喺 tag 之後嘅更正同步唔返落已發佈嘅 Release body**。v3.2.0 實際撞到，最後要人手喺 GitHub UI 改一隻字 | ✅ **done 2026-09-17** | `completed/` |
+| **CUI-0043** | 🟢 Low | TCX 座標經 `optional_float` 洗成 `None`，令 CUI-0008 個有限性 guard 喺唯一真實 corrupt 路徑上射唔到（GPX/KML 用 `parse_finite_float` 擋得住）。pre-existing；查證後 W-005 **從未**就座標定案（佢處理嘅係 `optional_int` 嘅 nan/inf，理由係污染統計） | ✅ done | `completed/` |
 | **CUI-0044** | 🟡 Medium | Python 側依然冇依賴審計 gate —— `pip-audit` 從來冇入過 CI，而 Flask / Strawberry 係 core dependency，直接入 Vercel production runtime。CUI-0036 只做咗前端一半（user 當時明確只揀咗 `npm audit --omit=dev`）| ⏳ pending | `pending/` |
-| **CUI-0045** | 🟢 Low | `tests/test_api.py` 已經 **3,543 行 / 228 個測試**（票原寫 3,166/197，已漂）（實測 **3,543 行 / 228 個**）；Vercel entry（deploy shim，唔係 `src/api/` 一部分）嘅測試應該抽做 `tests/test_vercel_entry.py`。pre-existing；7 條測試純機械搬走，`GRAPHIQL_ENV` 因 W-008 仍在用而兩邊各自定義 | ✅ done | `pending/` |
-| **CUI-0046** | 🟢 Low | `ActivitiesView.test.tsx:13` 個 `BUDGET_MESSAGE` hardcode 咗 `4000`（= `MAX_LIST_ROWS_PER_REQUEST`）冇守衛 —— **S-101 同一個病嘅第二宗**。S-101 只授權咗 `10000` 嗰條，cleanup lane 守範圍冇郁佢 | ✅ done | `pending/`（檔案未搬） |
+| **CUI-0045** | 🟢 Low | `tests/test_api.py` 已經 **3,543 行 / 228 個測試**（票原寫 3,166/197，已漂）（實測 **3,543 行 / 228 個**）；Vercel entry（deploy shim，唔係 `src/api/` 一部分）嘅測試應該抽做 `tests/test_vercel_entry.py`。pre-existing；7 條測試純機械搬走，`GRAPHIQL_ENV` 因 W-008 仍在用而兩邊各自定義 | ✅ done | `completed/` |
+| **CUI-0046** | 🟢 Low | `ActivitiesView.test.tsx:13` 個 `BUDGET_MESSAGE` hardcode 咗 `4000`（= `MAX_LIST_ROWS_PER_REQUEST`）冇守衛 —— **S-101 同一個病嘅第二宗**。S-101 只授權咗 `10000` 嗰條，cleanup lane 守範圍冇郁佢 | ✅ done | `completed/` |
+| **CUI-0047** | 🟢 Low | `haversine_distance` 守到「非有限」但**守唔到「唔係座標」** —— `lat=400` 回 4447.8 km、`lat=lon=1e308` 回 `nan`，而 `pandas.sum()` 會靜靜跌走個 `nan` ⇒ CUI-0001/0008 要滅嗰個「距離報細咗」形狀由另一道門返咗嚟 | ⏳ pending | `pending/` |
+| **CUI-0048** | 🟢 Low | `service.tracks` 個 negative guard 漏咗 `-0.0`（`-0.0 < 0` 係 `False`，而且 falsy ⇒ 回成條 track），`2.5` 掟未記錄嘅 `TypeError`。到唔到 client | ⏳ pending | `pending/` |
+| **CUI-0049** | 🟡 Medium | `pages.yml` 註釋寫嗰 14 條 dev 樹 advisory「tracked separately in CUI-0036」，但 CUI-0036 已搬 `completed/` ⇒ 冇咗 owner。要 bump `@graphql-codegen/*` + `vitest` 再剷走 `--omit=dev` | ⏳ pending | `pending/` |
+| **CUI-0050** | 🟢 Low | 四條 list field 嘅 `ARGUMENT_OUT_OF_RANGE` 分唔開 `limit` 定 `offset`（`path`/`locations`/`code` 三樣一樣，只有 message 唔同）⇒ client 照 SDL 講嘅「branch on the code」做唔到修正。W-035 方案 B 嘅承接票 | ⏳ pending | `pending/` |
+| **CUI-0051** | 🟢 Low | CUI-0038 測試註釋引咗 `103`/`341` bytes 但冇講量邊個 document；QA 用兩組 document 量到 102/332 同 161/239，兩組都唔等於。同 S-068/S-069 同一種病 | ⏳ pending | `pending/` |
 
 ### ⚠️ 核實過程發現
 
