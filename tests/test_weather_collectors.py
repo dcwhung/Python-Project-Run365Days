@@ -306,6 +306,27 @@ class TestHourlyFetchDay:
         assert hourly._DESCRIPTION_MAP[old_reading] == "Rain"
         assert hourly._icon_code(script) is None
 
+    def test_a_script_missing_the_call_prefix_is_not_read_as_a_code(self):
+        # The mirror image of the test above, and the half of the guard nothing
+        # held. There the *suffix* is missing; here the prefix is, so both
+        # find() calls return -1 -- and `end < start` is then `-1 < -1`, which
+        # is False. On its own it waves the slice through as s[1:-1], which on
+        # this string lands on "26" and calls a snowfall out of a script that
+        # never mentioned one.
+        #
+        # Measured: `start < 0` could be deleted and all 523 tests stayed green,
+        # with the mutant cut from the real source so the two arms differ by
+        # that clause alone and its answer read back as an oracle -- 'x26y'
+        # gives None here and "26" without it. Not an equivalent mutant: it is
+        # the same invented reading this class already refuses on the other
+        # side.
+        script = "x26y"
+        unguarded_reading = script[script.find("n(") + 2 : script.find(", 'CurrentWeather")]
+
+        assert unguarded_reading == "26"
+        assert hourly._DESCRIPTION_MAP[unguarded_reading] == "Snow"
+        assert hourly._icon_code(script) is None
+
 
 class TestHourlyFetchRange:
     def test_fetches_one_page_per_day_in_the_inclusive_range(self, monkeypatch):
