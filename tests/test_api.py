@@ -2367,6 +2367,112 @@ def test_the_year_description_names_the_budget_code_but_not_the_window_one():
     assert ARGUMENT_OUT_OF_RANGE_CODE not in description
 
 
+# ── CUI-0050: which argument, for the fields `path` cannot say it for ─────
+REFUSAL_ARGUMENT_KEY = "argument"
+"""The key a bounds refusal names its argument under, as a client reads it.
+
+Spelled out rather than imported for the reason the four codes above are: this
+string is the wire contract, so a test that followed a rename would stay green
+while every deployed client stopped finding the key. The SDL assertions below
+reach it by a second path -- the field descriptions -- so a rename has to go
+wrong twice to go unnoticed.
+"""
+
+LIST_WINDOW_SELECTION = MappingProxyType(
+    {"activities": "id", "weight": "date", "weather": "date", "warnings": "date"}
+)
+"""A field a client can select off each windowed list, so a document can be built per field."""
+
+
+@pytest.mark.parametrize(("document", "argument"), BOUNDS_REFUSED_DOCUMENTS)
+def test_a_bounds_refusal_names_the_argument_it_refused(year_client, document, argument):
+    # The half of the refusal `path` and `locations` cannot carry. Held over
+    # the same documents the code and the message are held over, so all three
+    # facts a bounds refusal publishes are asserted against one list -- a raise
+    # site added to that list without an argument fails here rather than
+    # quietly publishing two-thirds of a refusal.
+    body = year_client.post(GRAPHQL_PATH, json={"query": document}).get_json()
+
+    error = body["errors"][0]
+    assert error["extensions"][REFUSAL_ARGUMENT_KEY] == argument
+    # Alongside the code, not instead of it: the code still says what to do and
+    # this still says only where. A client that branched on this key to decide
+    # whether to retry would be reading the wrong half.
+    assert error["extensions"]["code"] == ARGUMENT_OUT_OF_RANGE_CODE
+
+
+@pytest.mark.parametrize("field", LIST_FIELDS)
+def test_the_two_bounded_arguments_of_a_list_field_are_told_apart(year_client, field):
+    # The ticket's own finding, turned into the gate that stops it coming back.
+    # Measured on the base commit, for all four fields: `limit: -5, offset: 0`
+    # and `limit: 1000, offset: -1` came back with the same `path`, the same
+    # `locations` (line 1, column 3 -- the field name, never the argument) and
+    # the same `code`, and differed in `message` alone. The SDL tells clients
+    # to branch on the code rather than on the message, so a client following
+    # its own field's documentation could tell that something was out of range
+    # and not which dial to turn.
+    #
+    # Asserting the sameness as well as the difference is the point. Were
+    # `locations` ever to start pointing at the argument, this key would be
+    # redundant and the reason for it would have evaporated without anyone
+    # noticing; were a second code added instead, the difference below would
+    # pass while CUI-0018 (a)'s "one code per remedy" quietly broke.
+    selection = LIST_WINDOW_SELECTION[field]
+    errors = {}
+    for which, args in (("limit", "limit: -5, offset: 0"), ("offset", "limit: 1000, offset: -1")):
+        document = f"{{ {field}({args}) {{ {selection} }} }}"
+        body = year_client.post(GRAPHQL_PATH, json={"query": document}).get_json()
+        errors[which] = body["errors"][0]
+
+    limit_error, offset_error = errors["limit"], errors["offset"]
+    assert limit_error["path"] == offset_error["path"] == [field]
+    assert limit_error["locations"] == offset_error["locations"]
+    assert limit_error["extensions"]["code"] == offset_error["extensions"]["code"]
+    assert limit_error["extensions"][REFUSAL_ARGUMENT_KEY] == "limit"
+    assert offset_error["extensions"][REFUSAL_ARGUMENT_KEY] == "offset"
+
+
+@pytest.mark.parametrize(("document", "code"), CODED_BUDGET_DOCUMENTS)
+def test_a_budget_refusal_names_no_argument(year_client, document, code):
+    # The bound on the new key, and the one a convenience default would have
+    # broken: a budget is spent by the request as a whole, so there is no
+    # single argument whose value was wrong and naming one would send a client
+    # to change a number that was never the problem. `limit` is the tempting
+    # wrong answer -- it is what the row budget is charged on, and `year` pays
+    # that budget without having one at all.
+    body = year_client.post(GRAPHQL_PATH, json={"query": document}).get_json()
+
+    for error in body["errors"]:
+        assert REFUSAL_ARGUMENT_KEY not in error["extensions"]
+
+
+@pytest.mark.parametrize("field", LIST_FIELDS)
+def test_the_sdl_names_the_key_that_says_which_argument_was_refused(field):
+    # Same standard the codes are held to (S-012): a client writes against the
+    # SDL, so a key it is expected to read has to be in the SDL rather than
+    # discovered by triggering the error. `run365-schema --check` carries it
+    # into `frontend/schema.graphql` from there.
+    assert REFUSAL_ARGUMENT_KEY in _field_descriptions()[field]
+
+
+def test_the_sdl_says_track_names_its_argument_too():
+    # `track` gains nothing from the key -- `points` is its only argument, so
+    # `path` already says which one -- and carries it anyway, so that one shape
+    # reads off every bounds refusal. That redundancy is a decision, and a
+    # decision only a resolver makes is one the next reader has to re-derive,
+    # so the SDL states it where the codes are stated.
+    description = build_schema_from_sdl(schema.as_str()).type_map["Activity"].fields["track"]
+    assert f'{REFUSAL_ARGUMENT_KEY}: "points"' in (description.description or "")
+
+
+def test_the_year_description_names_no_argument_key_either():
+    # S-053's line, extended to the new key for the same reason it applies to
+    # the code: `year` spends the row budget without taking a window, so it has
+    # no argument that can be out of range and nothing to name one for.
+    description = build_schema_from_sdl(schema.as_str()).query_type.fields["year"].description or ""
+    assert REFUSAL_ARGUMENT_KEY not in description
+
+
 # ── CUI-0018 (b): a refused `track` costs that field and nothing else ──────
 SIBLING_SURVIVAL_DOCUMENT = (
     "query { meta { year } "

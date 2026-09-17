@@ -559,6 +559,41 @@ should not have to learn a private spelling to do the one thing it was given
 the map for.
 """
 
+REFUSAL_ARGUMENT_KEY = "argument"
+"""Key a bounds refusal names its offending argument under, inside ``extensions``.
+
+The second and last key this schema publishes. What decides that ``extensions``
+may carry this and may not carry a budget counter is not how useful each would
+be -- both are useful -- but which of two jobs the key is doing:
+
+* ``code`` classifies the refusal and ``argument`` *locates* it. Locating a
+  refusal is what ``path`` and ``locations`` are for, and for every other
+  refusal they finish the job. For the four list fields they cannot: a refusal
+  is built with ``nodes=raw.field_nodes``, so ``locations`` lands on the field
+  name and never on the argument inside it, and ``activities(limit: 1000,
+  offset: -1)`` and ``activities(limit: -5, offset: 0)`` come back
+  indistinguishable -- same ``path``, same line and column, same ``code``
+  (measured, all four list fields, both arguments; CUI-0050). This key finishes
+  the sentence those two fields start, in the same free-form map they would
+  have used had they been able to reach.
+* a budget counter would be neither. It is *server state*: how much of a
+  shared per-request allowance the fields before this one have already spent.
+  W-013 decided a client is told what it asked for and not how the server
+  counts it, and publishing the remainder under a new key would undo that
+  sideways rather than reopen it.
+
+The test of the line, then, is whether the value came from the client. An
+argument name is the client's own document read back to it -- this schema
+learns it from the document and can publish it without telling the client
+anything it did not itself send. A counter is the opposite: not derivable from
+the document at all, and a number clients would start pacing against, which
+makes an extension's bookkeeping into a contract.
+
+This carries no remedy of its own and so earns no code, which is the other half
+of why it is a key rather than two more codes: every bounds refusal asks for
+the same change whichever argument tripped it (:data:`ARGUMENT_OUT_OF_RANGE_CODE`).
+"""
+
 LIST_ROW_BUDGET_CODE = "LIST_ROW_BUDGET_EXCEEDED"
 """Refusal code: the operation's list fields together opened too many rows.
 
@@ -598,20 +633,25 @@ The *field* is already in ``path`` and ``locations``, which CUI-0037 made
 load-bearing, and the legal range is in the field's description. The *argument*
 is not, and an earlier draft of this paragraph claimed it was:
 :class:`ClientRefusalError` passes ``nodes=raw.field_nodes``, so ``locations``
-points at the field name and never at the argument. Measured, the two bounded
-arguments of one list field are indistinguishable on the wire --
-``{ activities(limit: 1000, offset: -1) { id } }`` and
-``{ activities(limit: -5, offset: 0) { id } }`` both come back with ``path``
+points at the field name and never at the argument. Measured again on this
+branch before the fix below, across all four list fields and both ends of both
+ranges: ``{ activities(limit: 1000, offset: -1) { id } }`` and
+``{ activities(limit: -5, offset: 0) { id } }`` came back with ``path``
 ``["activities"]`` and ``locations`` line 1 column 3, the ``a`` of
-``activities``; only ``message`` differs.
+``activities``; only ``message`` differed, and the same held for ``weight``,
+``weather`` and ``warnings``.
 
-For ``track`` that costs nothing: ``points`` is its only argument, so ``path``
+For ``track`` that cost nothing: ``points`` is its only argument, so ``path``
 already names the one thing that can be out of range. For the four list fields
-it is a real gap -- two bounded arguments, one refusal, and only the English
-says which. The gap is left open knowingly, because the remedy does not depend
-on the answer and the client knows what it sent. If one ever needs to branch on
-it, the fix is an ``extensions.argument`` key, not a third and fourth code
-(W-035).
+it was a real gap -- two bounded arguments, one refusal, and only the English
+saying which, under a description that tells clients to branch on the code
+rather than on the message. CUI-0050 closes it the way W-035 said to, with an
+``extensions.argument`` key (:data:`REFUSAL_ARGUMENT_KEY`) rather
+than a third and fourth code: the argument names *where*, and a code names
+*what to do*, which here is one thing whichever argument it was. ``track``
+carries the key too, redundantly with its own ``path``, so that a client reads
+one shape off every bounds refusal instead of having to know which fields are
+the special case.
 
 Four codes rather than two (one per exception class) or one (a flat
 "refused"): the split follows what the client must *change*, and the three
@@ -665,7 +705,7 @@ class ClientRefusalError(GraphQLError):
       both deployment modes by ``frontend/src/data/static/source.ts``.
     """
 
-    def __init__(self, info: Info, message: str, code: str) -> None:
+    def __init__(self, info: Info, message: str, code: str, argument: str | None = None) -> None:
         # Strawberry's ``Info`` publishes ``path`` but has no public accessor
         # for ``field_nodes``, and ``locations`` cannot be reconstructed
         # without them. Both are read off the one underlying
@@ -691,17 +731,27 @@ class ClientRefusalError(GraphQLError):
         # a server fault, which ``test_a_server_fault_carries_no_client_refusal_code``
         # is what stops (CUI-0018 (a)).
         #
-        # Nothing but the code goes in ``extensions``. How much budget is left is
-        # the obvious next thing to add and is deliberately still absent: W-013
-        # kept the counters' own key names out of the response, and publishing
-        # the remainder under a new key would undo that decision sideways rather
-        # than reopen it.
+        # ``extensions`` carries the refusal's classification and, where `path`
+        # and `locations` cannot reach, its location -- and nothing else. How
+        # much budget is left remains the obvious next thing to add and remains
+        # deliberately absent; CUI-0050 widened this map by one key without
+        # widening that line, and :data:`REFUSAL_ARGUMENT_KEY` is where the two
+        # are told apart.
+        #
+        # *argument* defaults to ``None`` because only bounds refusals have one
+        # to name: a budget is spent by the request as a whole, so there is no
+        # single argument whose value was wrong. :class:`BoundsError` takes it
+        # as a required parameter rather than inheriting this default, so a
+        # bounds raise site added later cannot forget it in silence.
         raw = info._raw_info
+        published = {REFUSAL_CODE_KEY: code}
+        if argument is not None:
+            published[REFUSAL_ARGUMENT_KEY] = argument
         super().__init__(
             message,
             nodes=raw.field_nodes,
             path=raw.path.as_list(),
-            extensions={REFUSAL_CODE_KEY: code},
+            extensions=published,
         )
 
 
@@ -726,7 +776,15 @@ class BoundsError(ClientRefusalError):
     ``located_error``, which set ``original_error`` and so handed Strawberry a
     traceback to log at ``ERROR`` -- the exact amplification CUI-0029 removed
     from the budget refusals beside it, left in place on the cheaper document.
+
+    Names the argument it refused, which its base class leaves optional: a
+    bounds check is the one refusal that always has exactly one argument to
+    blame, and requiring it here is what stops a fourth raise site publishing a
+    refusal a client cannot act on (CUI-0050).
     """
+
+    def __init__(self, info: Info, message: str, code: str, argument: str) -> None:
+        super().__init__(info, message, code, argument)
 
 
 def _charge_list_rows(info: Info, rows: int) -> int:
@@ -930,7 +988,9 @@ TRACK_DESCRIPTION = (
     f"(send fewer `track` fields -- a smaller `points` will not help), "
     f"`{TRACK_POINTS_BUDGET_CODE}` (ask for fewer points), or "
     f"`{ARGUMENT_OUT_OF_RANGE_CODE}` for a `points` outside the range above, which "
-    "retrying unchanged never fixes. Branch on the code rather than on the message; "
+    f"retrying unchanged never fixes and which also carries "
+    f'`extensions.{REFUSAL_ARGUMENT_KEY}: "points"`. '
+    "Branch on the code rather than on the message; "
     "the message quotes these limits and so changes whenever they are tuned. "
     "The list is nullable so that a refusal costs this field and nothing else: a "
     "refused `track` is `null` in `data`, its error is in `errors`, and sibling "
@@ -982,7 +1042,9 @@ PAGE_WINDOW_NOTE = (
     f" The window is `limit` (1-{MAX_PAGE_SIZE}) rows from `offset` (0 or more); "
     "either side of that range is refused rather than clamped -- with "
     f"`extensions.{REFUSAL_CODE_KEY}` `{ARGUMENT_OUT_OF_RANGE_CODE}`, which retrying "
-    "unchanged never fixes -- and the budget above is charged on `limit` as asked for "
+    f"unchanged never fixes, and with `extensions.{REFUSAL_ARGUMENT_KEY}` naming which "
+    "of the two was refused, since both sit at the same `path` and the same "
+    "`locations` -- and the budget above is charged on `limit` as asked for "
     "rather than on the rows a page turns out to hold."
 )
 """Sentence appended to every field that takes a ``limit``/``offset`` page window.
@@ -993,7 +1055,10 @@ that note and not this one (S-053). That split is also why
 :data:`ARGUMENT_OUT_OF_RANGE_CODE` is named here rather than in the shared
 note: ``year`` has no argument that can be out of range, and
 ``test_the_year_description_names_the_budget_code_but_not_the_window_one``
-holds the same line S-053 drew for the ``limit`` sentence. The four list fields carry both, in that
+holds the same line S-053 drew for the ``limit`` sentence. The same split puts
+:data:`REFUSAL_ARGUMENT_KEY` here and only here among the list notes -- it is
+the two-bounded-arguments case that made the key necessary (CUI-0050), and a
+field with no window has nothing for it to name. The four list fields carry both, in that
 order, so the budget is stated before the sentence that says what it is charged
 on.
 
@@ -1039,10 +1104,14 @@ def _page(info: Info, limit: int, offset: int) -> tuple[int, int]:
             info,
             f"limit must be between 1 and {MAX_PAGE_SIZE}, got {limit}",
             ARGUMENT_OUT_OF_RANGE_CODE,
+            "limit",
         )
     if offset < 0:
         raise BoundsError(
-            info, f"offset must not be negative, got {offset}", ARGUMENT_OUT_OF_RANGE_CODE
+            info,
+            f"offset must not be negative, got {offset}",
+            ARGUMENT_OUT_OF_RANGE_CODE,
+            "offset",
         )
     return limit, offset
 
@@ -1065,6 +1134,7 @@ def _track_points(info: Info, points: int) -> int:
             info,
             f"points must be between 1 and {MAX_TRACK_POINTS}, got {points}",
             ARGUMENT_OUT_OF_RANGE_CODE,
+            "points",
         )
     return points
 
