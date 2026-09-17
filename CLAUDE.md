@@ -63,7 +63,8 @@ python -m venv .venv && .venv/bin/pip install -e ".[dev]"
 .venv/bin/run365-schema --check frontend/schema.graphql   # SDL 同 frontend 同步
 .venv/bin/python -m pip install --upgrade pip setuptools -q   # ← 唔好慳呢行，見下
 .venv/bin/pip install pip-audit -q && .venv/bin/pip-audit --progress-spinner=off
-# ↑ CI gate：審成個環境（10 個 runtime dep + [dev] extras + pip-audit 自己嘅 closure）。
+# ↑ CI gate，喺 `audit.yml` 唔喺 `pages.yml`（CUI-0052 搬咗）：審成個環境
+#   （10 個 runtime dep + [dev] extras + pip-audit 自己嘅 closure）。
 #   上面第一行就係 CI 個 step 嘅第一句（`python -m pip install --upgrade pip setuptools`）。
 #   **漏咗佢本地就同 CI 唔等價**：喺一個新 `.venv`（pip 24.0 / setuptools 79.0.1）直接 audit 會見到
 #   14 條紅而 CI 係綠，實測如此（S-120）。全部有 fix version，所以 upgrade 係真修唔係 suppression。
@@ -72,7 +73,7 @@ python -m venv .venv && .venv/bin/pip install -e ".[dev]"
 # Frontend
 cd frontend
 npm ci
-npm audit                  # CI gate：全樹（dev 都審）。CUI-0049 bump 完 dev 樹後剷走 --omit=dev，exit 0 = 零 advisory
+npm audit                  # CI gate（同樣喺 `audit.yml`）：全樹（dev 都審）。CUI-0049 bump 完 dev 樹後剷走 --omit=dev，exit 0 = 零 advisory
 npm run lint
 npm run typecheck          # 會先跑 codegen
 npx vitest run
@@ -80,7 +81,16 @@ npm run build              # api mode
 npm run build:static       # static mode
 ```
 
-CI 跑嘅就係上面呢批（見 `.github/workflows/pages.yml`）。改動後本地行過先 push。
+CI 跑嘅就係上面呢批，分兩個 workflow：`.github/workflows/pages.yml`（lint / test / typecheck /
+build，`build` → `deploy` 掛喺佢哋上面）同 `.github/workflows/audit.yml`（兩個 supply-chain audit，
+CUI-0052 由部署路徑搬走，**冇任何嘢 `needs` 佢**，另加每日 `schedule:`）。改動後本地行過先 push。
+
+第三個 workflow `.github/workflows/smoke.yml`（CUI-0053）唔喺上面呢批之內：佢喺 push 去 `develop`
+之後等 Vercel 報 `Production` deployment success，然後打真嘅 deployed API
+（`scripts/wait_for_vercel.py` ＋ `scripts/smoke_api.py`）。本地要驗嘅話直接行
+`python scripts/smoke_api.py <base-url>`。⚠️ `deployment_status` 同 `schedule` 兩個 trigger
+**只認 default branch（`master`）上面嗰份 workflow file**，所以 smoke test 用 `push:`；
+而 `audit.yml` 個每日 `schedule:` 要等 `audit.yml` 自己 merge 上 `master` 先會開始行。
 
 ---
 
