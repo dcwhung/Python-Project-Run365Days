@@ -1736,6 +1736,114 @@ def test_a_budget_refusal_still_tells_the_client_where_it_happened(year_client, 
     assert error["path"], "a refusal with no path cannot be traced to a field"
 
 
+# ── CUI-0037: a bounds refusal is a client refusal too ────────────────────
+BOUNDS_REFUSED_DOCUMENTS = (
+    pytest.param("{ activities(offset: -1) { id } }", "offset", id="offset-negative"),
+    pytest.param("{ activities(limit: 0) { id } }", "limit", id="limit-empty-window"),
+    pytest.param(
+        f"{{ activities(limit: {MAX_PAGE_SIZE + 1}) {{ id }} }}", "limit", id="limit-over-max"
+    ),
+    pytest.param("{ weight(limit: -5) { date } }", "limit", id="limit-negative-other-field"),
+    pytest.param(
+        f'{{ activity(id: "{TRACKED_ACTIVITY_ID}") {{ track(points: 0) {{ sec }} }} }}',
+        "points",
+        id="points-empty",
+    ),
+    pytest.param(
+        f'{{ activity(id: "{TRACKED_ACTIVITY_ID}") '
+        f"{{ track(points: {MAX_TRACK_POINTS + 1}) {{ sec }} }} }}",
+        "points",
+        id="points-over-max",
+    ),
+)
+"""One document per bounds check a client can trip, and the argument it names.
+
+Both refusing functions and more than one call site of each: ``_page`` is
+reached from four list fields and ``_track_points`` from ``Activity.track``, so
+``weight`` is here beside ``activities`` to keep the fix from being applied at
+one resolver and missed at the others. Each of the three arguments is driven
+past both ends of its range where it has two, since the low end and the high
+end are separate ``raise`` statements.
+"""
+
+
+@pytest.mark.parametrize(("document", "argument"), BOUNDS_REFUSED_DOCUMENTS)
+def test_a_bounds_refusal_is_not_logged_as_a_server_fault(year_client, caplog, document, argument):
+    # The half of CUI-0029 its own tests did not reach. A budget refusal stopped
+    # writing a traceback; a bounds refusal kept doing it, from a document an
+    # order of magnitude cheaper to send. Measured on this branch before the
+    # fix, under the default logging configuration a Vercel deployment runs
+    # with: `{ activities(offset: -1) { id } }` is 33 bytes of request and
+    # produced one ERROR record carrying nine stack frames, against zero bytes
+    # for an already-fixed budget refusal.
+    #
+    # The byte count is deliberately not asserted -- it is dominated by the
+    # absolute length of the checkout's own path, so it measures the machine
+    # rather than the code. `exc_info` and the level are what the fix moves and
+    # what a deployment's handlers actually read.
+    with caplog.at_level(logging.DEBUG, logger="strawberry.execution"):
+        assert argument in gql_errors(year_client, document)
+
+    records = _strawberry_records(caplog)
+    assert records, "the refusal must still be logged -- silence is not the fix here"
+    assert [record.exc_info for record in records] == [None] * len(records)
+    assert [record.levelno for record in records] == [REFUSAL_LOG_LEVEL] * len(records)
+
+
+@pytest.mark.parametrize(("document", "argument"), BOUNDS_REFUSED_DOCUMENTS)
+def test_a_bounds_refusal_still_tells_the_client_where_it_happened(year_client, document, argument):
+    # What must not move while the log record does. graphql-core used to build
+    # `locations` and `path` for these by wrapping the resolver's ValueError,
+    # which is the same act that attached the traceback; raising them already
+    # located is what lets the traceback go without taking the client's
+    # bearings with it. The message is pinned whole because
+    # `frontend/src/data/static/source.ts` answers the same arguments with the
+    # same sentences, and CUI-0025 bought that agreement.
+    body = year_client.post(GRAPHQL_PATH, json={"query": document}).get_json()
+
+    error = body["errors"][0]
+    assert error["message"].startswith(f"{argument} must ")
+    assert error["locations"], "a refusal with no location cannot be traced to a field"
+    assert error["path"], "a refusal with no path cannot be traced to a field"
+
+
+@pytest.mark.parametrize(("literal", "reason"), UNREPRESENTABLE_POINTS)
+def test_an_int_coercion_failure_is_not_reclassified_as_a_client_refusal(
+    year_client, caplog, literal, reason
+):
+    # The bound on the widening. Reclassifying two exception types instead of
+    # one invites the classifier to be written against `GraphQLError` itself,
+    # which every error here already is -- coercion failures, validation errors
+    # and the introspection gate included.
+    #
+    # Measured rather than assumed, because the tempting claim is wrong: that
+    # mutant does *not* slip past the existing suite. Widening the classifier
+    # to `GraphQLError` also reds
+    # `test_an_unseeded_budget_still_logs_its_traceback` and
+    # `test_an_unexpected_resolver_error_is_still_logged_as_a_server_fault`,
+    # since graphql-core wraps both of those in a `GraphQLError` on the way
+    # out. What this adds is not the only guard but the named one: CUI-0037
+    # decided in writing that a coercion failure stays a fault, and a decision
+    # held only by a test about something else is a decision that moves the
+    # first time that test is rewritten.
+    #
+    # These lose nothing by staying at ERROR. Measured on this branch: a
+    # coercion failure reaches stderr with zero stack frames either way,
+    # because it is raised before any resolver and so has no `original_error`
+    # to render. There is no traceback here worth reclassifying for, only the
+    # message `source.ts` pins in both deployment modes.
+    with caplog.at_level(logging.DEBUG, logger="strawberry.execution"):
+        message = gql_errors(
+            year_client,
+            f'{{ activity(id: "{TRACKED_ACTIVITY_ID}") {{ track(points: {literal}) {{ sec }} }} }}',
+        )
+
+    assert "Int cannot represent" in message and reason in message
+    records = _strawberry_records(caplog)
+    assert records, "a coercion failure must not go unlogged"
+    assert all(record.levelno == logging.ERROR for record in records)
+
+
 # ── AU-050: one statement per batch of tracks, not two per track ───────────
 @pytest.fixture
 def track_rows_loaded():
