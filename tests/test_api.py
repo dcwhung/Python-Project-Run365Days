@@ -1,4 +1,3 @@
-import importlib.util
 import logging
 import re
 from contextlib import ExitStack
@@ -46,7 +45,6 @@ YEAR_DAYS = 365
 STORED_TRACK_POINTS = 600
 TRACKED_ACTIVITY_ID = "r0"
 GRAPHIQL_ENV = "RUN365_GRAPHIQL"
-VERCEL_ENTRY = Path(__file__).resolve().parents[1] / "api" / "graphql.py"
 
 # The deepest document the front end sends (queries.ts YearQuery): year ->
 # personalBests -> longest -> weather -> leaf.
@@ -243,6 +241,81 @@ def gql_partial(client, query, variables=None):
 def test_health(client):
     r = client.get(HEALTH_PATH)
     assert r.get_json()["status"] == "ok"
+
+
+# ── CUI-0005: the test client has to end a request the way a server does ──
+PAGING_QUERY = "query($o:Int!){activities(limit:1,offset:$o){id}}"
+"""One row at a time, so a run of these is a run of *requests* and not of rows."""
+
+REQUESTS_PAST_THE_POOL = 400
+"""Requests the run below makes, from the ticket's own reproduction.
+
+Far past the pool's capacity -- SQLAlchemy's default ``QueuePool`` is 5
+connections plus 10 of overflow -- but the number is the ticket's rather than
+that ceiling plus one, because where the failure lands is not stable. A session
+that is never closed still gives its connection back when the garbage collector
+reaches it, so the run survives well past 15: CUI-0005 recorded the first
+timeout at request 134 and the same script on this branch recorded it at 100.
+It is not idle -- it went red under all three regressions this fix was
+mutation-tested against -- but where it fails is a property of the collector,
+so the test above is the one that makes the guarantee.
+"""
+
+
+@pytest.fixture
+def request_sessions(monkeypatch):
+    """Record every session the app opens, and every one it closes.
+
+    References are kept, deliberately. An unclosed session hands its connection
+    back when it is collected, which is what makes the symptom wander; holding
+    the objects takes the garbage collector out of the measurement so that what
+    is left is the lifecycle itself.
+    """
+    opened, closed = [], []
+    real = db.Session
+
+    class Tracked(real):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            opened.append(self)
+
+        def close(self):
+            closed.append(self)
+            super().close()
+
+    monkeypatch.setattr(db, "Session", Tracked)
+    return opened, closed
+
+
+def test_a_request_through_the_test_client_closes_its_session(year_client, request_sessions):
+    # The mechanism, and the load-bearing assertion of the pair. `get_context`
+    # used to hand the session to `response.call_on_close`, which fires only
+    # when the WSGI iterable is closed: a real server closes it, and
+    # `app.test_client()` never does. Measured on this branch with the same
+    # tracking as here, 40 requests per transport: the real server opened 40
+    # sessions and closed 40, the test client opened 40 and closed none.
+    #
+    # Three requests are enough, because what is wrong is not a threshold.
+    opened, closed = request_sessions
+    for offset in range(3):
+        assert len(gql(year_client, PAGING_QUERY, {"o": offset})["activities"]) == 1
+
+    assert len(opened) == 3, "one session per request, which is what get_context promises"
+    assert closed == opened, "a request ended without returning its session to the pool"
+
+
+def test_a_long_run_of_requests_is_served_whole(year_client):
+    # The symptom, written the way the ticket reproduced it. Not the gate --
+    # see REQUESTS_PAST_THE_POOL for why the failure point wanders -- but it
+    # does pin the thing a developer would actually hit, and it checks the
+    # paging walked rather than only that nothing raised: a fix that returned
+    # sessions by breaking the request would pass a bare "no exception" run.
+    ids = []
+    for offset in range(REQUESTS_PAST_THE_POOL):
+        ids.extend(row["id"] for row in gql(year_client, PAGING_QUERY, {"o": offset})["activities"])
+
+    assert len(ids) == YEAR_DAYS, "the window walks the whole year and then runs out"
+    assert len(set(ids)) == YEAR_DAYS, "and never serves the same activity twice"
 
 
 def test_meta(client):
@@ -474,6 +547,91 @@ def test_a_points_over_the_ceiling_is_capped_where_the_rows_are_read(varied_sess
 
     assert len(rows) == MAX_TRACK_POINTS
     assert rows == service.track(varied_session, OVER_CAP_ID, MAX_TRACK_POINTS)
+
+
+@pytest.mark.parametrize("points", [-1, -5, -1000])
+def test_a_negative_points_is_refused_where_the_rows_are_read(varied_session, points):
+    # The same argument as the test above, run off the other end of the range
+    # (CUI-0040). `min(points, MAX_TRACK_POINTS)` returned a negative unchanged
+    # and `_even_positions` turns anything under 2 into the last row alone, so
+    # every negative came back as exactly one row. Measured against a
+    # 1250-row track before the fix: -1, -5 and -1000 all returned 1, which is
+    # what `points=1` returns, leaving a caller unable to tell a broken
+    # argument from a legitimate one.
+    #
+    # Refused rather than clamped, and the choice is argued in `tracks`'s own
+    # docstring because the two are not interchangeable here: clamping would
+    # have to clamp upward to MAX_TRACK_POINTS, since that is what falsy
+    # already means at this layer.
+    with pytest.raises(ValueError, match="points must not be negative"):
+        service.tracks(varied_session, [OVER_CAP_ID], points)
+
+
+@pytest.mark.parametrize("points", [None, 0, False, -0.0])
+def test_a_falsy_points_still_means_the_ceiling_rather_than_a_refusal(varied_session, points):
+    # The boundary the refusal above must not cross. `0` and `None` mean "I did
+    # not ask", which this layer reads as the ceiling -- the reading CUI-0025
+    # settled and CUI-0033 (a) made binding on the answer as well as the ask.
+    # `False` is here because it is an `int` that is falsy and negative-adjacent
+    # in every naive check, and it has to land with `0` rather than with `-1`.
+    #
+    # `-0.0` is here for the opposite reason and is CUI-0048's own decision
+    # (the argument is in `tracks`'s guard comment): it reads as negative and
+    # is not one. `-0.0 < 0` is `False`, which is why the guard lets it past,
+    # and that is correct rather than a leak -- CUI-0040 refused values *below*
+    # zero and `-0.0` equals zero. Pinned so the decision survives the next
+    # reader who notices the minus sign, and pinned here rather than in a test
+    # of its own so it sits with the three values it behaves identically to.
+    rows = service.tracks(varied_session, [OVER_CAP_ID], points)[OVER_CAP_ID]
+
+    assert len(rows) == MAX_TRACK_POINTS
+    # Identical to `0`, not merely the same length: "treated as zero" is the
+    # claim, and a cap that returned the first MAX_TRACK_POINTS rows for one
+    # value and an even sample for the other would pass a length check.
+    assert rows == service.tracks(varied_session, [OVER_CAP_ID], 0)[OVER_CAP_ID]
+
+
+def test_a_fractional_points_raises_the_type_error_the_docstring_promises(varied_session):
+    # CUI-0048's other half. `2.5` passes the guard -- it is not below zero --
+    # and `min(2.5, MAX_TRACK_POINTS)` carries it into `_even_positions`, where
+    # `range()` refuses it. The docstring used to name `ValueError` alone, so
+    # this was a raise no caller was told about.
+    #
+    # The exception is left where it is rather than converted: a non-integral
+    # count is the wrong type of thing to count with, so `TypeError` is the
+    # idiomatic answer and a `ValueError` would say it was merely out of range.
+    # What this pins is the promise, so narrowing the contract later has to be
+    # a decision rather than a drift.
+    with pytest.raises(TypeError):
+        service.tracks(varied_session, [OVER_CAP_ID], 2.5)
+
+
+def test_an_empty_batch_is_still_bounds_checked(varied_session):
+    # The guard's position, which nothing else measures: it stands in front of
+    # the empty-batch early return, so `tracks(s, [], -1)` refuses rather than
+    # answering `{}`. Order matters because the alternative reads as harmless
+    # -- there is no track to sample, so why check? -- and would make the
+    # function's contract depend on whether the caller happened to ask for any
+    # tracks, refusing a bad `points` for one id and accepting it for none.
+    with pytest.raises(ValueError, match="points must not be negative"):
+        service.tracks(varied_session, [], -1)
+
+    # The control: the same empty batch with a legal `points` still returns the
+    # empty mapping, so the assertion above is the guard firing and not the
+    # call failing for some reason of its own.
+    assert service.tracks(varied_session, [], 1) == {}
+
+
+def test_a_negative_points_never_reaches_the_service_from_a_client(year_client):
+    # What must not move: the refusal above is for a caller inside this
+    # repository, and no client can drive it. `_track_points` refuses first and
+    # answers in its own words, which `checkPoints` in
+    # `frontend/src/data/static/source.ts` matches -- so the sentence a client
+    # reads is the same in both deployment modes, and it is not the service's.
+    message = gql_errors(year_client, '{ activity(id: "r0") { track(points: -5) { sec } } }')
+
+    assert f"points must be between 1 and {MAX_TRACK_POINTS}, got -5" in message
+    assert "must not be negative" not in message
 
 
 def test_an_omitted_points_still_returns_every_stored_row_under_the_ceiling(varied_session):
@@ -745,36 +903,6 @@ def test_the_type_graph_stays_one_level_below_the_depth_limit():
 def test_document_with_too_many_tokens_is_rejected(client):
     flood = " ".join(f"a{i}: meta {{ year }}" for i in range(500))
     assert "token" in gql_errors(client, f"{{ {flood} }}").lower()
-
-
-# ── AU-001: GraphiQL is off unless the environment asks for it ─────────────
-def _load_vercel_entry(monkeypatch, db_path, graphiql_env=None):
-    monkeypatch.setenv(db.DB_PATH_ENV, str(db_path))
-    if graphiql_env is None:
-        monkeypatch.delenv(GRAPHIQL_ENV, raising=False)
-    else:
-        monkeypatch.setenv(GRAPHIQL_ENV, graphiql_env)
-    spec = importlib.util.spec_from_file_location("run365_vercel_entry", VERCEL_ENTRY)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-def test_graphiql_is_disabled_by_default(monkeypatch, sample_records, tmp_path):
-    path = tmp_path / "run365.db"
-    write_sqlite(sample_records, path)
-    module = _load_vercel_entry(monkeypatch, path)
-    r = module.app.test_client().get(GRAPHQL_PATH, headers={"Accept": "text/html"})
-    assert b"graphiql" not in r.data.lower()
-
-
-def test_graphiql_is_served_when_the_env_var_is_on(monkeypatch, sample_records, tmp_path):
-    path = tmp_path / "run365.db"
-    write_sqlite(sample_records, path)
-    module = _load_vercel_entry(monkeypatch, path, graphiql_env="1")
-    r = module.app.test_client().get(GRAPHQL_PATH, headers={"Accept": "text/html"})
-    assert r.status_code == 200
-    assert b"graphiql" in r.data.lower()
 
 
 # ── W-008: introspection follows the same flag as GraphiQL ─────────────────
@@ -1398,7 +1526,14 @@ def test_a_cheap_track_is_refused_once_the_points_budget_is_spent(year_client):
     data = body["data"]
 
     assert len(data["activities"]) == ACTIVITIES_THAT_FIT, "the spend itself must be served"
-    assert [n for n in range(CHEAP_ALIASES) if data[f"c{n}"] is not None] == []
+    # The refused thing is the `track` field, and since CUI-0018 (b) that is
+    # where the null stops: the aliased parent still arrives. Asserting the
+    # parents are gone was this test's original wording and is now exactly
+    # backwards -- a parent that vanished would mean the propagation came back.
+    assert [n for n in range(CHEAP_ALIASES) if data[f"c{n}"]["track"] is not None] == []
+    assert [n for n in range(CHEAP_ALIASES) if data[f"c{n}"] is None] == [], (
+        "a refused track must not take its own activity with it"
+    )
     messages = [e["message"] for e in body["errors"]]
     assert len(messages) == CHEAP_ALIASES
     # Named, not just counted: the field budget would refuse these too, and a
@@ -1423,7 +1558,9 @@ def test_a_field_that_overruns_the_points_budget_leaves_it_for_the_next_one(year
     data = body["data"]
 
     assert len(data["activities"]) == spend
-    assert data["over"] is None, f"{MAX_TRACK_POINTS} points must not fit in the {half} left"
+    assert data["over"]["track"] is None, (
+        f"{MAX_TRACK_POINTS} points must not fit in the {half} left"
+    )
     assert len(data["after"]["track"]) == half, "the refusal must not have spent the remainder"
 
 
@@ -1443,9 +1580,10 @@ def test_a_field_refused_on_points_leaves_the_field_budget_untouched_too(year_cl
     spend = (MAX_TRACK_POINTS_PER_REQUEST - half) // half
     slots_left = MAX_TRACK_FIELDS_PER_REQUEST - spend
     assert slots_left > 0, "the points spend must not exhaust the field budget by itself"
-    # `track` is non-null, so a refused child nulls its whole parent. Keeping
-    # the slots under one parent makes that all-or-nothing, and leaving the
-    # boundary probe a separate root field makes it null only itself.
+    # The slots are kept under one parent because that is the shape the field
+    # budget is interesting under -- many `track` fields, one activity. Since
+    # CUI-0018 (b) a refused one nulls only itself, so each slot is readable
+    # separately below rather than being folded into whether the parent lived.
     cheap_tracks = " ".join(f"t{n}: {CHEAP_TRACK}" for n in range(slots_left))
     fields = (
         _page_field(spend, _track_field(half)),
@@ -1457,9 +1595,13 @@ def test_a_field_refused_on_points_leaves_the_field_budget_untouched_too(year_cl
     data = body["data"]
 
     assert len(data["activities"]) == spend
-    assert data["over"] is None, f"{MAX_TRACK_POINTS} points must not fit in the {half} left"
+    assert data["over"]["track"] is None, (
+        f"{MAX_TRACK_POINTS} points must not fit in the {half} left"
+    )
     # The gate: had the refusal charged a field, the last of these would be
-    # refused and null its parent.
+    # refused and come back null. It is the list below that carries the
+    # assertion now -- before CUI-0018 (b) a single refused slot nulled `rest`
+    # itself, so the line above did the work and the list was a formality.
     assert data["rest"] is not None, f"the refusal must leave all {slots_left} field slots"
     assert [n for n in range(slots_left) if data["rest"][f"t{n}"] is None] == []
     messages = [e["message"] for e in body["errors"]]
@@ -1474,7 +1616,7 @@ def test_a_field_refused_on_points_leaves_the_field_budget_untouched_too(year_cl
         _document(*fields, f'past: activity(id: "{TRACKED_ACTIVITY_ID}") {{ {CHEAP_TRACK} }}'),
     )
     assert past["data"]["rest"] is not None, "the slots before the boundary are still served"
-    assert past["data"]["past"] is None
+    assert past["data"]["past"]["track"] is None
     assert str(MAX_TRACK_FIELDS_PER_REQUEST) in " ".join(e["message"] for e in past["errors"])
 
 
@@ -1662,7 +1804,66 @@ def test_a_budget_refusal_is_not_logged_as_a_server_fault(year_client, caplog, d
     # The constant is imported rather than spelled out so this test follows the
     # decision, and bounded here so it cannot follow it back to where it began:
     # REFUSAL_LOG_LEVEL = logging.ERROR would satisfy the line above on its own.
-    assert REFUSAL_LOG_LEVEL < logging.ERROR, "a refusal logged at ERROR is the state being fixed"
+    #
+    # Bounded against WARNING rather than ERROR (CUI-0038). The property
+    # CUI-0029 sold is not "quieter than a fault", it is "emitted by nothing at
+    # all under the configuration Vercel runs", and WARNING is the threshold
+    # that decides that -- so `< logging.ERROR` left the WARNING mutant alive.
+    # Measured on this branch, in-process, with the mutant's own level read
+    # back as an oracle, on two documents: the bounds refusal
+    # `{ activities(offset: -1) { id } }` and the budget refusal that is the
+    # `list-rows` param of REFUSED_DOCUMENTS above. At WARNING each reached
+    # stderr; at INFO each wrote nothing at all; the suite stayed green
+    # throughout.
+    #
+    # Named documents and no byte counts, which is CUI-0051 deciding between
+    # its two options. An earlier version of this comment quoted a figure for
+    # each refusal and did not say what had produced them, which left them
+    # unreproducible for precisely the reason they were quotable in the first
+    # place: the count is set by the document. graphql-core renders the
+    # offending source line into the message, so most of each figure is the
+    # document's own text handed back, and the remainder is the refusal's
+    # English -- which this schema's own field descriptions tell clients not to
+    # depend on, since it quotes limits that move whenever a budget is tuned.
+    # Re-measured here on the two documents named above, it reproduced the
+    # figures that earlier version quoted exactly, so they were never wrong.
+    # Those figures are in CUI-0051, which is where to look for them: this
+    # comment no longer carries them, so "the figures it quoted" would
+    # otherwise point at nothing this repository still holds. What was missing
+    # was the sentence that let anyone check, which is the S-068 / S-069 defect
+    # and S-098's answer to it.
+    #
+    # The qualitative half is the half the mutation test actually needed, and
+    # it is the half that has a gate rather than a comment:
+    # `test_a_refusal_writes_nothing_where_no_logging_is_configured` asserts the
+    # zero across every refusal a client can earn, and the `lastResort`
+    # assertion at the end of this test says why WARNING is the threshold that
+    # decides it.
+    #
+    # Bounded from *below* as well (W-030), because the line above alone is
+    # still one-sided -- which is the very defect CUI-0038 was opened over.
+    # Measured at `4a625a9`, the commit before this bound: REFUSAL_LOG_LEVEL =
+    # logging.DEBUG passed all 522 tests that existed there, patched in-process
+    # on both modules that bind the name and with a real refusal's record level
+    # read back as an oracle. `pytest --collect-only` at that commit collects
+    # 522; the figure is anchored rather than bare for the reason W-061 gives
+    # on PUBLISHED_EXTENSION_KEYS below. DEBUG keeps
+    # the silence, so the security property survives untouched; what it breaks
+    # is the affordance this constant's own docstring sells beside it, that an
+    # operator "opts in by lowering the level and gets every one of them". An
+    # operator lowering to INFO would get none.
+    assert logging.INFO <= REFUSAL_LOG_LEVEL < logging.WARNING, (
+        "a refusal at WARNING or above is emitted by a deployment that configures "
+        "nothing; one below INFO is invisible to the operator who opts in"
+    )
+    # The premise of the line above, asserted rather than assumed: WARNING is
+    # the threshold only because `logging.lastResort` -- the handler a process
+    # that has configured nothing falls back to -- carries that level. If
+    # CPython ever moves it, the reasoning moves with it and this says so
+    # rather than going quietly wrong.
+    assert logging.lastResort.level == logging.WARNING, (
+        "the configureless threshold is read off `logging` rather than restated here"
+    )
 
 
 @pytest.mark.parametrize(("document", "path"), UNSEEDED_DOCUMENTS)
@@ -1734,6 +1935,841 @@ def test_a_budget_refusal_still_tells_the_client_where_it_happened(year_client, 
     assert "budget exhausted" in error["message"]
     assert error["locations"], "a refusal with no location cannot be traced to a field"
     assert error["path"], "a refusal with no path cannot be traced to a field"
+
+
+# ── CUI-0037: a bounds refusal is a client refusal too ────────────────────
+BOUNDS_REFUSED_DOCUMENTS = (
+    pytest.param("{ activities(offset: -1) { id } }", "offset", id="offset-negative"),
+    pytest.param("{ activities(limit: 0) { id } }", "limit", id="limit-empty-window"),
+    pytest.param(
+        f"{{ activities(limit: {MAX_PAGE_SIZE + 1}) {{ id }} }}", "limit", id="limit-over-max"
+    ),
+    pytest.param("{ weight(limit: -5) { date } }", "limit", id="limit-negative-other-field"),
+    pytest.param(
+        f'{{ activity(id: "{TRACKED_ACTIVITY_ID}") {{ track(points: 0) {{ sec }} }} }}',
+        "points",
+        id="points-empty",
+    ),
+    pytest.param(
+        f'{{ activity(id: "{TRACKED_ACTIVITY_ID}") '
+        f"{{ track(points: {MAX_TRACK_POINTS + 1}) {{ sec }} }} }}",
+        "points",
+        id="points-over-max",
+    ),
+)
+"""One document per bounds check a client can trip, and the argument it names.
+
+Both refusing functions and more than one call site of each: ``_page`` is
+reached from four list fields and ``_track_points`` from ``Activity.track``, so
+``weight`` is here beside ``activities`` to keep the fix from being applied at
+one resolver and missed at the others. Each of the three arguments is driven
+past both ends of its range where it has two, since the low end and the high
+end are separate ``raise`` statements.
+"""
+
+
+@pytest.mark.parametrize(("document", "argument"), BOUNDS_REFUSED_DOCUMENTS)
+def test_a_bounds_refusal_is_not_logged_as_a_server_fault(year_client, caplog, document, argument):
+    # The half of CUI-0029 its own tests did not reach. A budget refusal stopped
+    # writing a traceback; a bounds refusal kept doing it, from a document an
+    # order of magnitude cheaper to send. Measured on this branch before the
+    # fix, under the default logging configuration a Vercel deployment runs
+    # with: `{ activities(offset: -1) { id } }` is 33 bytes of request and
+    # produced one ERROR record carrying nine stack frames, against zero bytes
+    # for an already-fixed budget refusal.
+    #
+    # The byte count is deliberately not asserted -- it is dominated by the
+    # absolute length of the checkout's own path, so it measures the machine
+    # rather than the code. `exc_info` and the level are what the fix moves and
+    # what a deployment's handlers actually read.
+    with caplog.at_level(logging.DEBUG, logger="strawberry.execution"):
+        assert argument in gql_errors(year_client, document)
+
+    records = _strawberry_records(caplog)
+    assert records, "the refusal must still be logged -- silence is not the fix here"
+    assert [record.exc_info for record in records] == [None] * len(records)
+    assert [record.levelno for record in records] == [REFUSAL_LOG_LEVEL] * len(records)
+
+
+@pytest.mark.parametrize(("document", "argument"), BOUNDS_REFUSED_DOCUMENTS)
+def test_a_bounds_refusal_still_tells_the_client_where_it_happened(year_client, document, argument):
+    # What must not move while the log record does. graphql-core used to build
+    # `locations` and `path` for these by wrapping the resolver's ValueError,
+    # which is the same act that attached the traceback; raising them already
+    # located is what lets the traceback go without taking the client's
+    # bearings with it. The message is pinned whole because
+    # `frontend/src/data/static/source.ts` answers the same arguments with the
+    # same sentences, and CUI-0025 bought that agreement.
+    body = year_client.post(GRAPHQL_PATH, json={"query": document}).get_json()
+
+    error = body["errors"][0]
+    assert error["message"].startswith(f"{argument} must ")
+    assert error["locations"], "a refusal with no location cannot be traced to a field"
+    assert error["path"], "a refusal with no path cannot be traced to a field"
+
+
+@pytest.mark.parametrize(("literal", "reason"), UNREPRESENTABLE_POINTS)
+def test_an_int_coercion_failure_is_not_reclassified_as_a_client_refusal(
+    year_client, caplog, literal, reason
+):
+    # The bound on the widening. Reclassifying two exception types instead of
+    # one invites the classifier to be written against `GraphQLError` itself,
+    # which every error here already is -- coercion failures, validation errors
+    # and the introspection gate included.
+    #
+    # Measured rather than assumed, because the tempting claim is wrong: that
+    # mutant does *not* slip past the existing suite. Widening the classifier
+    # to `GraphQLError` reds at least four other test functions -- among them
+    # `test_an_unseeded_budget_still_logs_its_traceback` and
+    # `test_an_unexpected_resolver_error_is_still_logged_as_a_server_fault`,
+    # since graphql-core wraps both of those in a `GraphQLError` on the way
+    # out.
+    #
+    # Left unenumerated on purpose (S-084). An earlier version of this comment
+    # named those two as if they were the whole list, and two later commits in
+    # the same lane had already falsified it before it merged: the set grows
+    # with every fault test added, so any exhaustive list here is a list that
+    # goes stale. What this adds is not the only guard but the named one:
+    # CUI-0037 decided in writing that a coercion failure stays a fault, and a
+    # decision held only by a test about something else is a decision that
+    # moves the first time that test is rewritten.
+    #
+    # These lose nothing by staying at ERROR. Measured on this branch: a
+    # coercion failure reaches stderr with zero stack frames either way,
+    # because it is raised before any resolver and so has no `original_error`
+    # to render. There is no traceback here worth reclassifying for, only the
+    # message `source.ts` pins in both deployment modes.
+    with caplog.at_level(logging.DEBUG, logger="strawberry.execution"):
+        message = gql_errors(
+            year_client,
+            f'{{ activity(id: "{TRACKED_ACTIVITY_ID}") {{ track(points: {literal}) {{ sec }} }} }}',
+        )
+
+    assert "Int cannot represent" in message and reason in message
+    records = _strawberry_records(caplog)
+    assert records, "a coercion failure must not go unlogged"
+    assert all(record.levelno == logging.ERROR for record in records)
+
+
+# ── CUI-0038: the level's promise is silence, so silence is what is measured ─
+CONFIGURELESS_REFUSALS = REFUSED_DOCUMENTS + tuple(
+    pytest.param(param.values[0], id=param.id) for param in BOUNDS_REFUSED_DOCUMENTS
+)
+"""Every refusal a client can earn, as a bare document.
+
+Both kinds, because one constant and one ``isinstance`` decide the whole set:
+a regression in either puts all of them back on stderr. The bounds half is
+re-wrapped rather than re-spelled so the two lists cannot drift -- its params
+carry an argument name these tests have no use for.
+"""
+
+
+def _unconfigured_logging(monkeypatch):
+    """Put ``logging`` back into the state a process that configures nothing starts in.
+
+    pytest configures a great deal -- a capturing handler on the root logger,
+    levels raised and lowered around each test -- and every bit of it makes
+    records visible that a Vercel function would never emit. Stripping the
+    chain the execution logger propagates along leaves ``logging.lastResort``
+    as the only thing that can write, which is the condition CUI-0029 measured
+    its zero under and the only condition :data:`REFUSAL_LOG_LEVEL` decides
+    anything in.
+
+    Root keeps ``WARNING`` because that is its own default, not because this
+    test wants it: the level under test has to be compared against the real
+    default rather than against one chosen here.
+    """
+    for name in ("strawberry.execution", "strawberry", ""):
+        logger = logging.getLogger(name)
+        monkeypatch.setattr(logger, "handlers", [])
+        monkeypatch.setattr(logger, "disabled", False)
+        monkeypatch.setattr(logger, "propagate", True)
+        monkeypatch.setattr(logger, "level", logging.WARNING if name == "" else logging.NOTSET)
+        # `Logger._cache` memoises `isEnabledFor` per level, and `setLevel` is
+        # what normally invalidates it -- which assigning to `level` is not.
+        # Measured in the full suite: an earlier test leaves
+        # `strawberry.execution._cache == {20: False}` behind, so INFO reads
+        # back disabled here no matter what level was just installed, and every
+        # record vanishes for a reason that has nothing to do with the level
+        # under test. Silence proved that way would be the harness again, which
+        # is the trap `test_a_fault_still_writes_where_no_logging_is_configured`
+        # guards from the other side. Replaced rather than cleared so
+        # monkeypatch puts the original dict back, consistent with the level it
+        # was computed under (W-030).
+        monkeypatch.setattr(logger, "_cache", {})
+
+
+@pytest.mark.parametrize("document", CONFIGURELESS_REFUSALS)
+def test_a_refusal_writes_nothing_where_no_logging_is_configured(
+    year_client, capfd, monkeypatch, document
+):
+    # The property itself, rather than an inequality that restates the
+    # constant. CUI-0029's headline number is "0 bytes on a deployment that
+    # configures nothing", and nothing asserted it: the suite only knew the
+    # refusal was quieter than a fault, which `logging.WARNING` also satisfies
+    # while writing every refusal out (CUI-0038).
+    #
+    # Bytes on fd 2, not a record on a handler, because the handler is exactly
+    # what is absent in the case being modelled.
+    _unconfigured_logging(monkeypatch)
+    capfd.readouterr()
+
+    assert gql_errors(year_client, document)
+
+    assert capfd.readouterr().err == "", (
+        "a refusal reached stderr on a deployment that configured no logging"
+    )
+
+
+def test_a_fault_still_writes_where_no_logging_is_configured(year_client, capfd, monkeypatch):
+    # The control, and the reason the test above is not vacuous: strip enough
+    # of `logging` and everything writes nothing, which would make silence
+    # prove the harness rather than the level. A fault goes out at ERROR, over
+    # `lastResort`'s threshold, so it still lands -- traceback and all, which
+    # is the half CUI-0029 deliberately kept.
+    def explode(_session):
+        raise _ResolverFaultError("the database went away")
+
+    monkeypatch.setattr(service, "meta", explode)
+    _unconfigured_logging(monkeypatch)
+    capfd.readouterr()
+
+    assert gql_errors(year_client, "{ year { year } }")
+
+    err = capfd.readouterr().err
+    assert "_ResolverFaultError" in err, "a server fault must survive a configureless deployment"
+    assert "Traceback" in err, "and it must keep the traceback that is all an operator gets"
+
+
+def test_an_operator_who_lowers_the_level_gets_every_refusal(year_client, monkeypatch):
+    # The other half of the sentence the silence test asserts (W-030).
+    # REFUSAL_LOG_LEVEL's docstring promises two things at once: nothing is
+    # emitted by a deployment that configures nothing, and the refusal is
+    # "silenced by default rather than discarded at the source", so an operator
+    # "opts in by lowering the level and gets every one of them". Only the
+    # first half was asserted, and `logging.DEBUG` satisfies it while breaking
+    # the second -- measured on this branch, in-process, with the constant
+    # patched on both modules that bind the name and a real refusal's record
+    # level read back as an oracle: DEBUG passed all 522 tests that `4a625a9`
+    # collects -- the commit before the bound, since the bound itself is one of
+    # today's -- and an operator who had lowered the level to INFO exactly as
+    # the docstring instructs would have been handed nothing at all.
+    #
+    # This is the property the inequality beside the silence test only
+    # restates, and it is the one that survives the constant being rewritten:
+    # what it watches is the operator's own action, not the number.
+    _unconfigured_logging(monkeypatch)
+    records = []
+    handler = logging.Handler()
+    handler.emit = records.append
+    logger = logging.getLogger("strawberry.execution")
+    monkeypatch.setattr(logger, "handlers", [handler])
+    monkeypatch.setattr(logger, "level", logging.INFO)  # the operator's own opt-in
+
+    # Counted per document rather than in total, because the counts are not all
+    # 1 -- the fan-out document earns one refusal per field it drives past the
+    # budget. A total would pin a number that moves with the fixtures; what is
+    # being asserted is that no document goes unreported.
+    emitted = {}
+    levels = []
+    for document in CONFIGURELESS_REFUSALS:
+        records.clear()
+        assert gql_errors(year_client, document.values[0])
+        emitted[document.id] = len(records)
+        levels.extend(record.levelno for record in records)
+
+    silent = sorted(name for name, count in emitted.items() if not count)
+    assert not silent, f"an operator who lowered the level to INFO was handed nothing for {silent}"
+    assert levels == [REFUSAL_LOG_LEVEL] * len(levels), (
+        "every record the operator opted in to must arrive at the level they opted in at"
+    )
+
+
+# ── CUI-0039: the one shape that can tell `faults` from `errors` ──────────
+FAULTING_ACTIVITY_ID = "BOOM"
+"""An id no fixture stores, used to make one field of a document fail on purpose."""
+
+
+def _mixed_operation() -> str:
+    """One operation that earns a refusal at one field and a fault at another.
+
+    The refusal is driven by the points budget rather than by a bounds check,
+    because that one refuses *part-way through* a list of sibling fields: the
+    first ``MAX_TRACK_POINTS_PER_REQUEST // MAX_TRACK_POINTS`` of them are
+    served and only the next is refused, so the operation genuinely carries
+    both kinds of error at once rather than failing at its first field. The
+    field count is derived from the two constants for that reason and not
+    written out.
+    """
+    fields = MAX_TRACK_POINTS_PER_REQUEST // MAX_TRACK_POINTS + 1
+    tracks = " ".join(f"t{i}: track(points: {MAX_TRACK_POINTS}) {{ sec }}" for i in range(fields))
+    return (
+        f'{{ a1: activity(id: "{TRACKED_ACTIVITY_ID}") {{ {tracks} }} '
+        f'a2: activity(id: "{FAULTING_ACTIVITY_ID}") {{ id }} }}'
+    )
+
+
+def test_a_refusal_and_a_fault_in_one_operation_are_logged_apart(year_client, caplog, monkeypatch):
+    # The only shape that can tell `faults` from `errors` apart in
+    # `process_errors`. An operation whose errors are all refusals never
+    # reaches `super()` at all, and one whose errors are all faults hands over
+    # a list identical to the one it was given -- so the three logging tests
+    # that existed before this one all pass with the filtering removed.
+    # Measured on this branch: `super().process_errors(errors, ...)` in place of
+    # `faults` left the whole suite green, and the mixed operation below showed
+    # exactly what it cost -- 1 INFO + 1 ERROR became 1 INFO + 2 ERROR, the
+    # extra record being the refusal itself, logged a second time as a fault.
+    real = service.activity
+
+    def selective(session, activity_id):
+        if activity_id == FAULTING_ACTIVITY_ID:
+            raise _ResolverFaultError("the database went away")
+        return real(session, activity_id)
+
+    monkeypatch.setattr(service, "activity", selective)
+
+    with caplog.at_level(logging.DEBUG, logger="strawberry.execution"):
+        body = gql_partial(year_client, _mixed_operation())
+
+    assert len(body["errors"]) == 2, "the client must still be told both things"
+    records = _strawberry_records(caplog)
+    refusals = [record for record in records if record.levelno == REFUSAL_LOG_LEVEL]
+    faults = [record for record in records if record.levelno == logging.ERROR]
+    assert len(refusals) == 1 and refusals[0].exc_info is None
+    assert len(faults) == 1
+    assert issubclass(faults[0].exc_info[0], _ResolverFaultError)
+    # The assertion the mutant dies on, and it has to be this one: handing the
+    # unfiltered list to `super()` logs the refusal a second time at ERROR
+    # *without* exc_info, so a check that the faults all carried tracebacks
+    # would have walked straight past it. Counting them is what catches it.
+    assert not any("budget exhausted" in str(record.msg) for record in faults), (
+        "the refusal went to the fault handler as well as to its own"
+    )
+
+
+# ── CUI-0018 (a): a refusal a client can branch on without reading English ─
+LIST_ROW_BUDGET_CODE = "LIST_ROW_BUDGET_EXCEEDED"
+TRACK_POINTS_BUDGET_CODE = "TRACK_POINTS_BUDGET_EXCEEDED"
+TRACK_FIELD_BUDGET_CODE = "TRACK_FIELD_BUDGET_EXCEEDED"
+ARGUMENT_OUT_OF_RANGE_CODE = "ARGUMENT_OUT_OF_RANGE"
+"""The four codes as a client reads them off the wire.
+
+Spelled out here rather than imported from ``run365days.api.schema`` on
+purpose, and it is the one place in this file where that is the right way
+round. These strings *are* the contract: a client branches on the literal, so a
+test that imported the constant would follow a rename straight past the break
+it exists to catch and stay green while every deployed client stopped
+recognising the refusal. The SDL assertions below reach the same four strings
+by a second, independent path -- the field descriptions -- so a rename has to
+go wrong in two places at once to go unnoticed.
+"""
+
+CONTEXT_KEY_NAMES = ("track_points_remaining", "track_fields_remaining", "list_rows_remaining")
+"""The budget counters' context keys, which no refusal may name.
+
+W-013 decided the client is told what it asked for and not how the server
+counts it, and CUI-0018 explicitly does not reopen that: adding a machine-
+readable code is a way to stop clients parsing English, not a licence to
+publish the extension's internals under a new key.
+"""
+
+CODED_BUDGET_DOCUMENTS = (
+    pytest.param(
+        "{{ {} }}".format(
+            " ".join(f"{alias}: activities(limit: {MAX_PAGE_SIZE}) {{ id }}" for alias in "abcde")
+        ),
+        LIST_ROW_BUDGET_CODE,
+        id="list-rows",
+    ),
+    pytest.param(
+        _fan_out_query(YEAR_DAYS, MAX_TRACK_POINTS),
+        TRACK_POINTS_BUDGET_CODE,
+        id="track-points",
+    ),
+    pytest.param(
+        _cheap_tracks(MAX_TRACK_FIELDS_PER_REQUEST + 1),
+        TRACK_FIELD_BUDGET_CODE,
+        id="track-fields",
+    ),
+)
+"""One document per budget, and the code the client must be able to read off it.
+
+Three rather than the two in REFUSED_DOCUMENTS: that tuple exists to cover the
+two *raise sites*, and the track site raises for two different reasons that ask
+the client to turn two different dials. A code per raise site would have merged
+them and left a client that hit the points budget told only "too big".
+"""
+
+
+@pytest.mark.parametrize(("document", "code"), CODED_BUDGET_DOCUMENTS)
+def test_a_budget_refusal_carries_a_machine_readable_code(year_client, document, code):
+    # Before this, the only thing separating "your document is too greedy,
+    # shrink it and retry" from "the server broke, do not retry" was a
+    # substring of `message` -- and that message is an f-string over
+    # MAX_TRACK_POINTS_PER_REQUEST and friends, so tuning a budget silently
+    # broke every client matching on it.
+    body = year_client.post(GRAPHQL_PATH, json={"query": document}).get_json()
+
+    errors = body["errors"]
+    assert errors, "the document under test must actually be refused"
+    # Every error, not just the first: a fan-out is refused field by field, and
+    # a code attached at only one raise site would pass a `[0]` assertion.
+    assert [e.get("extensions", {}).get("code") for e in errors] == [code] * len(errors)
+
+
+@pytest.mark.parametrize(("document", "argument"), BOUNDS_REFUSED_DOCUMENTS)
+def test_a_bounds_refusal_carries_a_machine_readable_code(year_client, document, argument):
+    # One code for all three arguments and both ends of each range, because the
+    # remedy is the same every time: the value is outside what the SDL
+    # advertises, so retrying the same document never works and the client has
+    # to change the number. Which number is in `path` and `locations`, which
+    # CUI-0037 already made load-bearing.
+    body = year_client.post(GRAPHQL_PATH, json={"query": document}).get_json()
+
+    error = body["errors"][0]
+    assert error["extensions"]["code"] == ARGUMENT_OUT_OF_RANGE_CODE
+    # The two halves have to stay distinguishable: a client retries a budget
+    # refusal with a smaller ask and must not retry this one at all.
+    assert error["extensions"]["code"] != TRACK_POINTS_BUDGET_CODE
+
+
+@pytest.mark.parametrize(
+    "document",
+    [p.values[0] for p in CODED_BUDGET_DOCUMENTS] + [p.values[0] for p in BOUNDS_REFUSED_DOCUMENTS],
+)
+def test_a_coded_refusal_still_leaks_nothing_it_did_not_leak_before(year_client, document):
+    # The bound on the feature. `extensions` is a free-form map and the obvious
+    # next thing to put in it is "how much budget is left", which is exactly
+    # what W-013 kept out of the message. Measured as raw response text rather
+    # than by walking the parsed body, so a key added anywhere -- nested under
+    # a sub-object, or on an error this test did not think to look at -- is
+    # caught by the same line.
+    raw = year_client.post(GRAPHQL_PATH, json={"query": document}).get_data(as_text=True)
+
+    for key in CONTEXT_KEY_NAMES:
+        assert key not in raw, f"the refusal published the budget counter's own key `{key}`"
+    assert "Traceback" not in raw
+    assert "site-packages" not in raw
+    # The checkout's own path, which is what a rendered traceback would carry
+    # and the one absolute path this process can name without guessing.
+    assert str(Path(__file__).resolve().parents[1]) not in raw
+
+
+def test_a_server_fault_carries_no_client_refusal_code(year_client, monkeypatch):
+    # The other side of the line, and the mutant this kills is the tempting
+    # one: attaching the code in `process_errors`, or to `GraphQLError` itself,
+    # rather than at the four raise sites. Either makes a broken resolver look
+    # to the client exactly like a request it could fix by asking for less --
+    # which is the confusion the codes exist to end, reintroduced by the fix.
+    def explode(_session):
+        raise _ResolverFaultError("the database went away")
+
+    monkeypatch.setattr(service, "meta", explode)
+
+    body = year_client.post(GRAPHQL_PATH, json={"query": "{ meta { year } }"}).get_json()
+
+    code = body["errors"][0].get("extensions", {}).get("code")
+    assert code not in {
+        LIST_ROW_BUDGET_CODE,
+        TRACK_POINTS_BUDGET_CODE,
+        TRACK_FIELD_BUDGET_CODE,
+        ARGUMENT_OUT_OF_RANGE_CODE,
+    }, "a server fault must not be dressed as something the client asked for"
+
+
+def test_the_four_refusals_a_client_can_earn_carry_four_different_codes(year_client):
+    # Four codes are only worth having if a client can actually tell four
+    # things apart, so this counts what comes back off the wire rather than
+    # comparing the four literals above -- which would be a tautology, green
+    # against any schema at all, this file's own constants asserted against
+    # themselves. Measured instead: send one document per refusal and count the
+    # distinct codes the server chose.
+    documents = [p.values[0] for p in CODED_BUDGET_DOCUMENTS]
+    documents.append(BOUNDS_REFUSED_DOCUMENTS[0].values[0])
+
+    observed = set()
+    for document in documents:
+        body = year_client.post(GRAPHQL_PATH, json={"query": document}).get_json()
+        observed.update(e.get("extensions", {}).get("code") for e in body["errors"])
+
+    assert observed == {
+        LIST_ROW_BUDGET_CODE,
+        TRACK_POINTS_BUDGET_CODE,
+        TRACK_FIELD_BUDGET_CODE,
+        ARGUMENT_OUT_OF_RANGE_CODE,
+    }, "four remedies, and a client has to be able to tell which one it was told"
+
+
+TRACK_CODES = (TRACK_POINTS_BUDGET_CODE, TRACK_FIELD_BUDGET_CODE, ARGUMENT_OUT_OF_RANGE_CODE)
+"""Every code `Activity.track` can refuse with -- both budgets and its bounds check."""
+
+
+def test_the_sdl_names_every_code_track_can_refuse_with():
+    # S-012's pattern: the numbers a client needs are in the field description
+    # so it can be written against without sending a request first. A code is
+    # the same kind of fact, and a more useful one -- the numbers tell a client
+    # when it will be refused, the code tells it what to do about it.
+    #
+    # `run365-schema --check frontend/schema.graphql` is what keeps this honest
+    # once it passes: the description is regenerated into the SDL the front end
+    # builds against, so a code renamed here without regenerating reds CI.
+    description = build_schema_from_sdl(schema.as_str()).type_map["Activity"].fields["track"]
+    for code in TRACK_CODES:
+        assert code in (description.description or ""), (
+            f"`track` refuses with `{code}` and says so nowhere in the SDL"
+        )
+
+
+@pytest.mark.parametrize("field", LIST_FIELDS)
+def test_the_sdl_names_the_code_a_page_is_refused_with(field):
+    # The list fields spend a budget of their own and bounds-check their own
+    # window, so their readers need the same two facts `track`'s do. Held per
+    # field rather than on the shared note, so a note that stops being appended
+    # to one of the four is caught here.
+    description = _field_descriptions()[field]
+    assert LIST_ROW_BUDGET_CODE in description
+    assert ARGUMENT_OUT_OF_RANGE_CODE in description
+
+
+def test_the_year_description_names_the_budget_code_but_not_the_window_one():
+    # S-053 again: `year` pays the row budget without taking a window, so it
+    # carries the budget's code and must not carry a bounds code for arguments
+    # it does not have.
+    description = build_schema_from_sdl(schema.as_str()).query_type.fields["year"].description or ""
+    assert LIST_ROW_BUDGET_CODE in description
+    assert ARGUMENT_OUT_OF_RANGE_CODE not in description
+
+
+# ── CUI-0050: which argument, for the fields `path` cannot say it for ─────
+REFUSAL_ARGUMENT_KEY = "argument"
+"""The key a bounds refusal names its argument under, as a client reads it.
+
+Spelled out rather than imported for the reason the four codes above are: this
+string is the wire contract, so a test that followed a rename would stay green
+while every deployed client stopped finding the key. The SDL assertions below
+reach it by a second path -- the field descriptions -- so a rename has to go
+wrong twice to go unnoticed.
+"""
+
+PUBLISHED_EXTENSION_KEYS = frozenset({"code", REFUSAL_ARGUMENT_KEY})
+"""Every key a refusal's ``extensions`` may carry, as a client reads them.
+
+An allowlist rather than a denylist, which is the difference CUI-0050 made
+necessary. Before it, ``extensions={REFUSAL_CODE_KEY: code}`` was a literal, so
+"nothing but the code" held by construction and needed no gate. It is now a
+dict built up across two statements, so the invariant became one that can be
+lost -- measured at ``99abfcc``, the commit before this gate: a third key added
+to it left all 573 tests green and still reached the wire. The same mutant now
+fails this test at every one of its parameters. ``CONTEXT_KEY_NAMES`` does not
+catch it, being three specific counter names; a key under any other spelling
+walks straight past.
+
+The 573 is the suite that commit collects, not a figure to re-derive from
+today's: a bare count here would have gone stale the moment this gate landed,
+which is the defect W-060 and W-017 are about and the one W-061 caught this
+docstring committing while fixing its own version of it.
+
+Spelled out rather than imported, for the reason the codes and
+:data:`REFUSAL_ARGUMENT_KEY` are: this is the wire contract, so a test that
+followed a rename would stay green while every deployed client broke.
+"""
+
+LIST_WINDOW_SELECTION = MappingProxyType(
+    {"activities": "id", "weight": "date", "weather": "date", "warnings": "date"}
+)
+"""A field a client can select off each windowed list, so a document can be built per field."""
+
+
+@pytest.mark.parametrize(("document", "argument"), BOUNDS_REFUSED_DOCUMENTS)
+def test_a_bounds_refusal_names_the_argument_it_refused(year_client, document, argument):
+    # The half of the refusal `path` and `locations` cannot carry. Held over
+    # the same documents the code and the message are held over, so all three
+    # facts a bounds refusal publishes are asserted against one list -- a raise
+    # site added to that list without an argument fails here rather than
+    # quietly publishing two-thirds of a refusal.
+    body = year_client.post(GRAPHQL_PATH, json={"query": document}).get_json()
+
+    error = body["errors"][0]
+    assert error["extensions"][REFUSAL_ARGUMENT_KEY] == argument
+    # Alongside the code, not instead of it: the code still says what to do and
+    # this still says only where. A client that branched on this key to decide
+    # whether to retry would be reading the wrong half.
+    assert error["extensions"]["code"] == ARGUMENT_OUT_OF_RANGE_CODE
+
+
+@pytest.mark.parametrize("field", LIST_FIELDS)
+def test_the_two_bounded_arguments_of_a_list_field_are_told_apart(year_client, field):
+    # The ticket's own finding, turned into the gate that stops it coming back.
+    # Measured on the base commit, for all four fields: `limit: -5, offset: 0`
+    # and `limit: 1000, offset: -1` came back with the same `path`, the same
+    # `locations` (line 1, column 3 -- the field name, never the argument) and
+    # the same `code`, and differed in `message` alone. The SDL tells clients
+    # to branch on the code rather than on the message, so a client following
+    # its own field's documentation could tell that something was out of range
+    # and not which dial to turn.
+    #
+    # Asserting the sameness as well as the difference is the point. Were
+    # `locations` ever to start pointing at the argument, this key would be
+    # redundant and the reason for it would have evaporated without anyone
+    # noticing; were a second code added instead, the difference below would
+    # pass while CUI-0018 (a)'s "one code per remedy" quietly broke.
+    selection = LIST_WINDOW_SELECTION[field]
+    errors = {}
+    for which, args in (("limit", "limit: -5, offset: 0"), ("offset", "limit: 1000, offset: -1")):
+        document = f"{{ {field}({args}) {{ {selection} }} }}"
+        body = year_client.post(GRAPHQL_PATH, json={"query": document}).get_json()
+        errors[which] = body["errors"][0]
+
+    limit_error, offset_error = errors["limit"], errors["offset"]
+    assert limit_error["path"] == offset_error["path"] == [field]
+    assert limit_error["locations"] == offset_error["locations"]
+    assert limit_error["extensions"]["code"] == offset_error["extensions"]["code"]
+    assert limit_error["extensions"][REFUSAL_ARGUMENT_KEY] == "limit"
+    assert offset_error["extensions"][REFUSAL_ARGUMENT_KEY] == "offset"
+
+
+@pytest.mark.parametrize("field", LIST_FIELDS)
+def test_a_window_wrong_at_both_ends_names_the_argument_checked_first(year_client, field):
+    # `_page` is fail-fast: it checks `limit` and raises before it has looked
+    # at `offset`, so a client that got both wrong is told about `limit`,
+    # fixes it, and is refused a second time for `offset`. Every other test
+    # here sends exactly one argument out of range, so reordering the two
+    # checks -- to report the cheaper one first, say -- would pass all of them
+    # while silently costing that client a third round trip.
+    selection = LIST_WINDOW_SELECTION[field]
+    document = f"{{ {field}(limit: -5, offset: -1) {{ {selection} }} }}"
+
+    body = year_client.post(GRAPHQL_PATH, json={"query": document}).get_json()
+
+    errors = body["errors"]
+    # One refusal rather than one per bad argument: the client is told where
+    # to start, not handed a list, so "the first" is a fact about this wire
+    # shape and not just about which error happens to be at index 0.
+    assert len(errors) == 1
+    assert errors[0]["extensions"][REFUSAL_ARGUMENT_KEY] == "limit"
+    # Asserted against the SDL too, so the order is something a client can
+    # predict rather than discover on the second round trip.
+    assert "first of the two" in _field_descriptions()[field]
+
+
+REFUSED_WINDOWS = MappingProxyType(
+    {
+        "activities": ("limit: 0", "limit"),
+        "weight": ("limit: 1001", "limit"),
+        "weather": ("offset: -2", "offset"),
+        "warnings": ("limit: -9", "limit"),
+    }
+)
+"""A window each list field refuses, and the argument it names -- one of each kind of miss."""
+
+
+def _every_window_wrong(order: tuple[str, ...]) -> str:
+    """Return a document asking every windowed list field, in *order*, for a window it refuses."""
+    asks = " ".join(
+        f"{name}({REFUSED_WINDOWS[name][0]}) {{ {LIST_WINDOW_SELECTION[name]} }}" for name in order
+    )
+    return f"{{ {asks} }}"
+
+
+@pytest.mark.parametrize(
+    "order", [LIST_FIELDS, LIST_FIELDS[::-1]], ids=["document-order", "reversed"]
+)
+def test_several_windowed_fields_wrong_are_refused_at_the_first_of_them(year_client, order):
+    # S-129. The sentence above this one in the SDL settles the order of the
+    # two arguments *within* a field; this settles the order across fields,
+    # which the same request makes visible and nothing pinned. Every one of the
+    # four list fields is non-null, so the first refusal propagates to the root
+    # and nulls `data` -- the other three never run, however wrong they are.
+    # A client that got four windows wrong is told about one of them, so the
+    # figure to plan round trips against is one refusal per request, not one
+    # per bad argument.
+    #
+    # Sent in both orders, which is the whole gate: with one order this would
+    # only record that `activities` is refused first, and pass just as happily
+    # if the refusal were privileged to that field rather than taken in
+    # document order. Reversed, the two readings disagree.
+    field = order[0]
+    argument = REFUSED_WINDOWS[field][1]
+
+    body = year_client.post(GRAPHQL_PATH, json={"query": _every_window_wrong(order)}).get_json()
+
+    assert body["data"] is None
+    errors = body["errors"]
+    assert len(errors) == 1
+    assert errors[0]["path"] == [field]
+    assert errors[0]["extensions"][REFUSAL_ARGUMENT_KEY] == argument
+    # Held against the SDL as well, for the reason the two-argument order is:
+    # a client can only plan the round trips if the promise is published.
+    assert "first of those fields" in _field_descriptions()[field]
+
+
+@pytest.mark.parametrize(("document", "code"), CODED_BUDGET_DOCUMENTS)
+def test_a_budget_refusal_names_no_argument(year_client, document, code):
+    # The bound on the new key, and the one a convenience default would have
+    # broken: a budget is spent by the request as a whole, so there is no
+    # single argument whose value was wrong and naming one would send a client
+    # to change a number that was never the problem. `limit` is the tempting
+    # wrong answer -- it is what the row budget is charged on, and `year` pays
+    # that budget without having one at all.
+    body = year_client.post(GRAPHQL_PATH, json={"query": document}).get_json()
+
+    for error in body["errors"]:
+        assert REFUSAL_ARGUMENT_KEY not in error["extensions"]
+
+
+@pytest.mark.parametrize(
+    "document",
+    [p.values[0] for p in CODED_BUDGET_DOCUMENTS] + [p.values[0] for p in BOUNDS_REFUSED_DOCUMENTS],
+)
+def test_a_refusal_publishes_no_extension_key_beyond_the_two(year_client, document):
+    # The gate under REFUSAL_ARGUMENT_KEY's own first sentence, which calls
+    # `argument` "the second and last key this schema publishes" -- a claim
+    # about the future that nothing held until this test. Held over the same
+    # list the codes and the arguments are held over, so a raise site added
+    # later is measured by all three lines at once.
+    #
+    # Read off the parsed body rather than the raw text on purpose: this is the
+    # complement of `test_a_coded_refusal_still_leaks_nothing_it_did_not_leak_before`,
+    # which reads raw text to catch a key *anywhere*. That one bans three names;
+    # this one admits two. A new key needs a decision in both places to land.
+    body = year_client.post(GRAPHQL_PATH, json={"query": document}).get_json()
+
+    for error in body["errors"]:
+        extra = set(error["extensions"]) - PUBLISHED_EXTENSION_KEYS
+        assert not extra, f"the refusal published an extension key nothing decided on: {extra}"
+
+
+@pytest.mark.parametrize("field", LIST_FIELDS)
+def test_the_sdl_names_the_key_that_says_which_argument_was_refused(field):
+    # Same standard the codes are held to (S-012): a client writes against the
+    # SDL, so a key it is expected to read has to be in the SDL rather than
+    # discovered by triggering the error. `run365-schema --check` carries it
+    # into `frontend/schema.graphql` from there.
+    description = _field_descriptions()[field]
+    assert REFUSAL_ARGUMENT_KEY in description
+    # The values too, to the standard `track` was already held to: it spells
+    # out `argument: "points"` and asserts that value below, while these four
+    # named the key and left a client to guess whether it reads back `limit`
+    # or `Query.activities.limit`. Quoted here as they are quoted in the SDL,
+    # so the bare word `limit` elsewhere in the same sentence cannot pass this.
+    assert '"limit"' in description
+    assert '"offset"' in description
+
+
+def test_the_sdl_says_track_names_its_argument_too():
+    # `track` gains nothing from the key -- `points` is its only argument, so
+    # `path` already says which one -- and carries it anyway, so that one shape
+    # reads off every bounds refusal. That redundancy is a decision, and a
+    # decision only a resolver makes is one the next reader has to re-derive,
+    # so the SDL states it where the codes are stated.
+    description = build_schema_from_sdl(schema.as_str()).type_map["Activity"].fields["track"]
+    assert f'{REFUSAL_ARGUMENT_KEY}: "points"' in (description.description or "")
+
+
+def test_the_year_description_names_no_argument_key_either():
+    # S-053's line, extended to the new key for the same reason it applies to
+    # the code: `year` spends the row budget without taking a window, so it has
+    # no argument that can be out of range and nothing to name one for.
+    description = build_schema_from_sdl(schema.as_str()).query_type.fields["year"].description or ""
+    assert REFUSAL_ARGUMENT_KEY not in description
+
+
+# ── CUI-0018 (b): a refused `track` costs that field and nothing else ──────
+SIBLING_SURVIVAL_DOCUMENT = (
+    "query { meta { year } "
+    f"activities(limit: {MAX_TRACK_FIELDS_PER_REQUEST + 1}, hasGps: true) "
+    "{ id distanceKm track(points: 1) { sec } } }"
+)
+"""The ticket's own document: one `track` too many, beside fields that cost nothing.
+
+`meta` is the point of it. It spends no budget, issues its own query and
+succeeds -- and until `track` became nullable the client got none of it,
+because the 65th `track`'s error climbed `[TrackPoint!]!` to `[Activity!]!` to
+the root and nulled `data` whole.
+"""
+
+
+def test_a_refused_track_does_not_take_its_siblings_with_it(year_client):
+    # Measured on the base commit (06ad4bd), this document answered
+    # `data: null` with one error: 64 tracks read and paid for, a `meta` that
+    # never touched a budget, and nothing returned. The budget is meant to
+    # refuse what the client over-asked for, not to throw away what it was
+    # already owed.
+    body = gql_partial(year_client, SIBLING_SURVIVAL_DOCUMENT)
+    data = body["data"]
+
+    assert data is not None, "one refused field must not null the whole response"
+    assert data["meta"]["year"] == 2021, "a field that spends no budget must still be served"
+
+    activities = data["activities"]
+    assert len(activities) == MAX_TRACK_FIELDS_PER_REQUEST + 1
+    # The refusal lands on exactly one field: the one past the cap, and only
+    # its `track`. Its `id` and `distanceKm` were resolved before it and are
+    # still there, which is the difference between nulling a field and nulling
+    # a response.
+    assert [n for n, a in enumerate(activities) if a["track"] is None] == [
+        MAX_TRACK_FIELDS_PER_REQUEST
+    ]
+    assert all(a["id"] and a["distanceKm"] is not None for a in activities)
+    # Served-but-empty and refused must stay distinguishable: only `r0` stores
+    # a track in this fixture, so the 63 activities behind it come back with
+    # `[]` rather than with null.
+    assert activities[1]["track"] == []
+
+    errors = body["errors"]
+    assert len(errors) == 1, "one field over the cap is one refusal"
+    assert errors[0]["extensions"]["code"] == TRACK_FIELD_BUDGET_CODE
+    assert errors[0]["path"] == ["activities", MAX_TRACK_FIELDS_PER_REQUEST, "track"]
+
+
+def test_the_sdl_leaves_the_track_list_nullable_and_its_samples_not():
+    # The schema change itself, read off the SDL rather than inferred from the
+    # behaviour above -- a resolver that happened to return `[]` instead of
+    # raising would satisfy that test without this one being true.
+    #
+    # Both halves, because only one of them moved. `[TrackPoint!]` is the
+    # target; `[TrackPoint]` would be the over-correction, asking every client
+    # to null-check samples that a served track never contains.
+    track = build_schema_from_sdl(schema.as_str()).type_map["Activity"].fields["track"]
+
+    assert not isinstance(track.type, GraphQLNonNull), (
+        "a non-null `track` makes every refusal fatal to the whole response"
+    )
+    assert isinstance(track.type, GraphQLList)
+    assert isinstance(track.type.of_type, GraphQLNonNull), (
+        "a served track holds no null samples, so its elements stay non-null"
+    )
+
+
+def test_the_track_description_says_a_refusal_is_null_rather_than_fatal():
+    # The nullability is one character in the SDL and a client author reading
+    # the type alone has no reason to think the alternative was ever on the
+    # table. S-012's pattern again: the contract a client needs is in the
+    # description, under `run365-schema --check`.
+    #
+    # Named for what it checks, which is the description and only the
+    # description. The *type* is held by
+    # `test_the_sdl_leaves_the_track_list_nullable_and_its_samples_not`; this
+    # one deliberately stays green under a type-only change so that the two
+    # failures stay distinguishable -- measured, reverting `track` to
+    # `[TrackPoint!]!` reds five tests in this file and never this one. The
+    # earlier name promised the type and so read as a guard it was not (S-102).
+    description = build_schema_from_sdl(schema.as_str()).type_map["Activity"].fields["track"]
+
+    assert "nullable" in (description.description or "")
+
+
+def test_a_refused_page_still_takes_the_whole_response(year_client):
+    # The bound on (b), and the reason it is not "make refusals never fatal".
+    # `activities` is `[Activity!]!` and stays that way: a refused *page* has
+    # no field to be nulled into, so it propagates exactly as before. Pinned
+    # here so that (b) cannot be read as a promise it does not make, and so
+    # that widening the change to the list fields is a visible decision rather
+    # than a quiet one.
+    body = gql_partial(year_client, "{ meta { year } activities(limit: 0) { id } }")
+
+    assert body["data"] is None
+    assert body["errors"][0]["extensions"]["code"] == ARGUMENT_OUT_OF_RANGE_CODE
 
 
 # ── AU-050: one statement per batch of tracks, not two per track ───────────

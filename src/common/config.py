@@ -48,6 +48,18 @@ BODY_HEIGHT_CM: float = 170.0
 # Challenge defaults
 DEFAULT_YEAR = 2021
 
+# Weather collector HTTP timeouts
+#
+# A socket with no timeout can hang forever, and the collectors pay that cost
+# once per day across a whole year of history. The connect budget is the short
+# one, so an unreachable host fails fast instead of stalling the run; the read
+# budget is the longer one, because it has to cover the slowest single payload
+# without letting one bad day dominate the range (AU-014). Held here rather
+# than once per collector so retiming them cannot leave one behind (CUI-0013).
+HTTP_CONNECT_TIMEOUT_SEC = 5
+HTTP_READ_TIMEOUT_SEC = 30
+HTTP_REQUEST_TIMEOUT = (HTTP_CONNECT_TIMEOUT_SEC, HTTP_READ_TIMEOUT_SEC)
+
 
 def daily_weight_file(year: int) -> Path:
     """Return the raw daily-weight text file for *year*."""

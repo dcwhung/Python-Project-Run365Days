@@ -549,7 +549,119 @@ class _RequestBudgets(SchemaExtension):
         yield
 
 
-class BudgetExceededError(GraphQLError):
+REFUSAL_CODE_KEY = "code"
+"""Key a refusal's classification is published under inside ``extensions``.
+
+``code`` rather than a name of this project's own: the GraphQL spec leaves
+``extensions`` free-form but names ``code`` in its own error examples, and it
+is what Apollo, urql and graphql-request clients already reach for. A client
+should not have to learn a private spelling to do the one thing it was given
+the map for.
+"""
+
+REFUSAL_ARGUMENT_KEY = "argument"
+"""Key a bounds refusal names its offending argument under, inside ``extensions``.
+
+The second and last key this schema publishes. What decides that ``extensions``
+may carry this and may not carry a budget counter is not how useful each would
+be -- both are useful -- but which of two jobs the key is doing:
+
+* ``code`` classifies the refusal and ``argument`` *locates* it. Locating a
+  refusal is what ``path`` and ``locations`` are for, and for every other
+  refusal they finish the job. For the four list fields they cannot: a refusal
+  is built with ``nodes=raw.field_nodes``, so ``locations`` lands on the field
+  name and never on the argument inside it, and ``activities(limit: 1000,
+  offset: -1)`` and ``activities(limit: -5, offset: 0)`` come back
+  indistinguishable -- same ``path``, same line and column, same ``code``
+  (measured, all four list fields, both arguments; CUI-0050). This key finishes
+  the sentence those two fields start, in the same free-form map they would
+  have used had they been able to reach.
+* a budget counter would be neither. It is *server state*: how much of a
+  shared per-request allowance the fields before this one have already spent.
+  W-013 decided a client is told what it asked for and not how the server
+  counts it, and publishing the remainder under a new key would undo that
+  sideways rather than reopen it.
+
+The test of the line, then, is whether the value came from the client. An
+argument name is the client's own document read back to it -- this schema
+learns it from the document and can publish it without telling the client
+anything it did not itself send. A counter is the opposite: not derivable from
+the document at all, and a number clients would start pacing against, which
+makes an extension's bookkeeping into a contract.
+
+This carries no remedy of its own and so earns no code, which is the other half
+of why it is a key rather than two more codes: every bounds refusal asks for
+the same change whichever argument tripped it (:data:`ARGUMENT_OUT_OF_RANGE_CODE`).
+"""
+
+LIST_ROW_BUDGET_CODE = "LIST_ROW_BUDGET_EXCEEDED"
+"""Refusal code: the operation's list fields together opened too many rows.
+
+Remedy: a smaller ``limit``, or fewer list fields in one document. Worth
+retrying, because the document is legal -- it is the size of the ask that was
+refused, and the client controls that.
+"""
+
+TRACK_POINTS_BUDGET_CODE = "TRACK_POINTS_BUDGET_EXCEEDED"
+"""Refusal code: the operation's ``track`` fields together asked for too many samples.
+
+Remedy: a lower ``points``, with the same number of ``track`` fields. Worth
+retrying, and this budget does not latch -- a field refused here leaves the
+remainder for the fields behind it (:func:`_charge_track_field`), so a client
+that lowers ``points`` and resends is not fighting a counter that already
+gave up on the request.
+"""
+
+TRACK_FIELD_BUDGET_CODE = "TRACK_FIELD_BUDGET_EXCEEDED"
+"""Refusal code: the operation asked for too many ``track`` fields.
+
+Remedy: fewer ``track`` fields, split across more requests. Lowering ``points``
+does **not** help, which is the whole reason this is not the same code as
+:data:`TRACK_POINTS_BUDGET_CODE`: each ``track`` field costs the same query
+however small its ``points``, so a client told only "too big" would shrink the
+one dial that cannot move this limit and be refused again.
+"""
+
+ARGUMENT_OUT_OF_RANGE_CODE = "ARGUMENT_OUT_OF_RANGE"
+"""Refusal code: an argument fell outside the range the SDL advertises for it.
+
+Remedy: change the value. **Not** worth retrying unchanged -- and that, not the
+argument's name, is the distinction a client acts on, which is why one code
+covers ``limit``, ``offset`` and ``points`` and both ends of each range.
+
+The *field* is already in ``path`` and ``locations``, which CUI-0037 made
+load-bearing, and the legal range is in the field's description. The *argument*
+is not, and an earlier draft of this paragraph claimed it was:
+:class:`ClientRefusalError` passes ``nodes=raw.field_nodes``, so ``locations``
+points at the field name and never at the argument. Measured again on this
+branch before the fix below, across all four list fields and both ends of both
+ranges: ``{ activities(limit: 1000, offset: -1) { id } }`` and
+``{ activities(limit: -5, offset: 0) { id } }`` came back with ``path``
+``["activities"]`` and ``locations`` line 1 column 3, the ``a`` of
+``activities``; only ``message`` differed, and the same held for ``weight``,
+``weather`` and ``warnings``.
+
+For ``track`` that cost nothing: ``points`` is its only argument, so ``path``
+already names the one thing that can be out of range. For the four list fields
+it was a real gap -- two bounded arguments, one refusal, and only the English
+saying which, under a description that tells clients to branch on the code
+rather than on the message. CUI-0050 closes it the way W-035 said to, with an
+``extensions.argument`` key (:data:`REFUSAL_ARGUMENT_KEY`) rather
+than a third and fourth code: the argument names *where*, and a code names
+*what to do*, which here is one thing whichever argument it was. ``track``
+carries the key too, redundantly with its own ``path``, so that a client reads
+one shape off every bounds refusal instead of having to know which fields are
+the special case.
+
+Four codes rather than two (one per exception class) or one (a flat
+"refused"): the split follows what the client must *change*, and the three
+budgets ask for three different changes even though they share a class. It
+stops there because a fifth code would have to name a change nothing else
+names -- every bounds refusal asks for the same one.
+"""
+
+
+class ClientRefusalError(GraphQLError):
     """A refusal the client's own document earned, raised so it is not logged as a fault.
 
     Strawberry hands every error an operation produces to the
@@ -567,37 +679,112 @@ class BudgetExceededError(GraphQLError):
 
     What the client sees does not move: same message, same ``locations``, same
     ``path``, because those are the fields being filled in here rather than
-    being left for graphql-core to rebuild. What stops is a refusal that costs
-    a client 998 tokens on a public, unauthenticated endpoint writing nine
-    frames of absolute source paths -- repository layout and the interpreter's
-    ``site-packages`` directory among them -- into the deployment's log, once
-    per refused request (CUI-0029).
+    being left for graphql-core to rebuild. What stops is a public,
+    unauthenticated endpoint writing nine frames of absolute source paths --
+    repository layout and the interpreter's ``site-packages`` directory among
+    them -- into the deployment's log, once per refused request (CUI-0029).
 
-    Deliberately not used for a budget that was never seeded. That one means a
-    schema built without :class:`_RequestBudgets` or a context it could not
-    write to: nobody's request caused it and no client can act on it, so it
-    keeps raising ``RuntimeError`` and keeps its traceback.
+    A base class rather than one exception because the two refusals a client
+    can earn cost wildly different amounts to trigger, and the cheap one was
+    the one left leaking. CUI-0029 costed a budget refusal at 57 tokens of
+    request; ``{ activities(offset: -1) { id } }`` is 11 tokens and 33 bytes,
+    and until CUI-0037 it produced the same nine frames. Measured on this
+    branch, both counted the way ``MaxTokensLimiter`` counts, which is
+    graphql-core's own parser budget.
+
+    Deliberately *not* a subclass of this, in both directions of the same
+    judgement:
+
+    * a budget that was never seeded means a schema built without
+      :class:`_RequestBudgets` or a context it could not be written to. Nobody's
+      request caused it and no client can act on it, so it keeps raising
+      ``RuntimeError`` and keeps its traceback.
+    * an ``Int`` coercion failure is refused before any resolver runs, so it
+      has no ``original_error`` and renders zero frames already (measured).
+      There is nothing to reclassify it for, and its wording is pinned across
+      both deployment modes by ``frontend/src/data/static/source.ts``.
     """
 
-    def __init__(self, info: Info, message: str) -> None:
+    def __init__(self, info: Info, message: str, code: str, argument: str | None = None) -> None:
         # Strawberry's ``Info`` publishes ``path`` but has no public accessor
         # for ``field_nodes``, and ``locations`` cannot be reconstructed
         # without them. Both are read off the one underlying
         # ``GraphQLResolveInfo`` rather than from two sources that could
-        # drift. If this attribute is ever renamed,
-        # ``test_a_budget_refusal_still_tells_the_client_where_it_happened``
-        # is what goes red -- on its ``message`` assertion specifically, and
-        # only on that one. Measured: rename this attribute and the client
-        # still gets both ``locations`` and ``path``, because graphql-core
-        # rebuilds them around the resulting ``AttributeError`` at the very
-        # field the refusal came from, so they are identical either way. Only
-        # the message changes, from the budget sentence to the AttributeError.
-        # That is also why there is no way to make the other two assertions
-        # carry this tripwire; the message assertion is load-bearing here even
-        # though it reads as the redundant one beside the other budget tests
-        # (S-075).
+        # drift. If this attribute is ever renamed, the two
+        # ``..._still_tells_the_client_where_it_happened`` tests are what go
+        # red -- on their ``message`` assertions specifically, and only on
+        # those. Measured again on this branch: rename this attribute and the
+        # client still gets both ``locations`` and ``path``, because
+        # graphql-core rebuilds them around the resulting ``AttributeError`` at
+        # the very field the refusal came from, so they are identical either
+        # way. Only the message changes, from the refusal's sentence to the
+        # AttributeError. That is also why there is no way to make the other
+        # two assertions carry this tripwire; the message assertion is
+        # load-bearing here even though it reads as the redundant one beside
+        # the other refusal tests (S-075).
+        # *code* is required rather than defaulted from a class attribute, and
+        # rather than attached once in ``process_errors``. A default would let a
+        # new subclass inherit a classification meant for a different remedy in
+        # silence; attaching it centrally would have to recover the reason from
+        # the message, which is the string-matching this whole change exists to
+        # take away from clients -- and it would put a client-actionable code on
+        # a server fault, which ``test_a_server_fault_carries_no_client_refusal_code``
+        # is what stops (CUI-0018 (a)).
+        #
+        # ``extensions`` carries the refusal's classification and, where `path`
+        # and `locations` cannot reach, its location -- and nothing else. How
+        # much budget is left remains the obvious next thing to add and remains
+        # deliberately absent; CUI-0050 widened this map by one key without
+        # widening that line, and :data:`REFUSAL_ARGUMENT_KEY` is where the two
+        # are told apart.
+        #
+        # *argument* defaults to ``None`` because only bounds refusals have one
+        # to name: a budget is spent by the request as a whole, so there is no
+        # single argument whose value was wrong. :class:`BoundsError` takes it
+        # as a required parameter rather than inheriting this default, so a
+        # bounds raise site added later cannot forget it in silence.
         raw = info._raw_info
-        super().__init__(message, nodes=raw.field_nodes, path=raw.path.as_list())
+        published = {REFUSAL_CODE_KEY: code}
+        if argument is not None:
+            published[REFUSAL_ARGUMENT_KEY] = argument
+        super().__init__(
+            message,
+            nodes=raw.field_nodes,
+            path=raw.path.as_list(),
+            extensions=published,
+        )
+
+
+class BudgetExceededError(ClientRefusalError):
+    """An operation that asked for more than one request's share of the budgets.
+
+    Raised by :func:`_charge_list_rows` and :func:`_charge_track_field`, which
+    is after the document parsed and validated: the budgets bound the *product*
+    of per-field limits, so nothing before execution can see it coming.
+    """
+
+
+class BoundsError(ClientRefusalError):
+    """An argument outside the range the SDL advertises for it.
+
+    Raised by :func:`_page` and :func:`_track_points`, which run at the top of
+    a resolver, before the budget is charged and before any SQL is built. The
+    range is in the field's description as well as in the message, so a client
+    can avoid this without sending the request first (CUI-0025).
+
+    Was a bare ``ValueError`` until CUI-0037. graphql-core wrapped it in
+    ``located_error``, which set ``original_error`` and so handed Strawberry a
+    traceback to log at ``ERROR`` -- the exact amplification CUI-0029 removed
+    from the budget refusals beside it, left in place on the cheaper document.
+
+    Names the argument it refused, which its base class leaves optional: a
+    bounds check is the one refusal that always has exactly one argument to
+    blame, and requiring it here is what stops a fourth raise site publishing a
+    refusal a client cannot act on (CUI-0050).
+    """
+
+    def __init__(self, info: Info, message: str, code: str, argument: str) -> None:
+        super().__init__(info, message, code, argument)
 
 
 def _charge_list_rows(info: Info, rows: int) -> int:
@@ -644,6 +831,7 @@ def _charge_list_rows(info: Info, rows: int) -> int:
             info,
             "list row budget exhausted: one request may read at most "
             f"{MAX_LIST_ROWS_PER_REQUEST} rows",
+            LIST_ROW_BUDGET_CODE,
         )
     info.context[LIST_ROWS_KEY] = rows_left
     return rows
@@ -711,12 +899,14 @@ def _charge_track_field(info: Info, points: int) -> int:
             info,
             "track field budget exhausted: one request may read at most "
             f"{MAX_TRACK_FIELDS_PER_REQUEST} tracks",
+            TRACK_FIELD_BUDGET_CODE,
         )
     if points_left < 0:
         raise BudgetExceededError(
             info,
             "track points budget exhausted: one request may return at most "
             f"{MAX_TRACK_POINTS_PER_REQUEST} track points",
+            TRACK_POINTS_BUDGET_CODE,
         )
     info.context[TRACK_FIELDS_KEY] = fields_left
     info.context[TRACK_BUDGET_KEY] = points_left
@@ -793,18 +983,45 @@ TRACK_DESCRIPTION = (
     f"totalling {MAX_TRACK_POINTS_PER_REQUEST} points. Both are counted across every "
     "`track` field in the request; points are charged on `points` as asked for, not "
     "on the rows a track turns out to hold. The field limit applies however small "
-    "`points` is, because each `track` field costs the same query either way."
+    "`points` is, because each `track` field costs the same query either way. "
+    f"A refusal carries `extensions.{REFUSAL_CODE_KEY}`: `{TRACK_FIELD_BUDGET_CODE}` "
+    f"(send fewer `track` fields -- a smaller `points` will not help), "
+    f"`{TRACK_POINTS_BUDGET_CODE}` (ask for fewer points), or "
+    f"`{ARGUMENT_OUT_OF_RANGE_CODE}` for a `points` outside the range above, which "
+    f"retrying unchanged never fixes and which also carries "
+    f'`extensions.{REFUSAL_ARGUMENT_KEY}: "points"`. '
+    "Branch on the code rather than on the message; "
+    "the message quotes these limits and so changes whenever they are tuned. "
+    "The list is nullable so that a refusal costs this field and nothing else: a "
+    "refused `track` is `null` in `data`, its error is in `errors`, and sibling "
+    "fields -- including other activities' tracks -- are still served."
 )
 """Description for ``Activity.track``.
 
 Both budgets are part of the field's contract, so a client reading the SDL can
 see why a wide fan-out is refused without having to trigger the error first.
+
+The refusal codes are in it for the same reason and one more: the numbers tell
+a client *when* it will be refused, the code tells it *what to do*, and the
+code is the only half of a refusal that is safe to write a branch against
+(CUI-0018 (a)). Naming them here also puts them under
+``run365-schema --check``, so a code renamed in the constants above without
+regenerating ``frontend/schema.graphql`` reds CI -- the same guard S-012 bought
+for the constants themselves.
+
+The last sentence states the field's nullability in words because the SDL
+states it in one character. ``[TrackPoint!]`` versus ``[TrackPoint!]!`` is the
+difference between losing one field and losing the entire response, and a
+client author reading the type alone has no reason to think the second was ever
+on the table (CUI-0018 (b)).
 """
 
 
 LIST_ROWS_NOTE = (
     f" One request may open at most {MAX_LIST_ROWS_PER_REQUEST} rows of pages in total, "
-    "counted across every field in it that opens one."
+    "counted across every field in it that opens one. Overrunning it is refused with "
+    f"`extensions.{REFUSAL_CODE_KEY}` `{LIST_ROW_BUDGET_CODE}`, which a narrower "
+    "request can succeed at."
 )
 """Sentence appended to every field description that spends the list row budget.
 
@@ -823,14 +1040,30 @@ beside the argument it is about.
 
 PAGE_WINDOW_NOTE = (
     f" The window is `limit` (1-{MAX_PAGE_SIZE}) rows from `offset` (0 or more); "
-    "either side of that range is refused rather than clamped, and the budget above is "
-    "charged on `limit` as asked for rather than on the rows a page turns out to hold."
+    "either side of that range is refused rather than clamped -- with "
+    f"`extensions.{REFUSAL_CODE_KEY}` `{ARGUMENT_OUT_OF_RANGE_CODE}`, which retrying "
+    f"unchanged never fixes, and with `extensions.{REFUSAL_ARGUMENT_KEY}` naming the "
+    'first of the two that is out of range (`"limit"` or `"offset"`; `limit` is checked '
+    "first, so a request with both wrong names `limit` until `limit` is valid), since "
+    "both sit at the same `path` and the same `locations` -- and the budget above is "
+    "charged on `limit` as asked for rather than on the rows a page turns out to hold. "
+    "A request that asks several windowed fields at once for windows they cannot have is "
+    "refused once as well, at the first of those fields in the document, and `data` is "
+    "null: the fields after it are never reached, so plan on one refusal per round trip "
+    "rather than one per argument that was wrong."
 )
 """Sentence appended to every field that takes a ``limit``/``offset`` page window.
 
 Separate from :data:`LIST_ROWS_NOTE` because the two do not cover the same
 fields: ``year`` spends the row budget without taking a window, so it carries
-that note and not this one (S-053). The four list fields carry both, in that
+that note and not this one (S-053). That split is also why
+:data:`ARGUMENT_OUT_OF_RANGE_CODE` is named here rather than in the shared
+note: ``year`` has no argument that can be out of range, and
+``test_the_year_description_names_the_budget_code_but_not_the_window_one``
+holds the same line S-053 drew for the ``limit`` sentence. The same split puts
+:data:`REFUSAL_ARGUMENT_KEY` here and only here among the list notes -- it is
+the two-bounded-arguments case that made the key necessary (CUI-0050), and a
+field with no window has nothing for it to name. The four list fields carry both, in that
 order, so the budget is stated before the sentence that says what it is charged
 on.
 
@@ -855,10 +1088,13 @@ def _iso(d: date_type | None) -> str | None:
     return d.isoformat() if d else None
 
 
-def _page(limit: int, offset: int) -> tuple[int, int]:
+def _page(info: Info, limit: int, offset: int) -> tuple[int, int]:
     """Return the requested page window after bounds-checking it.
 
     Args:
+        info: The resolver's own info, so the refusal carries the field it came
+            from rather than leaving graphql-core to rebuild it around a
+            traceback (:class:`ClientRefusalError`).
         limit: Rows the client asked for.
         offset: Rows to skip.
 
@@ -866,29 +1102,45 @@ def _page(limit: int, offset: int) -> tuple[int, int]:
         The validated ``(limit, offset)`` pair.
 
     Raises:
-        ValueError: If the window is empty, negative, or over MAX_PAGE_SIZE.
+        BoundsError: If the window is empty, negative, or over MAX_PAGE_SIZE.
     """
     if not 1 <= limit <= MAX_PAGE_SIZE:
-        raise ValueError(f"limit must be between 1 and {MAX_PAGE_SIZE}, got {limit}")
+        raise BoundsError(
+            info,
+            f"limit must be between 1 and {MAX_PAGE_SIZE}, got {limit}",
+            ARGUMENT_OUT_OF_RANGE_CODE,
+            "limit",
+        )
     if offset < 0:
-        raise ValueError(f"offset must not be negative, got {offset}")
+        raise BoundsError(
+            info,
+            f"offset must not be negative, got {offset}",
+            ARGUMENT_OUT_OF_RANGE_CODE,
+            "offset",
+        )
     return limit, offset
 
 
-def _track_points(points: int) -> int:
+def _track_points(info: Info, points: int) -> int:
     """Return the requested track sample count after bounds-checking it.
 
     Args:
+        info: The resolver's own info; see :func:`_page`.
         points: Samples the client asked for.
 
     Returns:
         The validated sample count.
 
     Raises:
-        ValueError: If the count is below 1 or over MAX_TRACK_POINTS.
+        BoundsError: If the count is below 1 or over MAX_TRACK_POINTS.
     """
     if not 1 <= points <= MAX_TRACK_POINTS:
-        raise ValueError(f"points must be between 1 and {MAX_TRACK_POINTS}, got {points}")
+        raise BoundsError(
+            info,
+            f"points must be between 1 and {MAX_TRACK_POINTS}, got {points}",
+            ARGUMENT_OUT_OF_RANGE_CODE,
+            "points",
+        )
     return points
 
 
@@ -941,11 +1193,47 @@ class Activity:
     """
 
     @strawberry.field(description=TRACK_DESCRIPTION)
-    def track(self, info: Info, points: int = DEFAULT_TRACK_POINTS) -> list[TrackPoint]:
+    def track(self, info: Info, points: int = DEFAULT_TRACK_POINTS) -> list[TrackPoint] | None:
+        """Return this run's sampled track, or refuse the field without taking the rest with it.
+
+        ``list[TrackPoint] | None`` renders as ``[TrackPoint!]``: the list is
+        nullable, its elements are not. This resolver never *returns* ``None``
+        -- it either returns rows or raises -- so the nullability is not about
+        a track that is missing. It is about what a refusal costs the rest of
+        the document (CUI-0018 (b)).
+
+        ``[TrackPoint!]!`` made every refusal here fatal to the whole response.
+        A field error nulls its field, a non-null field cannot hold null, so the
+        error climbs: ``track`` to ``Activity`` (``[Activity!]!`` cannot hold
+        one either) to ``activities`` to the root. Measured before the change,
+        the ticket's own document -- ``{ meta { year } activities(limit: 65,
+        hasGps: true) { id distanceKm track(points: 1) { sec } } }`` -- came
+        back ``data: null``: 64 tracks served and paid for, a `meta` that never
+        touched a budget, and the client got none of it. Nullable here stops
+        the climb at this field, so the 65th ``track`` is ``null``, its error
+        sits beside it in ``errors``, and everything else in the document
+        arrives.
+
+        The elements stay non-null because nothing about a refusal makes a
+        *sample* missing: a track that is served is served whole, and
+        ``[TrackPoint]`` would ask every client to null-check rows that cannot
+        be null.
+
+        Args:
+            info: Resolver info carrying this request's context and budgets.
+            points: Samples to downsample the stored track to.
+
+        Returns:
+            The sampled track. Never ``None`` -- see above.
+
+        Raises:
+            BoundsError: If *points* is outside ``1..MAX_TRACK_POINTS``.
+            BudgetExceededError: If this operation has spent either track budget.
+        """
         # Spend first: the budgets exist to stop the query being issued at all.
         # The batch below reads no further than what is left of them, so
         # charging before reading still means refusing before the SQL goes out.
-        wanted = _charge_track_field(info, _track_points(points))
+        wanted = _charge_track_field(info, _track_points(info, points))
         rows = _track_rows(info, str(self.id), self.page, wanted)
         return [TrackPoint(**row) for row in rows]
 
@@ -1115,7 +1403,7 @@ class Query:
     ) -> list[Activity]:
         # Charge first: the budget exists to stop the page being read at all,
         # and the rows it would return are only known once it has been.
-        limit, offset = _page(limit, offset)
+        limit, offset = _page(info, limit, offset)
         _charge_list_rows(info, limit)
         rows = service.activities(
             info.context["session"], _iso(from_date), _iso(to_date), min_km, has_gps, limit, offset
@@ -1150,7 +1438,7 @@ class Query:
         limit: int = DEFAULT_PAGE_SIZE,
         offset: int = 0,
     ) -> list[WeightEntry]:
-        limit, offset = _page(limit, offset)
+        limit, offset = _page(info, limit, offset)
         _charge_list_rows(info, limit)
         rows = service.weight(
             info.context["session"], _iso(from_date), _iso(to_date), limit, offset
@@ -1174,7 +1462,7 @@ class Query:
         limit: int = DEFAULT_PAGE_SIZE,
         offset: int = 0,
     ) -> list[DailyWeather]:
-        limit, offset = _page(limit, offset)
+        limit, offset = _page(info, limit, offset)
         _charge_list_rows(info, limit)
         rows = service.daily_weather(
             info.context["session"], _iso(from_date), _iso(to_date), limit, offset
@@ -1200,7 +1488,7 @@ class Query:
         limit: int = DEFAULT_PAGE_SIZE,
         offset: int = 0,
     ) -> list[WeatherWarning]:
-        limit, offset = _page(limit, offset)
+        limit, offset = _page(info, limit, offset)
         _charge_list_rows(info, limit)
         rows = service.warnings(
             info.context["session"], _iso(from_date), _iso(to_date), limit, offset
@@ -1243,7 +1531,7 @@ class Query:
 
 
 REFUSAL_LOG_LEVEL = logging.INFO
-"""Level a budget refusal is logged at, below the ``ERROR`` a fault gets.
+"""Level a :class:`ClientRefusalError` is logged at, below the ``ERROR`` a fault gets.
 
 ``INFO`` rather than ``WARNING`` for two reasons, one about meaning and one
 measured. A refusal is not a degraded state or a near miss: the request asked
@@ -1280,28 +1568,36 @@ class RefusalAwareSchema(strawberry.Schema):
 
     Strawberry hands every error an operation produces to
     :meth:`process_errors`, which logs all of them at ``ERROR``. That is right
-    for a fault and wrong for a refusal: :class:`BudgetExceededError` is raised
+    for a fault and wrong for a refusal: a :class:`ClientRefusalError` is raised
     because a client's own document asked for more than the contract offers,
-    which is the budget working rather than anything failing. Carrying the
+    which is the contract working rather than anything failing. Carrying the
     resolver's ``path`` already took the traceback off those records; this
     takes them off ``ERROR`` as well, so the most common entry in a deployment's
     log stops being a refusal working as designed (CUI-0029).
 
-    Only that one class is reclassified. Everything else -- validation errors,
-    ``Int`` coercion failures, an unseeded budget's ``RuntimeError``, a resolver
-    that breaks mid-request -- is handed to ``super()`` untouched and keeps its
-    ``ERROR`` and its ``exc_info``. The distinction is the exception type, not a
-    substring of the message: a filter matching on wording would silence a real
-    fault that happened to mention a budget, and would stop silencing these the
-    day the wording changes. ``test_an_unexpected_resolver_error_is_still
-    _logged_as_a_server_fault`` is what holds that line, since no budget test
-    would notice a classifier that swept up everything.
+    Only that one hierarchy is reclassified, and it is deliberately a *narrow*
+    one: :class:`BudgetExceededError` and :class:`BoundsError`, the two things a
+    client can ask for and be told no about. Everything else -- validation
+    errors, ``Int`` coercion failures, an unseeded budget's ``RuntimeError``, a
+    resolver that breaks mid-request -- is handed to ``super()`` untouched and
+    keeps its ``ERROR`` and its ``exc_info``.
+
+    The distinction is the exception type, not a substring of the message: a
+    filter matching on wording would silence a real fault that happened to
+    mention a budget, and would stop silencing these the day the wording
+    changes. Two tests hold that line from opposite sides, since no refusal test
+    would notice a classifier that swept up everything:
+    ``test_an_unexpected_resolver_error_is_still_logged_as_a_server_fault`` for
+    a non-``GraphQLError`` fault, and
+    ``test_an_int_coercion_failure_is_not_reclassified_as_a_client_refusal``
+    for the tempting widening -- matching on ``GraphQLError`` itself, which
+    every error reaching here already is (CUI-0037).
     """
 
     def process_errors(
         self, errors: list[GraphQLError], execution_context: ExecutionContext | None = None
     ) -> None:
-        """Log budget refusals below ``ERROR``, and everything else as Strawberry would.
+        """Log client refusals below ``ERROR``, and everything else as Strawberry would.
 
         Args:
             errors: Every error this operation produced.
@@ -1310,7 +1606,7 @@ class RefusalAwareSchema(strawberry.Schema):
         """
         faults = []
         for error in errors:
-            if isinstance(error, BudgetExceededError):
+            if isinstance(error, ClientRefusalError):
                 # Logged the way StrawberryLogger logs one -- the error object
                 # as the message, no exc_info -- so a deployment's handlers see
                 # the same record they saw before, at a different level.

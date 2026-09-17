@@ -5,6 +5,7 @@ import logging
 
 import requests
 
+from run365days.common.config import HTTP_REQUEST_TIMEOUT
 from run365days.common.numeric import to_float
 from run365days.weather.models import DailyWeather
 
@@ -12,14 +13,16 @@ logger = logging.getLogger(__name__)
 
 _BASE_URL = "https://www.weather.gov.hk/cis/dailyExtract/dailyExtract_"
 
-# A socket with no timeout can hang forever, and fetch_year() pays that cost up
-# to 13 times in sequence. Five seconds is generous for a TCP handshake to a
-# reachable host, so an unreachable one fails fast instead of stalling the run;
-# thirty covers HKO's slowest yearly payload without letting one bad month
-# dominate the whole year (AU-014).
-_CONNECT_TIMEOUT_SEC = 5
-_READ_TIMEOUT_SEC = 30
-_REQUEST_TIMEOUT = (_CONNECT_TIMEOUT_SEC, _READ_TIMEOUT_SEC)
+# Column layout of a daily-extract row: the day of the month, then the readings
+# in the order the endpoint publishes them. The columns in between hold values
+# this package does not store.
+_DAY_COL = 0
+_MAX_TEMP_COL = 2
+_MEAN_TEMP_COL = 3
+_MIN_TEMP_COL = 4
+_MEAN_HUMIDITY_COL = 6
+_TOTAL_RAINFALL_COL = 8
+_MEAN_WIND_COL = 11
 
 
 def fetch_year(year: str) -> list[DailyWeather]:
@@ -40,7 +43,7 @@ def fetch_year(year: str) -> list[DailyWeather]:
         requests.RequestException: The HKO endpoint could not be reached.
     """
     records: list[DailyWeather] = []
-    content = requests.get(f"{_BASE_URL}{year}.xml", timeout=_REQUEST_TIMEOUT).text
+    content = requests.get(f"{_BASE_URL}{year}.xml", timeout=HTTP_REQUEST_TIMEOUT).text
     res = json.loads(content)
 
     for month_data in res["stn"]["data"]:
@@ -51,7 +54,7 @@ def fetch_year(year: str) -> list[DailyWeather]:
             # Fallback to per-month endpoint
             try:
                 content2 = requests.get(
-                    f"{_BASE_URL}{year}{month}.xml", timeout=_REQUEST_TIMEOUT
+                    f"{_BASE_URL}{year}{month}.xml", timeout=HTTP_REQUEST_TIMEOUT
                 ).text
                 res2 = json.loads(content2)
                 day_data = res2["stn"]["data"][0]["dayData"]
@@ -70,18 +73,18 @@ def fetch_year(year: str) -> list[DailyWeather]:
 
         for data in day_data:
             data = list(map(str.strip, data))
-            if not data[0].isdigit():
+            if not data[_DAY_COL].isdigit():
                 continue
-            date_str = f"{year}-{month}-{data[0].zfill(2)}"
+            date_str = f"{year}-{month}-{data[_DAY_COL].zfill(2)}"
             records.append(
                 DailyWeather(
                     date=date_str,
-                    max_temp_c=to_float(data[2]),
-                    mean_temp_c=to_float(data[3]),
-                    min_temp_c=to_float(data[4]),
-                    mean_humidity_pct=to_float(data[6]),
-                    total_rainfall_mm=to_float(data[8]),
-                    mean_wind_kmh=to_float(data[11]),
+                    max_temp_c=to_float(data[_MAX_TEMP_COL]),
+                    mean_temp_c=to_float(data[_MEAN_TEMP_COL]),
+                    min_temp_c=to_float(data[_MIN_TEMP_COL]),
+                    mean_humidity_pct=to_float(data[_MEAN_HUMIDITY_COL]),
+                    total_rainfall_mm=to_float(data[_TOTAL_RAINFALL_COL]),
+                    mean_wind_kmh=to_float(data[_MEAN_WIND_COL]),
                 )
             )
     return records

@@ -55,7 +55,26 @@ export function createApiSource(
       return (await client.request(ActivityQuery, { id })).activity ?? null;
     },
     async track(id: string, points = DEFAULT_TRACK_POINTS): Promise<TrackPoint[]> {
-      return (await client.request(TrackQuery, { id, points })).activity?.track ?? [];
+      const { activity } = await client.request(TrackQuery, { id, points });
+      // Two nullable things on one line, meaning two different things, and
+      // `tsc` had nothing to say when the second one appeared: `?? []` was
+      // already here for the first, so `track` turning nullable in CUI-0018 (b)
+      // typechecked unchanged. Written out rather than left implicit.
+      //
+      // `activity == null` is an id the `activities` list never handed out. No
+      // error comes back, and an empty track is the honest answer.
+      //
+      // `track == null` is a refused field. A refusal always arrives with an
+      // entry in `errors`, and `graphql-request`'s default `errorPolicy` of
+      // "none" rejects the promise whenever `errors` is non-empty -- partial
+      // `data` included -- so this line is not reached for one. The caller gets
+      // the rejection, and `ActivityView` renders `TrackError` from it.
+      //
+      // Kept as `?? []` rather than `!` for the case that reasoning does not
+      // cover: an `errorPolicy: "all"` set here later, or a null that somehow
+      // arrives without an error. Degrading to "no track" beats a TypeError
+      // inside `buildSeries`.
+      return activity?.track ?? [];
     },
     async weight(range: DateRange = {}) {
       return (await client.request(WeightQuery, rangeVars(range))).weight;

@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- LatitudeDegrees is inf inside a present Position: the reading is mandatory
+     once the element is there, so it must not be laundered into None. None
+     means "indoor, no fix" to haversine_distance, which answers nan and drops
+     the segment out of the sum (CUI-0043). -->
+<TrainingCenterDatabase
+  xmlns="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2">
+  <Activities>
+    <Activity Sport="Running">
+      <Id>2021-01-08T04:04:52.000Z</Id>
+      <Lap StartTime="2021-01-08T04:04:52.000Z">
+        <TotalTimeSeconds>600.0</TotalTimeSeconds>
+        <DistanceMeters>2000.0</DistanceMeters>
+        <Calories>150</Calories>
+        <Track>
+          <Trackpoint>
+            <Time>2021-01-08T04:04:52.000Z</Time>
+            <Position>
+              <LatitudeDegrees>inf</LatitudeDegrees>
+              <LongitudeDegrees>114.2019</LongitudeDegrees>
+            </Position>
+          </Trackpoint>
+          <Trackpoint>
+            <Time>2021-01-08T04:14:52.000Z</Time>
+            <Position>
+              <LatitudeDegrees>22.3368</LatitudeDegrees>
+              <LongitudeDegrees>114.2019</LongitudeDegrees>
+            </Position>
+          </Trackpoint>
+        </Track>
+      </Lap>
+    </Activity>
+  </Activities>
+</TrainingCenterDatabase>

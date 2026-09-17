@@ -189,10 +189,20 @@ class TestJoinedSunMoonColumnsAreExcluded:
 class TestMappingOnlyNotBounding:
     """The dataclass maps columns; bounding a reading belongs to the writer layer.
 
-    CUI-0009 put ``finite_float`` in front of the nine readings that reach the
-    writers. Folding that gate into ``from_raw_row()`` instead would move it off
-    the export path and out of the collectors' reach, so the pair stays purely a
-    name mapping and keeps ``inf`` / ``nan`` exactly as ``to_float`` parsed them.
+    Folding the gate into ``from_raw_row()`` would move it off the export path
+    and out of the collectors' reach, so the pair stays purely a name mapping
+    and keeps ``inf`` / ``nan`` exactly as ``to_float`` parsed them.
+
+    CUI-0009 first spelled that gate ``finite_float`` at nine call sites.
+    CUI-0011 split the pair -- the float cast moved into ``from_raw_row()``,
+    the finiteness half stayed at the boundary -- which left ``finite_float``
+    with no callers, so CUI-0041 deleted it. The nine readings are still gated,
+    by ``finite()`` in two places: the six daily ones in
+    ``export.records.daily_weather_record`` and the three hourly ones in
+    ``dashboard.builder.hourly_at``. Both halves are pinned by the CUI-0009
+    section of ``tests/test_export_records.py`` -- neutering either ``finite()``
+    turns part of that section red, which is how the split above was measured
+    rather than assumed.
     """
 
     def test_daily_from_raw_row_keeps_a_non_finite_reading(self):

@@ -66,7 +66,17 @@ export const MAX_TRACK_POINTS = 1000;
  * `downsample`'s contract does not cover a non-integer `limit`: Python raises
  * on `range(2.5)` where this side would quietly return two items. A coercion
  * failure also nulls the whole api-mode response rather than just `track`,
- * since it is not a field error.
+ * since it is not a field error -- and since CUI-0018 (b) that sentence is a
+ * real distinction rather than a technicality, because a *field* error there
+ * now nulls `track` alone and leaves the rest of the response standing.
+ *
+ * That nullability does not reach this side and does not need to. The two
+ * modes agree on what a caller sees, which is the promise CUI-0025 bought:
+ * a refusal is a rejected promise in both. Api mode rejects because the
+ * refusal rides along in `errors` and `graphql-request` rejects on any error;
+ * this side rejects by throwing below, before it fetches anything. Neither
+ * mode ever resolves to a null track, so `DataSource.track` stays
+ * `Promise<TrackPoint[]>` and no caller grew a null check.
  * `test_a_points_the_int_scalar_cannot_carry_is_refused_before_the_resolver`
  * in tests/test_api.py is what holds the right-hand column.
  */

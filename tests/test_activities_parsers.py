@@ -398,7 +398,7 @@ class TestNonFiniteRequiredValues:
     while SQLite stored it, and ``nan`` was silently summed away to zero in both.
     """
 
-    _BAD_TCX = [
+    _BAD_TCX_LAP_TOTALS = [
         "time_nan_1102.tcx",
         "time_inf_1103.tcx",
         "time_neg_inf_1104.tcx",
@@ -407,14 +407,31 @@ class TestNonFiniteRequiredValues:
         "dist_neg_inf_1107.tcx",
     ]
 
-    @pytest.mark.parametrize("name", _BAD_TCX)
+    # CUI-0043: a Position element is optional -- 37,565 of the 134,744 real
+    # trackpoints carry none -- but the degrees inside a present one are not.
+    _BAD_TCX_COORDS = ["lat_inf_1109.tcx", "lon_nan_1110.tcx"]
+
+    _BAD_TCX = _BAD_TCX_LAP_TOTALS + _BAD_TCX_COORDS
+
+    @pytest.mark.parametrize("name", _BAD_TCX_LAP_TOTALS)
     def test_should_raise_parse_error_when_a_tcx_lap_total_is_not_finite(
         self, non_finite_dir, name
     ):
         with pytest.raises(ActivityParseError, match="finite"):
             TCXParser(CHALLENGE_YEAR).parse(non_finite_dir / name)
 
-    def test_should_keep_the_healthy_tcx_when_six_others_are_not_finite(
+    @pytest.mark.parametrize("name", _BAD_TCX_COORDS)
+    def test_should_raise_parse_error_when_a_tcx_coordinate_is_not_finite(
+        self, non_finite_dir, name
+    ):
+        # Without this the reading came back as None, which haversine_distance
+        # reads as "indoor sample, no fix": the segment answers nan, nan drops
+        # out of the sum, and the caller is handed a quietly short distance --
+        # the exact path CUI-0008 ruled out. GPX and KML already raise here.
+        with pytest.raises(ActivityParseError, match="finite"):
+            TCXParser(CHALLENGE_YEAR).parse(non_finite_dir / name)
+
+    def test_should_keep_the_healthy_tcx_when_every_other_one_is_not_finite(
         self, non_finite_dir, caplog
     ):
         with caplog.at_level(logging.WARNING, logger="run365days.activities.parsers.base"):

@@ -372,14 +372,98 @@ def tracks(
         session: Open read-only session.
         activity_ids: Tracks wanted. Duplicates are collapsed.
         points: Samples per track, or ``None``/``0`` for every stored row up to
-            :data:`MAX_TRACK_POINTS`.
+            :data:`MAX_TRACK_POINTS`. ``-0.0`` is one of the values that mean
+            ``0`` here, not one of the negatives; see the guard's own comment.
+            A count below zero is refused, not clamped; see Raises. The
+            ``float`` values named here and under Raises (``-0.0``, ``2.0``,
+            ``2.5`` and the rest) sit outside the ``int | None`` annotation
+            above: Python does not
+            enforce it, so what they do is contracted here rather than left to
+            chance. They are not a widening of what this function accepts.
 
     Returns:
         ``{activity_id: rows}`` in :data:`TRACK_COLUMNS` shape, ordered by
         ``seq``, with an entry for every id asked for -- an empty list for an
         activity that stores no track, and never more than
         :data:`MAX_TRACK_POINTS` rows for one.
+
+    Raises:
+        ValueError: If *points* is below zero. Refused rather than clamped; the
+            reasoning is in the block comment on the guard below.
+        TypeError: If *points* is a ``float`` that reaches the sampler.
+            ``range()`` refuses the *type* and never looks at the value, so
+            ``2.0`` raises exactly as ``2.5`` does -- "non-integral" is not the
+            line, and S-130 was opened on this sentence for drawing it there.
+            The line is whether the float survives to :func:`_even_positions`,
+            and three kinds do not: a falsy one (``0.0``, ``-0.0``) means ``0``
+            per Args; one below ``2`` is short-circuited by that function ahead
+            of its ``range()``, returning the last row alone as ``1`` does; and
+            one above :data:`MAX_TRACK_POINTS` is replaced by the ``int``
+            ceiling in the ``min`` below, returning what ``None`` returns. The
+            sampler is also skipped entirely for a batch whose every track is
+            already at or under the ask. Measured against a batch holding a
+            1250-row track: ``2.0``, ``2.5``, ``999.0`` and ``1000.0`` raise,
+            while ``1.0``, ``1.5``, ``1000.5`` and ``1500.0`` each come back a
+            track. Raised from ``range()`` rather than by a check here, and
+            documented rather than converted: a count that is not a whole
+            number is the wrong *type* of thing to count with, which is what
+            ``TypeError`` means in Python, where ``ValueError`` would say the
+            count was the right kind of thing and merely out of range.
+            Converting it would also have to guess whether ``2.0`` is a mistake.
+            Costs one grouped COUNT before it raises, since the sampler is
+            reached after :func:`_stored_counts`; no client can drive it
+            (``Int`` coercion refuses a float literal three layers up --
+            ``2.0`` and ``2.5`` alike, both "Int cannot represent non-integer
+            value"), so that is not worth a second guard to save.
     """
+    # CUI-0040, and the half of it that was a choice rather than a bug.
+    # `min(points, MAX_TRACK_POINTS)` passed a negative straight through, and
+    # `_even_positions` turns anything under 2 into the last row alone:
+    # measured against a 1250-row track, -1, -5 and -1000 each came back as
+    # exactly one row, which is also what `points=1` returns.
+    #
+    # Clamping is the smaller change and was the ticket's own first suggestion,
+    # but neither direction survives. Clamping *down* into the legal range
+    # lands on 1 -- precisely what a negative already returned, so it would
+    # preserve the bug it was meant to fix while looking deliberate. That
+    # leaves clamping *up*, to MAX_TRACK_POINTS, because that is already what
+    # falsy means here: it hands the largest answer this function can give to
+    # the most obviously broken question, and it erases the distinction
+    # CUI-0025 was argued over. `0` means "I did not ask", while `-5` means
+    # "I asked for something that cannot exist". Those deserve different
+    # answers, and only one of them can be silent.
+    #
+    # The wording is deliberately not `run365days.api.schema._track_points`'s
+    # sentence, near as it is. That one says "between 1 and MAX_TRACK_POINTS",
+    # which would be false here, where `None` and `0` are both legal. The two
+    # layers refuse different sets, so they say different things -- and no
+    # client ever reads this one: `_track_points` and `checkPoints` in
+    # `frontend/src/data/static/source.ts` both refuse a negative first, in the
+    # single sentence CUI-0025 bought for both deployment modes.
+    #
+    # `< 0` rather than `not (points > 0)`, which CUI-0048 proposed so that
+    # `-0.0` would be refused alongside the other negatives. Measured: it would
+    # not have closed a hole, it would have opened one -- `not (0 > 0)` is
+    # `True`, so `points=0` would start raising, and `0` is legal here and
+    # documented as such two paragraphs up.
+    #
+    # `-0.0` itself is left with `0`, deliberately, and that is the same line
+    # CUI-0040 drew rather than an exception to it. CUI-0040 split "I did not
+    # ask" from "I asked for something that cannot exist", and the second is
+    # values *below* zero. `-0.0` is not one: `-0.0 == 0` and `-0.0 < 0` is
+    # `False` and `bool(-0.0)` is `False`, so every question Python can ask
+    # about its magnitude answers "zero". IEEE-754 gives it a sign bit, not a
+    # magnitude under zero -- it records which direction zero was approached
+    # from, which is not something a sample count has an opinion about. So the
+    # guard and the falsy test below it agree about `-0.0`, and that agreement
+    # is the contract rather than a gap in it.
+    #
+    # Refusing it anyway would mean reading the sign bit -- `math.copysign` or
+    # sniffing the sign off `repr` -- to refuse a value for how it is written
+    # rather than for what it is. That could not be stated in this function's
+    # own vocabulary: the sentence below says "negative", and `-0.0` is not.
+    if points is not None and points < 0:
+        raise ValueError(f"points must not be negative, got {points}")
     wanted = list(dict.fromkeys(str(a) for a in activity_ids))
     found: dict[str, list[dict]] = {activity_id: [] for activity_id in wanted}
     if not wanted:

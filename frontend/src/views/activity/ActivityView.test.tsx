@@ -1,6 +1,10 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { buildSchema, type GraphQLObjectType } from "graphql";
+// `?raw` rather than fs: Vite resolves the path at transform time, so this
+// keeps pointing at frontend/schema.graphql however the runner was started.
+import schemaSdl from "../../../schema.graphql?raw";
 import { act as activity } from "@/test/fixtures";
 import type { Activity, TrackPoint } from "@/data/types";
 import { useActivities, useActivity, useTrack } from "@/data/hooks";
@@ -56,8 +60,18 @@ function pending(): QueryStub {
   return { data: undefined, isPending: true, isError: false, error: null, refetch: vi.fn(async () => undefined) };
 }
 
-/** The GraphQL error the API really returns when the track budget is exceeded. */
-const BUDGET_MESSAGE = "Track request exceeds the per-request point budget.";
+/**
+ * The GraphQL error the API really returns when the track points budget is spent.
+ *
+ * The sentence `src/api/schema.py` actually builds, not a paraphrase. The
+ * `10000` in it is `MAX_TRACK_POINTS_PER_REQUEST`, which lives in Python; the
+ * test below is what stops this copy going stale the way the sentence it
+ * replaced did (S-101).
+ */
+const BUDGET_MESSAGE = "track points budget exhausted: one request may return at most 10000 track points";
+
+/** The `extensions.code` that sentence now carries, so a client need not read it (CUI-0018 (a)). */
+const BUDGET_CODE = "TRACK_POINTS_BUDGET_EXCEEDED";
 
 const TRACK_DOCUMENT =
   "query Track($id: ID!, $points: Int!) {\n activity(id: $id) {\n id\n track(points: $points) {\n sec\n lat\n lon\n elevationM\n distanceM\n speedMps\n cadence\n tempC\n }\n }\n}";
@@ -65,16 +79,35 @@ const TRACK_DOCUMENT =
 /**
  * A `graphql-request` ClientError as it actually arrives: `message` is the
  * serialised response *and* request, so rendering it raw leaks the whole
- * GraphQL document and variables onto the page. Captured from a real run
- * against the Flask API (activity 7213538827, TRACK_POINTS = 600).
+ * GraphQL document and variables onto the page.
+ *
+ * Hand-built to that shape, not captured. `TRACK_DOCUMENT` asks for one
+ * activity's one `track(points: 600)`, and measured against the real schema
+ * that document cannot be refused at all: 600 is inside the per-field range
+ * 1-1000, one `track` field is inside `MAX_TRACK_FIELDS_PER_REQUEST` (64), and
+ * 600 points is inside `MAX_TRACK_POINTS_PER_REQUEST` (10000). The "captured
+ * from a real run against the Flask API" this replaces described a response
+ * the server has never produced (S-100, same family as S-074). The `message`
+ * is the sentence `src/api/schema.py` builds, verbatim; the envelope is
+ * `graphql-request`'s `ClientError` shape.
  */
 function clientError(): QueryStub {
+  // CUI-0018 (b) changed the left-hand side of this capture. `data` used to be
+  // `null` outright: `track` was `[TrackPoint!]!`, so a refused track nulled
+  // its `Activity`, which nulled the response. It is now `[TrackPoint!]`, so
+  // the refusal stops at the field and the activity comes back with its `id`.
+  // The promise still rejects -- `graphql-request` rejects on any `errors`
+  // whatever `data` holds -- which is why this view's behaviour is unchanged
+  // and why the fixture, not the component, is what this ticket touches here.
+  const payload = {
+    data: { activity: { id: "7213538827", track: null } },
+    errors: [{ message: BUDGET_MESSAGE, path: ["activity", "track"], extensions: { code: BUDGET_CODE } }],
+  };
   const response = {
-    data: null,
-    errors: [{ message: BUDGET_MESSAGE }],
+    ...payload,
     status: 200,
     headers: {},
-    body: JSON.stringify({ data: null, errors: [{ message: BUDGET_MESSAGE }] }),
+    body: JSON.stringify(payload),
   };
   const request = { query: TRACK_DOCUMENT, variables: { id: "7213538827", points: 600 } };
   const error = Object.assign(new Error(`${BUDGET_MESSAGE}: ${JSON.stringify({ response, request })}`), { response, request });
@@ -185,5 +218,27 @@ describe("ActivityView", () => {
     wire({ all: failed("list exploded") });
     renderView();
     expect(screen.getByText(/Could not load activities: list exploded/)).toBeInTheDocument();
+  });
+
+  // S-101. `BUDGET_MESSAGE` quotes `MAX_TRACK_POINTS_PER_REQUEST`, which lives
+  // in Python, and nothing held the two together: tuning the budget left this
+  // fixture quoting a number the server had stopped using, with every gate
+  // green. That is the same silent drift that let the sentence this one
+  // replaced survive being fabricated.
+  //
+  // frontend/schema.graphql is the link, exactly as in CUI-0034: run365-schema
+  // --check holds it equal to the Python constant, and this holds the fixture
+  // equal to it. Reading the number back out of the SDL is the whole point --
+  // spelling `10000` here would be a third copy rather than a guard.
+  it("quotes the track points budget the generated SDL advertises", () => {
+    const sdl = buildSchema(schemaSdl);
+    const track = (sdl.getType("Activity") as GraphQLObjectType).getFields().track;
+
+    // Assert the phrasing was found before comparing, so a reworded
+    // description fails loudly instead of skipping the comparison and going
+    // green on a number it could no longer locate.
+    const advertised = /totalling (\d+) points/.exec(track.description ?? "");
+    expect(advertised, `Activity.track description states no "totalling N points": ${track.description}`).not.toBeNull();
+    expect(BUDGET_MESSAGE).toContain(`at most ${advertised![1]} track points`);
   });
 });

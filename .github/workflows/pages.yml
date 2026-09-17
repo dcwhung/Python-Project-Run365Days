@@ -62,6 +62,56 @@ jobs:
       - name: GraphQL schema is in sync with frontend/schema.graphql
         run: run365-schema --check frontend/schema.graphql
 
+      # The Python half of the dependency gate (CUI-0044). The frontend job has
+      # audited npm since CUI-0036; until this step the Python side had no SCA at
+      # all and pip-audit had only ever been run by hand, in CUI-0032 -- which
+      # matters because Flask and strawberry-graphql are core dependencies, not
+      # extras, so they go straight into the Vercel production runtime.
+      #
+      # pip-audit reads the environment it runs in, so the scope here is
+      # everything this job installed: the ten runtime dependencies from
+      # pyproject.toml, the [dev] extras, and their transitives -- 65
+      # distributions as measured on 2026-09-17. Installing pip-audit puts its
+      # own closure (CacheControl, cyclonedx-python-lib, requests, rich, ...) in
+      # that set too. That is the cost of auditing the environment rather than a
+      # lockfile, and it is worth naming: a red here can in principle come from a
+      # package only pip-audit needs. It has not so far.
+      #
+      # pip and setuptools are upgraded first, and that is the whole decision in
+      # this step. Measured on 2026-09-17, twice -- once on the repo venv and
+      # once on a fresh python 3.12 venv built the way this job builds one -- the
+      # only advisories in the tree were 14 against the toolchain the runner
+      # happens to ship: pip 24.0 and setuptools 79.0.1. The ten declared
+      # dependencies had none. Every one of the 14 has a fix version (pip 26.2,
+      # setuptools 83.0.0), so upgrading past them actually removes them; after
+      # the upgrade (pip 26.2.1, setuptools 84.0.0) pip-audit reports "No known
+      # vulnerabilities found" and exits 0. This is a fix, not a suppression --
+      # which is why it is not an --ignore-vuln allowlist. An allowlist would
+      # have to be maintained and would drift out of date, and W-034 and S-095
+      # are both findings about exactly that failure mode.
+      #
+      # The trade this accepts: the runner's pip version floats, so a future pip
+      # advisory published before its own fix ships would turn this step red on
+      # something no pull request here can cause. That is a known and deliberate
+      # cost of keeping the gate honest. When it happens the answer is a ticket
+      # and a decision, not an --ignore-vuln added in passing or a narrower scope
+      # chosen on the spot.
+      #
+      # Not --strict: pip-audit always skips run365days itself, because the
+      # editable local package is not on PyPI and cannot be looked up. That skip
+      # is permanent and by design, and --strict would fail every run on it.
+      #
+      # Last in the job for the same reason as the frontend audit (S-097): this
+      # gate is expected to go red on an upstream advisory published since the
+      # last run rather than on anything the pull request did, and from the front
+      # of the job that would bury ruff, pytest and the schema check -- the
+      # signals the author can actually act on.
+      - name: Audit Python dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools
+          pip install pip-audit
+          pip-audit --progress-spinner=off
+
   frontend:
     name: Frontend lint, test and build
     runs-on: ubuntu-latest
@@ -94,6 +144,43 @@ jobs:
 
       - name: Build (static mode)
         run: npx cross-env VITE_DATA_MODE=static vite build --outDir dist-static
+
+      # The whole tree, devDependencies included. `npm ci` above installs them,
+      # they run on this runner and on maintainer machines, and the ones that emit
+      # INTO the bundle -- vite ships its modulepreload polyfill, tailwindcss
+      # generates the whole stylesheet -- are devDependencies too. So an advisory
+      # here is a real exposure, not a backlog item.
+      #
+      # This step carried `--omit=dev` from its introduction (CUI-0036) until
+      # CUI-0049. That flag narrowed the gate to the declared `dependencies`
+      # closure -- eight runtime packages, 16 resolved -- and it was there for one
+      # reason: the dev tree was not clean. As of 2026-09-17 `npm audit` reported
+      # 14 advisories (12 high, 2 moderate, 0 critical), every one reached only
+      # through devDependencies (@graphql-codegen/* -> lodash, vitest ->
+      # @vitest/mocker), none fixable without a major bump, so gating on them
+      # would have parked CI red on a backlog that change could not clear. The
+      # comment said to widen this step once that bump landed. CUI-0049 landed it
+      # (@graphql-codegen/cli 5 -> 7, client-preset 4 -> 6, vitest 3 -> 5) and the
+      # full tree now reports 0 advisories, so the flag is gone -- that was the
+      # point of the ticket, not a regression.
+      #
+      # This is the full tree and the gate holds it at zero, so it is stricter
+      # than an allowlist and needs no list to maintain. If an upstream advisory
+      # with no fix available ever lands here, the answer is a ticket and a
+      # decision, not an `--audit-level` or an exclusion added in passing.
+      # (No dependency audit ran in CI at all before CUI-0036 introduced this
+      # step. The Python half is the pip-audit step in lint-test, added in
+      # CUI-0044.)
+      #
+      # Last in the job, not before Lint (S-097). This gate is expected to go
+      # red on an upstream advisory published since the last run rather than on
+      # anything the pull request did, and from the front of the job that
+      # buried every other frontend signal: lint, typecheck, unit tests and both
+      # builds never ran. It is still a hard gate -- it just reports after the
+      # checks the author can act on. It adds no network dependency either way;
+      # `npm ci` above already needs the registry.
+      - name: Audit dependencies (whole tree, dev included)
+        run: npm audit
 
   build:
     name: Build dashboard (static mode)
