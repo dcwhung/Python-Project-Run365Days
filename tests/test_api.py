@@ -1842,9 +1842,12 @@ def test_a_budget_refusal_is_not_logged_as_a_server_fault(year_client, caplog, d
     #
     # Bounded from *below* as well (W-030), because the line above alone is
     # still one-sided -- which is the very defect CUI-0038 was opened over.
-    # Measured on this branch: REFUSAL_LOG_LEVEL = logging.DEBUG passed all
-    # 522 tests, patched in-process on both modules that bind the name and
-    # with a real refusal's record level read back as an oracle. DEBUG keeps
+    # Measured at `4a625a9`, the commit before this bound: REFUSAL_LOG_LEVEL =
+    # logging.DEBUG passed all 522 tests that existed there, patched in-process
+    # on both modules that bind the name and with a real refusal's record level
+    # read back as an oracle. `pytest --collect-only` at that commit collects
+    # 522; the figure is anchored rather than bare for the reason W-061 gives
+    # on PUBLISHED_EXTENSION_KEYS below. DEBUG keeps
     # the silence, so the security property survives untouched; what it breaks
     # is the affordance this constant's own docstring sells beside it, that an
     # operator "opts in by lowering the level and gets every one of them". An
@@ -2147,9 +2150,10 @@ def test_an_operator_who_lowers_the_level_gets_every_refusal(year_client, monkey
     # first half was asserted, and `logging.DEBUG` satisfies it while breaking
     # the second -- measured on this branch, in-process, with the constant
     # patched on both modules that bind the name and a real refusal's record
-    # level read back as an oracle: DEBUG passed all 522 tests, and an operator
-    # who had lowered the level to INFO exactly as the docstring instructs
-    # would have been handed nothing at all.
+    # level read back as an oracle: DEBUG passed all 522 tests that `4a625a9`
+    # collects -- the commit before the bound, since the bound itself is one of
+    # today's -- and an operator who had lowered the level to INFO exactly as
+    # the docstring instructs would have been handed nothing at all.
     #
     # This is the property the inequality beside the silence test only
     # restates, and it is the one that survives the constant being rewritten:
@@ -2454,9 +2458,16 @@ An allowlist rather than a denylist, which is the difference CUI-0050 made
 necessary. Before it, ``extensions={REFUSAL_CODE_KEY: code}`` was a literal, so
 "nothing but the code" held by construction and needed no gate. It is now a
 dict built up across two statements, so the invariant became one that can be
-lost -- measured: a third key added to it leaves all 573 tests green and still
-reaches the wire. ``CONTEXT_KEY_NAMES`` does not catch it, being three specific
-counter names; a key under any other spelling walks straight past.
+lost -- measured at ``99abfcc``, the commit before this gate: a third key added
+to it left all 573 tests green and still reached the wire. The same mutant now
+fails this test at every one of its parameters. ``CONTEXT_KEY_NAMES`` does not
+catch it, being three specific counter names; a key under any other spelling
+walks straight past.
+
+The 573 is the suite that commit collects, not a figure to re-derive from
+today's: a bare count here would have gone stale the moment this gate landed,
+which is the defect W-060 and W-017 are about and the one W-061 caught this
+docstring committing while fixing its own version of it.
 
 Spelled out rather than imported, for the reason the codes and
 :data:`REFUSAL_ARGUMENT_KEY` are: this is the wire contract, so a test that
@@ -2539,6 +2550,57 @@ def test_a_window_wrong_at_both_ends_names_the_argument_checked_first(year_clien
     # Asserted against the SDL too, so the order is something a client can
     # predict rather than discover on the second round trip.
     assert "first of the two" in _field_descriptions()[field]
+
+
+REFUSED_WINDOWS = MappingProxyType(
+    {
+        "activities": ("limit: 0", "limit"),
+        "weight": ("limit: 1001", "limit"),
+        "weather": ("offset: -2", "offset"),
+        "warnings": ("limit: -9", "limit"),
+    }
+)
+"""A window each list field refuses, and the argument it names -- one of each kind of miss."""
+
+
+def _every_window_wrong(order: tuple[str, ...]) -> str:
+    """Return a document asking every windowed list field, in *order*, for a window it refuses."""
+    asks = " ".join(
+        f"{name}({REFUSED_WINDOWS[name][0]}) {{ {LIST_WINDOW_SELECTION[name]} }}" for name in order
+    )
+    return f"{{ {asks} }}"
+
+
+@pytest.mark.parametrize(
+    "order", [LIST_FIELDS, LIST_FIELDS[::-1]], ids=["document-order", "reversed"]
+)
+def test_several_windowed_fields_wrong_are_refused_at_the_first_of_them(year_client, order):
+    # S-129. The sentence above this one in the SDL settles the order of the
+    # two arguments *within* a field; this settles the order across fields,
+    # which the same request makes visible and nothing pinned. Every one of the
+    # four list fields is non-null, so the first refusal propagates to the root
+    # and nulls `data` -- the other three never run, however wrong they are.
+    # A client that got four windows wrong is told about one of them, so the
+    # figure to plan round trips against is one refusal per request, not one
+    # per bad argument.
+    #
+    # Sent in both orders, which is the whole gate: with one order this would
+    # only record that `activities` is refused first, and pass just as happily
+    # if the refusal were privileged to that field rather than taken in
+    # document order. Reversed, the two readings disagree.
+    field = order[0]
+    argument = REFUSED_WINDOWS[field][1]
+
+    body = year_client.post(GRAPHQL_PATH, json={"query": _every_window_wrong(order)}).get_json()
+
+    assert body["data"] is None
+    errors = body["errors"]
+    assert len(errors) == 1
+    assert errors[0]["path"] == [field]
+    assert errors[0]["extensions"][REFUSAL_ARGUMENT_KEY] == argument
+    # Held against the SDL as well, for the reason the two-argument order is:
+    # a client can only plan the round trips if the promise is published.
+    assert "first of those fields" in _field_descriptions()[field]
 
 
 @pytest.mark.parametrize(("document", "code"), CODED_BUDGET_DOCUMENTS)
