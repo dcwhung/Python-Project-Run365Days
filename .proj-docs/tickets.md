@@ -1524,3 +1524,14 @@ ruff check + format 全綠、`run365-schema --check` up to date、`npm audit` �
    係啱嘅，但兩個 symbol 隔咗 170 行，照字面擺喺 `CONTEXT_KEY_NAMES` 後面會 `NameError`）。
 3. **S-103 / S-104 兩條都掂同一句 `PAGE_WINDOW_NOTE`**，分兩個 commit 落，順序 S-103 → S-104，
    每個 commit 都各自重生咗一次 SDL。兩條都冇改 schema 結構（只係 description）。
+
+### Commit 粒度（S-131，QA 事後核查）
+
+11 個 cleanup commit 入面 **10 個守住「一個 review item 一個 commit」**，
+淨係 `36da421 docs: S-123 / S-124 | …` 一個收咗兩條。兩條都係「📝 記錄、唔改 code」，
+落點都係本檔同一段，成本近乎零 —— 但 `skills/sw-ticket-management` 嗰條規則係**無例外**嘅，
+而 commit body 亦冇講點解合併。
+
+**處理：記錄，唔 rewrite history。** 一個已經 merge 咗嘅 commit 拆返兩個，
+要改寫 `cc29bc5` 之後每一個 SHA（連 QA 報告引嘅 commit 都會失效），
+換返嚟嘅係兩行本檔已經分開寫齊嘅嘢。規則本身照舊：下一輪仍然一個 item 一個 commit。
