@@ -2,6 +2,7 @@
 
 **最後更新**：2026-09-17（13 張 pending ticket 清空 + CUI-0018；三輪 review 92/80/87 + 92；21 條 finding 全清；`CLAUDE.md` §6 加咗 nullability-widening 陷阱；529 pytest / 143 vitest / TOTAL 96%）
 **2026-09-17 後續**：CUI-0049（前端 dev 樹 bump + `npm audit` 擴闊到全樹）同 CUI-0044（Python 側 `pip-audit` 入 CI）完成；531 pytest / 144 vitest（25 files）
+**2026-09-17 後續 ②**：v3.3.0 QA 嘅 9 條 finding（W-061、S-125…S-132）全部清完，見最後一節；588 pytest / 144 vitest（25 files）
 
 > 由 `/audit`（AU-NNN）同 `/review`（C/W/S-NNN）產生嘅 ticket 集中登記處。
 > 編號全局唯一、永不重用。已完成嘅保留紀錄，只改狀態。
@@ -1535,3 +1536,52 @@ ruff check + format 全綠、`run365-schema --check` up to date、`npm audit` �
 **處理：記錄，唔 rewrite history。** 一個已經 merge 咗嘅 commit 拆返兩個，
 要改寫 `cc29bc5` 之後每一個 SHA（連 QA 報告引嘅 commit 都會失效），
 換返嚟嘅係兩行本檔已經分開寫齊嘅嘢。規則本身照舊：下一輪仍然一個 item 一個 commit。
+
+---
+
+## 2026-09-17 QA — v3.3.0（✅ pass，0 Critical）
+
+**報告**：`.proj-docs/qa/2026-09-17_qa_v3.3.0.md`（W-061、S-125…S-132）
+**涵蓋**：CUI-0044 / 0047 / 0048 / 0049 / 0050 / 0051 六張票 + 11 個 review cleanup commit，QA 喺 `cc29bc5` 做。
+**QA verdict**：hard gates 13/13 pass、0 🔴、1 🟡、8 🟢，全部落喺註釋／文件，**唔 block release**。
+**修復 branch**：`fix/docs/W-061_qa-findings`（由 `824c682` 開），一個 finding 一個 commit。
+**Gate（修復後實測）**：pytest **588**（+2 = S-129 新測試兩個 param）、vitest **144 / 25 files**、
+ruff check + format 全綠、`run365-schema --check` up to date、`npm audit` 全樹 0、
+`pip-audit` upgrade 後 0、兩個 build mode 綠。
+
+### 🟡 Warning（1 條）
+
+| ID | 內容 | 狀態 |
+|---|---|---|
+| **W-061** | `tests/test_api.py` `PUBLISHED_EXTENSION_KEYS` docstring（由 `70ca8d1` 新加）寫「`measured:` a third key added to it leaves **all 573 tests green**」。QA 落同一個 mutant 今日實測係 **9 failed / 577 passed**（586）。歷史上真確，但佢寫成一個讀者可重做嘅量度而重做出嚟唔同 —— **W-060 / W-017 同一個病，由「為一句冇 gate 嘅絕對聲明補 gate」嗰個 commit 自己種落去** | ✅ done（`f8ac1aa`）—— 冇照跟方案 A 嘅「the 573 tests that existed before this one」，改為**釘死喺 commit**：`99abfcc`（即 `70ca8d1^`）。喺該 commit 開臨時 worktree 實跑 `pytest --collect-only`，**實測收集到 573 條**，所以個數由「今日對唔上」變成「行一條指令可核實」。會漂嘅嗰半（今日紅幾多條）改寫成行為：「the same mutant now fails this test at every one of its parameters」，唔留絕對數 |
+
+### 🟢 Suggestion（8 條）
+
+| ID | 內容 | 狀態 |
+|---|---|---|
+| **S-125** | 「編號完整性核實」段 stale：仍然同 `0001…0042` 對比、寫「應有 42 張，實有 42 張」。危險位係三句結論（連續／無跳號／無撞號）**今日仍然啱**，所以睇落好似仲有效 | ✅ done（`a681076`）—— 喺 `824c682` 自己重數：`find .tickets -name 'CUI-*.md'` = **52**、`0001…0052` 無跳號、無一個編號有兩個檔案。範圍同張數更新，並釘咗 commit + 指令；另加一句明寫「開新票就要一齊改呢段」，因為三句結論唔會自己出賣呢段已經過時 |
+| **S-126** | census 個「量度方法」block 同 Bucket 表兩套數並存（42；13/0/29 對 52；45/0/7），**兩套掛住同一個核實日期**，而本 section 自稱「權威快照」，舊嗰套冇一個字講已被取代 | ✅ done（`baa033c`）—— 讀數只留一套（52；pending 7 / in-progress 0 / completed 45，喺 `824c682` 重數），指令保留（block 嘅價值就係講點樣量到），並加一句「量度方法同 Bucket 表要同一次點算」 |
+| **S-127** | note block 寫「pending **6**」，Bucket 表（正確地）寫 **7**（CUI-0052 由 `857fc94` 加入 `pending/`） | ✅ done（`61f5c44`）—— 加一段 dated note 講明呢個讀數已被 Bucket 表取代，原文保留作歷史紀錄。⚠️ **同 QA 報告有出入**：報告定位喺「W-051 個 note block」，實際引嗰句喺「CUI-0048 / 0050 / 0051 後續」block，而 W-051 block 根本冇 bucket 數；而且寫住 6 嘅**有三個 block**（`:38`、`:43`、`:47-48`），唔止一個 |
+| **S-128** | `CLAUDE.md` §6 client-preset row 開口寫「**刻意唔寫絕對行數**」，跟住即刻寫咗四個行數同兩個百分比 | ✅ done（`05d3a0f`）—— 純措辭：改成「**刻意唔攞嚟做核對基準**」。實質內容重驗過冇錯（codegen 後 `wc -l` = **75**、`Maybe`/`InputMaybe`/`Scalars` 零命中、`@/gql` 一個 import），四個數保留作「點解唔用行數做基準」嘅理據。順手記低 `f3e2bf5` 個 subject `drop the codegen line counts` 同 diff 唔對數（冇 drop，係降格成理據）—— subject 改唔到，記喺 row 入面 |
+| **S-129** | S-104 新加嘅 SDL 句子只講一條 field 入面兩個 argument 之間嘅次序；「幾條 field 各自越界」冇講，亦**冇任何測試釘住**。實測四條 field 全壞只出 **1 個 error + `data: null`** | ✅ done（`d426212`）—— `PAGE_WINDOW_NOTE` 補一句 + 新測試 `test_several_windowed_fields_wrong_are_refused_at_the_first_of_them`（2 個 param），SDL 已重生。⚠️ **推翻 QA 一個讀法**：QA 只量咗一個次序就報「只講 activities / limit」；**掉轉個 document 實測係 `warnings` / `limit`** ⇒ 規則係**document 次序**，唔係 `activities` 有特權。所以測試**同時跑正反兩個次序** —— 單一次序嘅測試會記錯而且照樣綠。**Mutation-proven ×2**：(a) 剷走新 SDL 句 → 紅 **2**（正正係呢條測試兩個 param，其餘 586 全綠 ⇒ 佢係唯一守衛）；(b) 把 `activities` widen 做 `list[Activity] \| None` → 紅 **4**（含本測試 `document-order` param；`reversed` 綠，因為佢第一條 field 仍然 non-null）。兩個 mutant 都清 `__pycache__` + 獨立 oracle 先確認生效 |
+| **S-130** | `src/api/service.py` `tracks()` 個 Raises 寫「`non-integral number such as 2.5`」，但 `2.0` 一樣掟 `TypeError` | ✅ done（`aa95e71`）—— ⚠️ **QA 個修法本身唔啱**：報告話「係**任何** `float`」，實測唔係。喺一個有 1250 行 track 嘅 batch 上逐個量：**掟**嘅係 `2.0` / `2.5` / `999.0` / `1000.0`；**唔掟**嘅係 `1.0` / `1.5`（`_even_positions` 喺 `points < 2` 短路，行唔到 `range()`）、`1000.5` / `1500.0`（`min(points, MAX_TRACK_POINTS)` 換咗個 `int` 落嚟）、`0.0` / `-0.0`（falsy，照 Args 當 `0`）。另外成個 batch 每條 track 都短過個 ask 嘅話，sampler 根本唔行，一樣唔掟。docstring 而家寫返個真正條件加正反兩組實測值。順手改埋同段嘅 `Int` coercion 講法：「refuses a fractional literal」→ 任何 float literal，實測 `points: 2.0` 同 `2.5` 都係 `Int cannot represent non-integer value` |
+| **S-131** | `36da421` 一個 commit 收咗 S-123 + S-124，其餘 10 個守住一個 item 一個 commit | 📝 記錄（唔改歷史）（`b8e7bad`）—— 已記喺上一節「Commit 粒度」。拆返兩個要改寫 `cc29bc5` 之後每個 SHA（連 QA 報告引嘅都會失效），唔值 |
+| **S-132** | `docs/deployment.md:137` 把 `pages.yml` 一句省略句壓到讀唔返：`pages.yml:107` 帶 modal（`would bury` + `ruff, pytest and the schema check`）、`:177` 帶具體展開（`buried` + `lint, typecheck, unit tests and both builds never ran`），`deployment.md` 兩樣都壓走 | ✅ done（`f7e53a4`）—— **三處原文自己再核一次先落手**（QA 自報佢最初診斷錯咗，話 `deployment.md` 打爛咗一句完整句子，核實後更正；我核實佢更正後嗰個講法**成立**）。省略句還原成完整 clause（`running it from the front of a job would bury …`），並補返 S-097 個實例 |
+
+### Cleanup lane 同 QA 報告唔同意嘅地方（全部有實測）
+
+1. **S-130 QA 個修法唔啱**。報告推薦 `non-integral number such as 2.5` → `float such as 2.5 (or even 2.0)`，
+   理由係「任何 `float` 都掟」。實測唔係：`1.0` / `1.5` / `1000.5` / `1500.0` / `0.0` / `-0.0` 全部係
+   `float` 而且**一條都唔掟**。報告自己 §2 CUI-0048 嗰張表已經寫住 `-0.0` 同 `0.0` → ok，
+   即係 S-130 嗰句同佢自己嘅數據打對台。真正條件係「個 `float` 行得到 `_even_positions`」，
+   已經寫入 docstring 連正反兩組實測值。
+2. **S-129 QA 只量咗一個 document 次序**，報「只講 `activities` / `limit`」。掉轉次序實測係
+   `warnings` / `limit` ⇒ 規則係 **document 次序**而唔係邊條 field 有特權。
+   單一次序嘅測試會把「document 次序」記成「`activities` 行先」而且照樣綠，所以新測試跑正反兩個次序。
+3. **W-061 冇照跟方案 A**。報告推薦加六個字「the 573 tests that existed before this one」——
+   數字仍然係裸數，讀者要信。改為釘死 `99abfcc`（`70ca8d1^`）並**實跑 `--collect-only` 確認 573**，
+   同 QA 自己喺 §10 建議嘅規矩（「歷史讀數一律寫成『喺 `<commit>` 量到』」）一致。
+4. **S-127 定位有出入**（見上表）：報告寫「W-051 個 note block」，實際係另一個 block，而且係三處唔係一處。
+5. **QA 嘅數我全部重現到**：census 52 / 45 / 0 / 7 同 `0001…0052` 連續無跳號無撞號、
+   codegen 後 `wc -l` = 75、`pages.yml:107` / `:177` / `deployment.md:137` 三處措辭對比、
+   四條 field 全壞只出 1 個 error + `data: null` —— 冇一個要修正。
