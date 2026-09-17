@@ -117,7 +117,12 @@ the stated end state of that narrower threshold rather than a regression.
 
 The Python gate upgrades `pip` and `setuptools` and then runs `pip-audit`
 over the environment the job installed: the declared dependencies, the
-`[dev]` extras and their transitives. That upgrade is a fix and not a
+`[dev]` extras and their transitives, and `pip-audit`'s own closure
+(CacheControl, cyclonedx-python-lib, requests, rich and the rest), which
+installing the auditor into that same environment pulls in. That last part is
+the price of auditing an environment rather than a lockfile, and it is worth
+stating in the policy: a red here can in principle come from a package only
+`pip-audit` itself needs. It has not so far. That upgrade is a fix and not a
 suppression -- the advisories it removes all carry fix versions -- which is
 why an `--ignore-vuln` allowlist was rejected in its place; a list of
 exceptions drifts, and the gate then reports on the list rather than on the
