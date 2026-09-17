@@ -133,11 +133,13 @@ no pull request here can cause. That is deliberate. `pip-audit` always skips
 so the gate does not run with `--strict`.
 
 Both audits run last in their jobs. Either is expected to go red on an
-upstream advisory published since the last run rather than on anything a
-pull request did, and from the front of a job that buries the checks the
-author can act on. Which threshold is in force is a policy fact rather than a
-job step, which is why it is written down here; the commands themselves, and
-the reasoning behind each threshold, are in `pages.yml` beside the steps.
+upstream advisory published since the last run rather than on anything a pull
+request did, and running it from the front of a job would bury the checks the
+author can act on -- which is not hypothetical for the frontend one: it did,
+and lint, typecheck, unit tests and both builds never ran (S-097). Which
+threshold is in force is a policy fact rather than a job step, which is why it
+is written down here; the commands themselves, and the reasoning behind each
+threshold, are in `pages.yml` beside the steps.
 
 Both gates sit upstream of deployment. They run in `lint-test` and `frontend`,
 `build` needs both, and `deploy` needs `build`, so on `develop` -- the only
