@@ -1,0 +1,88 @@
+name: Smoke-test the deployed API
+
+# CUI-0053, from the roadmap's "a smoke test in CI against the deployed API
+# (/api/health and one query) after each Vercel deployment".
+#
+# Vercel deploys outside GitHub Actions, so until now nothing in this repository
+# checked that a deployment actually works. The build going green says the bundle
+# was produced; it says nothing about whether the function starts or whether the
+# database it bundled has any rows in it. Both have failed here before, and both
+# were found by hand, from the Vercel Logs tab (docs/deployment.md).
+#
+# This workflow is deliberately NOT in the deployment path -- that is the whole
+# point of CUI-0052, which took the dependency audits out of it. It runs after a
+# deployment that has already happened, so it can block nothing; a failure here
+# is a red check on the commit, in the Actions tab, and in the notification
+# GitHub sends for a failed run on a branch you are watching. That is the same
+# visibility the audits have, and it is the visibility this repository actually
+# enforces with, since neither develop nor master carries branch protection.
+#
+# Only develop. It is the Vercel production branch and the GitHub Pages deploy
+# source; master builds and deploys nothing, so there would be nothing to smoke.
+
+on:
+  push:
+    branches: [develop]
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: "Test this URL instead, and skip waiting for a deployment"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  # For the deployments API the wait step polls. The repository is public so the
+  # read would succeed unauthenticated too, but at 60 requests an hour shared
+  # across the whole runner IP, which is not a budget to poll on.
+  deployments: read
+
+concurrency:
+  group: smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The production alias, as published in docs/deployment.md.
+  #
+  # Not the per-deployment `environment_url` that Vercel publishes on the
+  # deployment status and that the wait step prints, although that URL names
+  # exactly the commit just deployed. The alias is what a reader of the
+  # dashboard actually loads, and it is the alias, not the immutable URL, that
+  # can be left pointing at an older build; testing the immutable URL would pass
+  # on a deployment nobody can reach. The deployment URL is logged next to this
+  # one so the two can be compared by hand when they disagree.
+  #
+  # This URL is not readable from the repository -- Vercel keeps the project's
+  # domains in its dashboard -- so it is written here and in docs/deployment.md
+  # and has to be changed in both if the project is ever renamed. A wrong URL
+  # here fails loudly on the first push rather than passing quietly: measured
+  # locally against a healthy server behind a wrong base URL, the smoke script
+  # reports the 404 and exits 1.
+  PRODUCTION_URL: https://python-project-run365-days.vercel.app
+
+jobs:
+  smoke:
+    name: Smoke-test the Vercel deployment
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Skipped for a manual run that named its own URL: there is no deployment
+      # to wait for in that case.
+      #
+      # The id is here so the step's `deployment_url` output has somewhere to
+      # land; nothing consumes it today, because the step below tests the alias
+      # rather than that URL, for the reason given above. It is kept addressable
+      # so a later check that does want the immutable URL has it without having
+      # to re-derive it.
+      - name: Wait for the Vercel production deployment of this commit
+        id: wait
+        if: inputs.base_url == ''
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 scripts/wait_for_vercel.py
+
+      - name: Smoke-test
+        env:
+          BASE_URL: ${{ inputs.base_url || env.PRODUCTION_URL }}
+        run: python3 scripts/smoke_api.py "$BASE_URL"

@@ -5,7 +5,7 @@
 **2026-09-17 後續 ②**：v3.3.0 QA 嘅 9 條 finding（W-061、S-125…S-132）全部清完，見最後一節；588 pytest / 144 vitest（25 files）
 **2026-09-17 後續 ③（v3.3.0 release）**：六張票（CUI-0044 / 0047 / 0048 / 0049 / 0050 / 0051）全部搬入 `completed/`，「檔案位置」同「狀態」**重新一致**；`pending/` 淨返 CUI-0052 一張（⏸️ 待用戶決定）
 **2026-09-17 後續 ④（DevOps lane）**：CUI-0052 由 ⏸️ 轉 ✅ done —— 兩個 supply-chain audit 搬去新 workflow `.github/workflows/audit.yml`，冇任何 job `needs` 佢哋，另加每日 `schedule:`
-**2026-09-17 後續 ⑤（同一條 lane）**：開咗 **CUI-0053**（部署後嘅 Vercel API smoke test，由 `docs/roadmap.md` §Next 開出），所以 `pending/` 係 **1** 張而唔係空
+**2026-09-17 後續 ⑤（同一條 lane）**：開咗 **CUI-0053**（部署後嘅 Vercel API smoke test，由 `docs/roadmap.md` §Next 開出），同一條 lane 即刻實現埋並轉 ✅ done，搬入 `completed/`；`pending/` 由此清空（**0** 張）
 
 > 由 `/audit`（AU-NNN）同 `/review`（C/W/S-NNN）產生嘅 ticket 集中登記處。
 > 編號全局唯一、永不重用。已完成嘅保留紀錄，只改狀態。
@@ -18,7 +18,7 @@
 
 > 量度方法（2026-09-17 喺 CUI-0052 / CUI-0053 lane 重量，同下面 Bucket 表係**同一次**點算）：
 > `find .tickets -name 'CUI-*.md' | wc -l` → **53**；
-> `ls .tickets/<bucket>/0001-0200/CUI-*.md | wc -l` → pending **1** / in-progress **0** / completed **52**。
+> `ls .tickets/<bucket>/0001-0200/CUI-*.md | wc -l` → pending **0** / in-progress **0** / completed **53**。
 >
 > ⚠️ 呢個 block 之前留住 `6576e56` 嗰陣嘅讀數（**42**；pending 13 / 0 / completed 29），同三行之下嘅
 > Bucket 表（52；45 / 0 / 7）並存，兩套數仲掛住**同一個核實日期**，而本 section 自稱「權威快照」——
@@ -33,9 +33,9 @@
 
 | Bucket | 數量 | 檔案位置 |
 |---|---:|---|
-| ✅ completed | **52** | `.tickets/completed/0001-0200/` |
+| ✅ completed | **53** | `.tickets/completed/0001-0200/` |
 | 🔄 in-progress | **0** | `.tickets/in-progress/0001-0200/`（空） |
-| ⏳ pending | **1** | `.tickets/pending/0001-0200/`（CUI-0052 已搬入 `completed/`；淨返新開嘅 CUI-0053） |
+| ⏳ pending | **0** | `.tickets/pending/0001-0200/`（空：CUI-0052 同 CUI-0053 都已搬入 `completed/`） |
 | **總計** | **53** | |
 
 > ⚠️ **2026-09-17 後續（CUI-0049 / CUI-0044）**：兩張票狀態已轉 ✅ done，但**票檔冇搬**（依指示原地留喺
@@ -143,7 +143,7 @@
 | **CUI-0050** | 🟢 Low | 四條 list field 嘅 `ARGUMENT_OUT_OF_RANGE` 分唔開 `limit` 定 `offset`（`path`/`locations`/`code` 三樣一樣，只有 message 唔同）⇒ client 照 SDL 講嘅「branch on the code」做唔到修正。W-035 方案 B 嘅承接票 | ✅ done | `completed/` |
 | **CUI-0051** | 🟢 Low | CUI-0038 測試註釋引咗 `103`/`341` bytes 但冇講量邊個 document；QA 用兩組 document 量到 102/332 同 161/239，兩組都唔等於。同 S-068/S-069 同一種病 | ✅ done | `completed/` |
 | **CUI-0052** | 🟢 Low | 兩個 supply-chain audit gate（`pip-audit` / `npm audit`）坐喺 `deploy` 上游（`build.needs = [lint-test, frontend]`、`deploy.needs = build`），而本 repo 每次 push `develop` 就 deploy ⇒ 一條同本 repo 完全無關嘅上游 advisory 可以停晒所有部署，包括 hotfix。兩份文件都認咗係刻意 trade，**唔當缺陷**；問題係要唔要解耦（標準做法：另開 `schedule:` audit workflow，**唔係** `continue-on-error`）。由 S-122 開出 | ✅ done | `completed/` |
-| **CUI-0053** | 🟡 Medium | Vercel 唔經 GitHub Actions 部署，所以部署完之後**冇任何自動檢查**：function 起唔起到、bundle 入面個 DB 有冇行，全部靠人手睇 Vercel Logs（`docs/deployment.md` 記住六次，兩次正正係呢種）。⚠️ 兩個陷阱：(a) `/api/health` **分得開** fallback（fallback 答 500 唔係 200），但**分唔開空 DB** —— 實測 populated 同 empty DB 都係 65536 bytes ⇒ 一定要夾一條真 query 驗行數；(b) `deployment_status` / `schedule` 兩個 trigger 都**只認 default branch** 上面嗰份 workflow file，而本 repo default branch 係 `master` 唔係部署源頭 `develop` ⇒ 寫成嗰樣會靜英英一次都唔行。由 `docs/roadmap.md` §Next 開出 | ⏳ pending | `pending/` |
+| **CUI-0053** | 🟡 Medium | Vercel 唔經 GitHub Actions 部署，所以部署完之後**冇任何自動檢查**：function 起唔起到、bundle 入面個 DB 有冇行，全部靠人手睇 Vercel Logs（`docs/deployment.md` 記住六次，兩次正正係呢種）。⚠️ 兩個陷阱：(a) `/api/health` **分得開** fallback（fallback 答 500 唔係 200），但**分唔開空 DB** —— 實測 populated 同 empty DB 都係 65536 bytes ⇒ 一定要夾一條真 query 驗行數；(b) `deployment_status` / `schedule` 兩個 trigger 都**只認 default branch** 上面嗰份 workflow file，而本 repo default branch 係 `master` 唔係部署源頭 `develop` ⇒ 寫成嗰樣會靜英英一次都唔行。由 `docs/roadmap.md` §Next 開出 | ✅ done | `completed/` |
 
 ### ⚠️ 核實過程發現
 

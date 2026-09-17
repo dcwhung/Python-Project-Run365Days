@@ -85,6 +85,13 @@ CI 跑嘅就係上面呢批，分兩個 workflow：`.github/workflows/pages.yml`
 build，`build` → `deploy` 掛喺佢哋上面）同 `.github/workflows/audit.yml`（兩個 supply-chain audit，
 CUI-0052 由部署路徑搬走，**冇任何嘢 `needs` 佢**，另加每日 `schedule:`）。改動後本地行過先 push。
 
+第三個 workflow `.github/workflows/smoke.yml`（CUI-0053）唔喺上面呢批之內：佢喺 push 去 `develop`
+之後等 Vercel 報 `Production` deployment success，然後打真嘅 deployed API
+（`scripts/wait_for_vercel.py` ＋ `scripts/smoke_api.py`）。本地要驗嘅話直接行
+`python scripts/smoke_api.py <base-url>`。⚠️ `deployment_status` 同 `schedule` 兩個 trigger
+**只認 default branch（`master`）上面嗰份 workflow file**，所以 smoke test 用 `push:`；
+而 `audit.yml` 個每日 `schedule:` 要等 `audit.yml` 自己 merge 上 `master` 先會開始行。
+
 ---
 
 ## 4. Branch 同部署（唔好搞錯）

@@ -192,12 +192,71 @@ Which threshold is in force is a policy fact rather than a job step, which
 is why it is written down here; the commands themselves, and the reasoning
 behind each threshold, are in `audit.yml` beside the steps.
 
+## Post-deployment smoke test
+
+`.github/workflows/smoke.yml` runs after every push to `develop`, waits
+for Vercel to report a successful `Production` deployment of that commit,
+and then tests the live API. It checks two things, because neither one
+alone separates the failures the table above records:
+
+- `GET /api/health` must answer `200` with `{"status": "ok", …}`. The
+  fallback app answers this path too, with `500` and
+  `{"status": "error", …}`, so this separates "the function started" from
+  "the function could not be built".
+- one real GraphQL query — `{ meta { year generatedAt } activitiesCount }`
+  — must resolve, and must report at least one activity. Health cannot see
+  this: it reports the database path it resolved, never a row. A build
+  that bundled an empty export passes health and serves an empty
+  dashboard, which is the 64 KB, 0-activity failure in the table above.
+  Measured locally, a populated database and an empty one are both 65536
+  bytes, so size separates nothing either.
+
+Introspection is not used: the deployment rejects `__schema` documents
+unless `RUN365_GRAPHIQL` is set, so a smoke test built on it would fail
+for a reason that is not a fault.
+
+It gates nothing. It runs after a deployment that has already happened, in
+a workflow no other job needs, so a red here is a signal and never a hold
+— the same shape CUI-0052 gave the dependency audits, and for the same
+reason.
+
+Two mechanisms are worth knowing about, because the obvious one does not
+work here:
+
+- Vercel reports a finished deployment twice: as a commit status with
+  context `Vercel`, and as a GitHub Deployment created by `vercel[bot]` in
+  environment `Production` (or `Preview` off the production branch). Only
+  the Deployment can be filtered by commit *and* environment, and only it
+  carries `environment_url`, so `scripts/wait_for_vercel.py` polls that.
+  Note its `production_environment` flag is `false` even on the production
+  ones; match the environment name.
+- `deployment_status` would remove the polling entirely, and is unusable:
+  GitHub fires it only for workflow files on the **default branch**, which
+  is `master` while deployments come from `develop`. Such a workflow would
+  sit on `develop` running never, and silently, until a release merge
+  carried it to `master`. The same rule is why the daily dependency audit
+  does not start until `audit.yml` reaches `master`.
+
+The smoke test targets the production alias, the URL in the table at the
+top of this file, rather than the per-deployment URL Vercel publishes on
+the deployment status. The alias is what a reader actually loads, and the
+alias is the thing that can be left pointing at an older build; the
+immutable URL would pass on a deployment nobody can reach. The wait step
+logs the per-deployment URL next to it so the two can be compared when
+they disagree. That alias is not readable from a checkout, so it is
+written in `smoke.yml` and here, and a rename has to change both — which
+fails loudly on the next push rather than passing quietly.
+
+No secrets are involved. The workflow reads the deployments API with
+`github.token` and everything else is an unauthenticated HTTPS request to
+a public endpoint.
+
 ## Switching the deploy source from `develop` to `master`
 
 `develop` is the deploy source today. Moving it to `master` means changing
-seven things in five places — two of them outside the repository, where a
+eight things in six places — two of them outside the repository, where a
 checkout can neither see nor verify them. Missing one leaves the setup
-half-switched, and the failure is usually silent. Do all seven together.
+half-switched, and the failure is usually silent. Do all eight together.
 
 In the repository:
 
@@ -215,7 +274,10 @@ In the repository:
    which has to follow the deploy branch or the daily audit covers the wrong
    tree. Nothing in this file gates a deployment, which is the point of it
    and also why getting it wrong shows up as nothing at all.
-5. `README.md` — the CI badge's `?branch=` query, the "Continuous
+5. `.github/workflows/smoke.yml` — its `push` branch list, which has to be
+   the branch Vercel deploys from or the smoke test waits for a deployment
+   that will never appear and fails on the timeout.
+6. `README.md` — the CI badge's `?branch=` query, the "Continuous
    integration and deployment" section, the Vercel production-branch
    sentence, and the "Versioning and branches" table with the paragraph
    under it.
@@ -223,16 +285,17 @@ In the repository:
 Outside the repository, so neither readable nor changeable from a
 checkout:
 
-6. **GitHub `github-pages` environment** (Settings, Environments,
+7. **GitHub `github-pages` environment** (Settings, Environments,
    `github-pages`, Deployment branches) — allow the new branch. Until this
    is done CI goes green and the deploy job is still rejected at the
    environment gate.
-7. **Vercel Production Branch** (project Settings, Git) — API-mode
+8. **Vercel Production Branch** (project Settings, Git) — API-mode
    deployments follow this setting, not the repository. Until this is done
    Pages and Vercel serve different commits.
 
 Then update this file: the intro, the trigger table, the Vercel section,
-the GitHub Pages section and this checklist.
+the GitHub Pages section, the dependency-audit and smoke-test sections and
+this checklist.
 
 ## Tagging a release
 
