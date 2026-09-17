@@ -128,13 +128,27 @@ class TCXParser(BaseActivityParser):
             if time_text is None:
                 continue
 
+            # The Position element is optional, but the degrees inside a present
+            # one are not: they are read with required_float so a corrupt fix is
+            # refused rather than laundered into None (CUI-0043). None is not a
+            # neutral answer here -- haversine_distance reads it as "indoor, no
+            # fix", answers nan, and the bad segment drops out of the sum, which
+            # is the silent under-count CUI-0008 ruled out. GPX and KML have
+            # raised on a non-finite coordinate since CUI-0001; this is the third
+            # parser catching up, and the split was never a deliberate decision:
+            # W-005 gave optional_float its isfinite guard to stop nan/inf
+            # poisoning optional *statistics* (cadence, speed, altitude) and
+            # never reasoned about coordinates. Measured over the 365 real
+            # exports: 37,565 of 134,744 trackpoints carry no Position at all,
+            # while every one of the 97,179 that do carries both degrees, finite
+            # and parsable -- so this refuses nothing the real data contains.
             pos = trkpt.find(".//ns:Position", _NS)
             points.append(
                 TrackPoint(
-                    lat=optional_float(pos, ".//ns:LatitudeDegrees", _NS)
+                    lat=required_float(pos, ".//ns:LatitudeDegrees", _NS)
                     if pos is not None
                     else None,
-                    lon=optional_float(pos, ".//ns:LongitudeDegrees", _NS)
+                    lon=required_float(pos, ".//ns:LongitudeDegrees", _NS)
                     if pos is not None
                     else None,
                     time=parse_datetime(time_text).strftime(_TIMESTAMP_FORMAT),

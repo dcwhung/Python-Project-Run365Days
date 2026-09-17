@@ -87,9 +87,9 @@
 | **CUI-0040** | 🟢 Low | `service.tracks()` 收到負數 `points` 靜靜回 1 行，同 CUI-0033(a) 立嘅原則相反 | ✅ done | `pending/` |
 | **CUI-0041** | 🟢 Low | `finite_float()` 喺 `src/` 零 caller —— CUI-0011 方案 C 把 cast 收歸 `from_raw_row()`、有限性 gate 搬去 `finite()` 之後佢變死代碼；docstring 仍然宣稱佢守住九個 weather call site（實測：九個讀數分兩處 gate，6 daily 喺 `records.py`、3 hourly 喺 `builder.py`） | ✅ done | `pending/`（檔案未搬） |
 | **CUI-0042** | 🟢 Low | `tag-release.yml` 係單向流程：tag 一旦建咗，`Validate tag name` 就 `exit 1`，而 release step 只有 `gh release create` 冇 edit 路徑 ⇒ **CHANGELOG 喺 tag 之後嘅更正同步唔返落已發佈嘅 Release body**。v3.2.0 實際撞到，最後要人手喺 GitHub UI 改一隻字 | ✅ **done 2026-09-17** | `pending/`（未搬）|
-| **CUI-0043** | 🟢 Low | TCX 座標經 `optional_float` 洗成 `None`，令 CUI-0008 個有限性 guard 喺唯一真實 corrupt 路徑上射唔到（GPX/KML 用 `parse_finite_float` 擋得住）。pre-existing，W-005 定案 | ⏳ pending | `pending/` |
+| **CUI-0043** | 🟢 Low | TCX 座標經 `optional_float` 洗成 `None`，令 CUI-0008 個有限性 guard 喺唯一真實 corrupt 路徑上射唔到（GPX/KML 用 `parse_finite_float` 擋得住）。pre-existing；查證後 W-005 **從未**就座標定案（佢處理嘅係 `optional_int` 嘅 nan/inf，理由係污染統計） | ✅ done | `pending/` |
 | **CUI-0044** | 🟡 Medium | Python 側依然冇依賴審計 gate —— `pip-audit` 從來冇入過 CI，而 Flask / Strawberry 係 core dependency，直接入 Vercel production runtime。CUI-0036 只做咗前端一半（user 當時明確只揀咗 `npm audit --omit=dev`）| ⏳ pending | `pending/` |
-| **CUI-0045** | 🟢 Low | `tests/test_api.py` 已經 3,166 行 / 197 個測試；Vercel entry（deploy shim，唔係 `src/api/` 一部分）嘅測試應該抽做 `tests/test_vercel_entry.py`。pre-existing | ⏳ pending | `pending/` |
+| **CUI-0045** | 🟢 Low | `tests/test_api.py` 已經 **3,543 行 / 228 個測試**（票原寫 3,166/197，已漂）（實測 **3,543 行 / 228 個**）；Vercel entry（deploy shim，唔係 `src/api/` 一部分）嘅測試應該抽做 `tests/test_vercel_entry.py`。pre-existing；7 條測試純機械搬走，`GRAPHIQL_ENV` 因 W-008 仍在用而兩邊各自定義 | ✅ done | `pending/` |
 | **CUI-0046** | 🟢 Low | `ActivitiesView.test.tsx:13` 個 `BUDGET_MESSAGE` hardcode 咗 `4000`（= `MAX_LIST_ROWS_PER_REQUEST`）冇守衛 —— **S-101 同一個病嘅第二宗**。S-101 只授權咗 `10000` 嗰條，cleanup lane 守範圍冇郁佢 | ✅ done | `pending/`（檔案未搬） |
 
 ### ⚠️ 核實過程發現
