@@ -1825,10 +1825,13 @@ def test_a_budget_refusal_is_not_logged_as_a_server_fault(year_client, caplog, d
     # document's own text handed back, and the remainder is the refusal's
     # English -- which this schema's own field descriptions tell clients not to
     # depend on, since it quotes limits that move whenever a budget is tuned.
-    # Re-measured here on the two documents named above, it reproduces the
-    # figures it quoted exactly, so they were never wrong; what was missing was
-    # the sentence that let anyone check, which is the S-068 / S-069 defect and
-    # S-098's answer to it.
+    # Re-measured here on the two documents named above, it reproduced the
+    # figures that earlier version quoted exactly, so they were never wrong.
+    # Those figures are in CUI-0051, which is where to look for them: this
+    # comment no longer carries them, so "the figures it quoted" would
+    # otherwise point at nothing this repository still holds. What was missing
+    # was the sentence that let anyone check, which is the S-068 / S-069 defect
+    # and S-098's answer to it.
     #
     # The qualitative half is the half the mutation test actually needed, and
     # it is the half that has a gate rather than a comment:
