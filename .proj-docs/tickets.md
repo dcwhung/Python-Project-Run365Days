@@ -1385,13 +1385,21 @@ Reviewer 透明交代咗評 Warning 而唔係 Suggestion 嘅理由（S-073/S-074
 **推薦方案 A**（改正三處措辭，講返真相：field 喺 `path`/`locations`，argument 只喺 message）；
 方案 B（加 `extensions.argument`）另飛，應由「有 client 真係要 branch」驅動。
 
+**狀態：✅ done（`08e2d84`）** —— 跟方案 A。修復 lane 獨立重現，並補強咗 reviewer 嘅證據：
+reviewer 只行咗一條 query，lane 行埋 `{ activities(limit: -5, offset: 0) { id } }`，
+證實**兩個唔同 argument 出嘅 `path` / `locations` 完全一樣**（`["activities"]`、line 1 col 3），
+只有 `message` 唔同 —— 呢個先係「client 分辨唔到」嘅直接證據。
+另外用 in-process mutant 驗埋個**因果**：把 `nodes` 改指住出事嗰個 argument node，
+`locations` 即刻分別跳到 col 27（`offset`）同 col 14（`limit`），
+證明 `nodes=raw.field_nodes` 正正係決定呢件事嘅嘢，唔係巧合。SDL 冇變，529 綠。
+
 ### 🟢 Suggestion
 
-| ID | 內容 |
-|---|---|
-| **S-100** | `ActivityView.test.tsx:74-77` 個 `clientError()` docstring 仍然寫住 "Captured from a real run"，而 reviewer **算得出呢張 document 不可能被拒**（1 個 track field ≤ 64、600 點 ≤ 10000，兩個 budget 都清）。⚠️ **S-074 同族第三宗**（前兩宗喺 `OverviewView` / `YearView`），S-074 冚唔到呢個檔。更不對稱嘅係：lane 喺隔離幾行親手寫咗「this file **claims** to hold a real capture」—— 即係佢睇到咗，然後由得佢企喺度 |
-| **S-101** | `BUDGET_MESSAGE` 跨語言 hardcode `10000`（= `MAX_TRACK_POINTS_PER_REQUEST`），**冇任何守衛**。⚠️ 內部矛盾：commit `3ee16c3` 自己個 message 用「嗰句 message 係 f-string over 常數，tune budget 就會靜靜哋拆爛所有 match message 嘅 client」論證咗成個 (a)，轉個頭就喺 TS 側 hardcode 咗同一句 f-string 嘅結果。本 repo 已有跨語言守衛先例（CUI-0034） |
-| **S-102** | `test_the_sdl_says_a_refused_track_is_null_rather_than_fatal` 喺 `track-back-to-non-null` mutant 之下**仍然綠**（佢只 assert description 入面有 "nullable"）。唔係測試漏洞（另外五條殺得到），係**命名不副實** |
+| ID | 內容 | 狀態 |
+|---|---|---|
+| **S-100** | `ActivityView.test.tsx:74-77` 個 `clientError()` docstring 仍然寫住 "Captured from a real run"，而 reviewer **算得出呢張 document 不可能被拒**（1 個 track field ≤ 64、600 點 ≤ 10000，兩個 budget 都清）。⚠️ **S-074 同族第三宗**（前兩宗喺 `OverviewView` / `YearView`），S-074 冚唔到呢個檔。更不對稱嘅係：lane 喺隔離幾行親手寫咗「this file **claims** to hold a real capture」—— 即係佢睇到咗，然後由得佢企喺度 | ✅ done（`21ff2b9`）—— ⚠️ **係第四宗唔係第三宗**。修復 lane 掃晒 `frontend/src/` 全部 6 個 `*.test.tsx` + 19 個 `*.test.ts`，搵到**兩句**未修嘅 "Captured from a real run"：`ActivityView.test.tsx:76`（reviewer 報嗰句）同 **`ActivitiesView.test.tsx:36`（reviewer 冇睇過呢個檔）**。後者兩個可查數字**兩個都假**：個 fixture document 宣告四個 variable 只用一個，`graphql-core` 對住真 schema 拒收（3 個 "Variable '$x' is never used"），即係真 run 喺 validation 已經死咗，根本去唔到佢賴嗰個 list row budget；而佢話個 blob「1247 characters」，實測係 **708**（`1247` 喺 docstring 同一句測試 comment 各出現一次，兩處都改咗）。佢唯一真嘅一半（`ActivitiesQuery` 真係帶嗰四個 variable）核對過 `queries.ts` 保留 |
+| **S-101** | `BUDGET_MESSAGE` 跨語言 hardcode `10000`（= `MAX_TRACK_POINTS_PER_REQUEST`），**冇任何守衛**。⚠️ 內部矛盾：commit `3ee16c3` 自己個 message 用「嗰句 message 係 f-string over 常數，tune budget 就會靜靜哋拆爛所有 match message 嘅 client」論證咗成個 (a)，轉個頭就喺 TS 側 hardcode 咗同一句 f-string 嘅結果。本 repo 已有跨語言守衛先例（CUI-0034） | ✅ done（`78de406`）—— 跟方案 A（SDL 反推）。reviewer 建議嗰個 `/totalling (\d+) points/` pattern 核實過**真係存在**（`frontend/schema.graphql:22`，出現一次）所以照用，但**冇照抄佢個建議稿**：佢用 `readFile` + raw text regex，改成跟返本 repo 已有嘅 `source.test.ts` 先例 —— `?raw` import（Vite 喺 transform 時解析，唔食 runner cwd）＋ `buildSchema` 後讀 `Activity.track` 自己個 description（唔會俾檔案其他地方嘅字串滿足）。兩個方向都 mutation-proven：Python 側 `10000→8000` 重生 SDL（oracle 讀返 `totalling 8000 points` 確認 mutant 生效）→ 143 中 1 紅正正係佢；TS 側改句子 → 同樣 1 紅。還原後 md5 兩個檔都對返 |
+| **S-102** | `test_the_sdl_says_a_refused_track_is_null_rather_than_fatal` 喺 `track-back-to-non-null` mutant 之下**仍然綠**（佢只 assert description 入面有 "nullable"）。唔係測試漏洞（另外五條殺得到），係**命名不副實** | ✅ done（`35de0b9`）—— 跟方案 A 改名做 `test_the_track_description_says_a_refusal_is_null_rather_than_fatal` + 加 comment 講明兩條測試分工。獨立重現咗：resolver annotation 倒返 `list[TrackPoint]`、清 `__pycache__`、regenerate SDL 確認變咗 `[TrackPoint!]!`（oracle），`tests/test_api.py` **紅 5 條**（同 reviewer 數目一致），而**呢條照綠**。529 綠 |
 
 ### Reviewer 重做嘅三個 mutant —— 三分三，逐項對數
 
