@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- LongitudeDegrees is nan on the second point: the first segment is whole, so
+     a laundered None would leave a plausible-looking short distance rather than
+     an obvious zero (CUI-0043). -->
+<TrainingCenterDatabase
+  xmlns="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2">
+  <Activities>
+    <Activity Sport="Running">
+      <Id>2021-01-08T04:04:52.000Z</Id>
+      <Lap StartTime="2021-01-08T04:04:52.000Z">
+        <TotalTimeSeconds>600.0</TotalTimeSeconds>
+        <DistanceMeters>2000.0</DistanceMeters>
+        <Calories>150</Calories>
+        <Track>
+          <Trackpoint>
+            <Time>2021-01-08T04:04:52.000Z</Time>
+            <Position>
+              <LatitudeDegrees>22.3278</LatitudeDegrees>
+              <LongitudeDegrees>114.2019</LongitudeDegrees>
+            </Position>
+          </Trackpoint>
+          <Trackpoint>
+            <Time>2021-01-08T04:14:52.000Z</Time>
+            <Position>
+              <LatitudeDegrees>22.3368</LatitudeDegrees>
+              <LongitudeDegrees>nan</LongitudeDegrees>
+            </Position>
+          </Trackpoint>
+        </Track>
+      </Lap>
+    </Activity>
+  </Activities>
+</TrainingCenterDatabase>
