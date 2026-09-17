@@ -17,6 +17,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from run365days.cli.collect_weather import _write_jsonl
+from run365days.common import config
 from run365days.dashboard.builder import hourly_at, load_jsonl, warnings_by_date
 from run365days.export.records import daily_weather_record, warning_record
 from run365days.weather.collectors import (
@@ -94,8 +95,23 @@ class RequestRecorder:
 
 
 def assert_bounded_timeout(timeout) -> None:
-    """Assert *timeout* splits into a fast connect phase and a bounded read."""
+    """Assert *timeout* is the shared constant, and that it is bounded.
+
+    Identity, not equality (S-090). The range check alone says every request is
+    bounded, which was never the whole claim: ``config.py`` says the timeouts
+    live there "rather than once per collector so retiming them cannot leave
+    one behind (CUI-0013)". A collector that reintroduced a local
+    ``_REQUEST_TIMEOUT = (3, 20)`` would be bounded, would pass every range
+    assertion, and would be exactly the thing centralising them was meant to
+    prevent -- measured: all six timeout tests stayed green under that
+    mutant. ``is`` catches a value that is right but comes from the wrong
+    place, which is the property actually being bought here.
+    """
     assert timeout is not None, "requests.get was called without a timeout"
+    assert timeout is config.HTTP_REQUEST_TIMEOUT, (
+        "this request carries its own timeout rather than the shared one, so retiming "
+        "config.HTTP_REQUEST_TIMEOUT would leave it behind"
+    )
     connect, read = timeout
     assert 0 < connect <= MAX_ACCEPTABLE_CONNECT_SEC
     assert 0 < read <= MAX_ACCEPTABLE_READ_SEC
