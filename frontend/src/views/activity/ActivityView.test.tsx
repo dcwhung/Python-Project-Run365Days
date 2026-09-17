@@ -56,8 +56,16 @@ function pending(): QueryStub {
   return { data: undefined, isPending: true, isError: false, error: null, refetch: vi.fn(async () => undefined) };
 }
 
-/** The GraphQL error the API really returns when the track budget is exceeded. */
-const BUDGET_MESSAGE = "Track request exceeds the per-request point budget.";
+/**
+ * The GraphQL error the API really returns when the track points budget is spent.
+ *
+ * The sentence `src/api/schema.py` actually builds, not a paraphrase: this file
+ * claims to hold a real capture, and CUI-0018 rewrote what one looks like.
+ */
+const BUDGET_MESSAGE = "track points budget exhausted: one request may return at most 10000 track points";
+
+/** The `extensions.code` that sentence now carries, so a client need not read it (CUI-0018 (a)). */
+const BUDGET_CODE = "TRACK_POINTS_BUDGET_EXCEEDED";
 
 const TRACK_DOCUMENT =
   "query Track($id: ID!, $points: Int!) {\n activity(id: $id) {\n id\n track(points: $points) {\n sec\n lat\n lon\n elevationM\n distanceM\n speedMps\n cadence\n tempC\n }\n }\n}";
@@ -69,12 +77,22 @@ const TRACK_DOCUMENT =
  * against the Flask API (activity 7213538827, TRACK_POINTS = 600).
  */
 function clientError(): QueryStub {
+  // CUI-0018 (b) changed the left-hand side of this capture. `data` used to be
+  // `null` outright: `track` was `[TrackPoint!]!`, so a refused track nulled
+  // its `Activity`, which nulled the response. It is now `[TrackPoint!]`, so
+  // the refusal stops at the field and the activity comes back with its `id`.
+  // The promise still rejects -- `graphql-request` rejects on any `errors`
+  // whatever `data` holds -- which is why this view's behaviour is unchanged
+  // and why the fixture, not the component, is what this ticket touches here.
+  const payload = {
+    data: { activity: { id: "7213538827", track: null } },
+    errors: [{ message: BUDGET_MESSAGE, path: ["activity", "track"], extensions: { code: BUDGET_CODE } }],
+  };
   const response = {
-    data: null,
-    errors: [{ message: BUDGET_MESSAGE }],
+    ...payload,
     status: 200,
     headers: {},
-    body: JSON.stringify({ data: null, errors: [{ message: BUDGET_MESSAGE }] }),
+    body: JSON.stringify(payload),
   };
   const request = { query: TRACK_DOCUMENT, variables: { id: "7213538827", points: 600 } };
   const error = Object.assign(new Error(`${BUDGET_MESSAGE}: ${JSON.stringify({ response, request })}`), { response, request });

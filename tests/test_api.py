@@ -1517,7 +1517,14 @@ def test_a_cheap_track_is_refused_once_the_points_budget_is_spent(year_client):
     data = body["data"]
 
     assert len(data["activities"]) == ACTIVITIES_THAT_FIT, "the spend itself must be served"
-    assert [n for n in range(CHEAP_ALIASES) if data[f"c{n}"] is not None] == []
+    # The refused thing is the `track` field, and since CUI-0018 (b) that is
+    # where the null stops: the aliased parent still arrives. Asserting the
+    # parents are gone was this test's original wording and is now exactly
+    # backwards -- a parent that vanished would mean the propagation came back.
+    assert [n for n in range(CHEAP_ALIASES) if data[f"c{n}"]["track"] is not None] == []
+    assert [n for n in range(CHEAP_ALIASES) if data[f"c{n}"] is None] == [], (
+        "a refused track must not take its own activity with it"
+    )
     messages = [e["message"] for e in body["errors"]]
     assert len(messages) == CHEAP_ALIASES
     # Named, not just counted: the field budget would refuse these too, and a
@@ -1542,7 +1549,9 @@ def test_a_field_that_overruns_the_points_budget_leaves_it_for_the_next_one(year
     data = body["data"]
 
     assert len(data["activities"]) == spend
-    assert data["over"] is None, f"{MAX_TRACK_POINTS} points must not fit in the {half} left"
+    assert data["over"]["track"] is None, (
+        f"{MAX_TRACK_POINTS} points must not fit in the {half} left"
+    )
     assert len(data["after"]["track"]) == half, "the refusal must not have spent the remainder"
 
 
@@ -1562,9 +1571,10 @@ def test_a_field_refused_on_points_leaves_the_field_budget_untouched_too(year_cl
     spend = (MAX_TRACK_POINTS_PER_REQUEST - half) // half
     slots_left = MAX_TRACK_FIELDS_PER_REQUEST - spend
     assert slots_left > 0, "the points spend must not exhaust the field budget by itself"
-    # `track` is non-null, so a refused child nulls its whole parent. Keeping
-    # the slots under one parent makes that all-or-nothing, and leaving the
-    # boundary probe a separate root field makes it null only itself.
+    # The slots are kept under one parent because that is the shape the field
+    # budget is interesting under -- many `track` fields, one activity. Since
+    # CUI-0018 (b) a refused one nulls only itself, so each slot is readable
+    # separately below rather than being folded into whether the parent lived.
     cheap_tracks = " ".join(f"t{n}: {CHEAP_TRACK}" for n in range(slots_left))
     fields = (
         _page_field(spend, _track_field(half)),
@@ -1576,9 +1586,13 @@ def test_a_field_refused_on_points_leaves_the_field_budget_untouched_too(year_cl
     data = body["data"]
 
     assert len(data["activities"]) == spend
-    assert data["over"] is None, f"{MAX_TRACK_POINTS} points must not fit in the {half} left"
+    assert data["over"]["track"] is None, (
+        f"{MAX_TRACK_POINTS} points must not fit in the {half} left"
+    )
     # The gate: had the refusal charged a field, the last of these would be
-    # refused and null its parent.
+    # refused and come back null. It is the list below that carries the
+    # assertion now -- before CUI-0018 (b) a single refused slot nulled `rest`
+    # itself, so the line above did the work and the list was a formality.
     assert data["rest"] is not None, f"the refusal must leave all {slots_left} field slots"
     assert [n for n in range(slots_left) if data["rest"][f"t{n}"] is None] == []
     messages = [e["message"] for e in body["errors"]]
@@ -1593,7 +1607,7 @@ def test_a_field_refused_on_points_leaves_the_field_budget_untouched_too(year_cl
         _document(*fields, f'past: activity(id: "{TRACKED_ACTIVITY_ID}") {{ {CHEAP_TRACK} }}'),
     )
     assert past["data"]["rest"] is not None, "the slots before the boundary are still served"
-    assert past["data"]["past"] is None
+    assert past["data"]["past"]["track"] is None
     assert str(MAX_TRACK_FIELDS_PER_REQUEST) in " ".join(e["message"] for e in past["errors"])
 
 
@@ -2313,6 +2327,96 @@ def test_the_year_description_names_the_budget_code_but_not_the_window_one():
     description = build_schema_from_sdl(schema.as_str()).query_type.fields["year"].description or ""
     assert LIST_ROW_BUDGET_CODE in description
     assert ARGUMENT_OUT_OF_RANGE_CODE not in description
+
+
+# ── CUI-0018 (b): a refused `track` costs that field and nothing else ──────
+SIBLING_SURVIVAL_DOCUMENT = (
+    "query { meta { year } "
+    f"activities(limit: {MAX_TRACK_FIELDS_PER_REQUEST + 1}, hasGps: true) "
+    "{ id distanceKm track(points: 1) { sec } } }"
+)
+"""The ticket's own document: one `track` too many, beside fields that cost nothing.
+
+`meta` is the point of it. It spends no budget, issues its own query and
+succeeds -- and until `track` became nullable the client got none of it,
+because the 65th `track`'s error climbed `[TrackPoint!]!` to `[Activity!]!` to
+the root and nulled `data` whole.
+"""
+
+
+def test_a_refused_track_does_not_take_its_siblings_with_it(year_client):
+    # Measured on the base commit (06ad4bd), this document answered
+    # `data: null` with one error: 64 tracks read and paid for, a `meta` that
+    # never touched a budget, and nothing returned. The budget is meant to
+    # refuse what the client over-asked for, not to throw away what it was
+    # already owed.
+    body = gql_partial(year_client, SIBLING_SURVIVAL_DOCUMENT)
+    data = body["data"]
+
+    assert data is not None, "one refused field must not null the whole response"
+    assert data["meta"]["year"] == 2021, "a field that spends no budget must still be served"
+
+    activities = data["activities"]
+    assert len(activities) == MAX_TRACK_FIELDS_PER_REQUEST + 1
+    # The refusal lands on exactly one field: the one past the cap, and only
+    # its `track`. Its `id` and `distanceKm` were resolved before it and are
+    # still there, which is the difference between nulling a field and nulling
+    # a response.
+    assert [n for n, a in enumerate(activities) if a["track"] is None] == [
+        MAX_TRACK_FIELDS_PER_REQUEST
+    ]
+    assert all(a["id"] and a["distanceKm"] is not None for a in activities)
+    # Served-but-empty and refused must stay distinguishable: only `r0` stores
+    # a track in this fixture, so the 63 activities behind it come back with
+    # `[]` rather than with null.
+    assert activities[1]["track"] == []
+
+    errors = body["errors"]
+    assert len(errors) == 1, "one field over the cap is one refusal"
+    assert errors[0]["extensions"]["code"] == TRACK_FIELD_BUDGET_CODE
+    assert errors[0]["path"] == ["activities", MAX_TRACK_FIELDS_PER_REQUEST, "track"]
+
+
+def test_the_sdl_leaves_the_track_list_nullable_and_its_samples_not():
+    # The schema change itself, read off the SDL rather than inferred from the
+    # behaviour above -- a resolver that happened to return `[]` instead of
+    # raising would satisfy that test without this one being true.
+    #
+    # Both halves, because only one of them moved. `[TrackPoint!]` is the
+    # target; `[TrackPoint]` would be the over-correction, asking every client
+    # to null-check samples that a served track never contains.
+    track = build_schema_from_sdl(schema.as_str()).type_map["Activity"].fields["track"]
+
+    assert not isinstance(track.type, GraphQLNonNull), (
+        "a non-null `track` makes every refusal fatal to the whole response"
+    )
+    assert isinstance(track.type, GraphQLList)
+    assert isinstance(track.type.of_type, GraphQLNonNull), (
+        "a served track holds no null samples, so its elements stay non-null"
+    )
+
+
+def test_the_sdl_says_a_refused_track_is_null_rather_than_fatal():
+    # The nullability is one character in the SDL and a client author reading
+    # the type alone has no reason to think the alternative was ever on the
+    # table. S-012's pattern again: the contract a client needs is in the
+    # description, under `run365-schema --check`.
+    description = build_schema_from_sdl(schema.as_str()).type_map["Activity"].fields["track"]
+
+    assert "nullable" in (description.description or "")
+
+
+def test_a_refused_page_still_takes_the_whole_response(year_client):
+    # The bound on (b), and the reason it is not "make refusals never fatal".
+    # `activities` is `[Activity!]!` and stays that way: a refused *page* has
+    # no field to be nulled into, so it propagates exactly as before. Pinned
+    # here so that (b) cannot be read as a promise it does not make, and so
+    # that widening the change to the list fields is a visible decision rather
+    # than a quiet one.
+    body = gql_partial(year_client, "{ meta { year } activities(limit: 0) { id } }")
+
+    assert body["data"] is None
+    assert body["errors"][0]["extensions"]["code"] == ARGUMENT_OUT_OF_RANGE_CODE
 
 
 # ── AU-050: one statement per batch of tracks, not two per track ───────────

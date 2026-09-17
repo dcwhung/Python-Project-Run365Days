@@ -62,7 +62,7 @@
 | **CUI-0015** | 🟢 Low | docs/architecture.md 嘅 CI 描述兩次過時，應改為自動同步而唔係人手維護 | ✅ completed | `completed/` |
 | **CUI-0016** | 🟡 Medium | `ActivityView` 將 track query 失敗誤報成「Activity not found.」，AU-047 為呢條路徑新增咗一個可達成因 | ✅ completed | `completed/` |
 | **CUI-0017** | 🟢 Low | `MAX_TRACK_FIELDS_PER_REQUEST` docstring 講 128 statements，漏計 parent lookup，實測 208 | ✅ completed | `completed/` |
-| **CUI-0018** | 🟢 Low | Budget 拒絕冇 `extensions.code`；non-null propagation 令一個被拒 `track` 清空成個 `data` | ⏳ pending | `pending/` |
+| **CUI-0018** | 🟢 Low | Budget 拒絕冇 `extensions.code`；non-null propagation 令一個被拒 `track` 清空成個 `data` | ✅ done | `pending/` |
 | **CUI-0019** | 🟠 High | AU-050 嘅 batch sample predicate 係 O(batch²)，真實 export 上 fan-out 慢一倍 | ✅ completed | `completed/` |
 | **CUI-0020** | 🟡 Medium | `MAX_TRACK_FIELDS_PER_REQUEST` 引用嘅 wall clock 同 production 規模差一個數量級 | ✅ completed | `completed/` |
 | **CUI-0021** | 🔵 Low | api mode（Python `round`）同 static mode（JS `Math.round`）嘅 track 取樣差一個 index | ✅ completed | `completed/` |
@@ -705,7 +705,7 @@ Repo 外：GitHub `github-pages` environment deployment branch｜Vercel Producti
 |---|---|---|---|
 | **CUI-0016** | 🟡 Major | `ActivityView` 將 track 載入失敗誤報成「Activity not found.」—— `ActivityView.tsx:70` 有 `all.isError` 處理但**冇** `track.isError`，所以 track 失敗跌落 `:71` 嗰條「唔存在」分支，連已經成功載入嘅 KPI／天氣一併丟棄。唔會白畫面（乾淨 early return，無需 ErrorBoundary），純粹係訊息報錯咗因 | ✅ **Done** `88c5c6f` `b84b7b7`（2026-09-15） |
 | **CUI-0017** | 🟢 Minor | `src/api/schema.py:84` 寫「Worst case is therefore 64 × 2 = 128 statements」，但實測 request 層面去到 **208**：每個 aliased `activity(id:)` parent 本身要 ~2 條語句（`session.get` + `selectinload`），而且個 track 就算被拒都照收 —— 呢半邊唔受 field cap 約束，只受 token limiter 約束。Bound 本身冇問題（86 倍 headroom），純文件準確性 | ✅ **completed 2026-09-16**（QA wave 1 pass） |
-| **CUI-0018** | 🟢 Minor | Budget 拒絕嘅 GraphQL error 得 `['locations','message','path']`，**冇 `extensions.code`**，client 只能 match 由常數 f-string 砌出嚟嘅字串（常數一改就靜靜哋失效）。另外 non-null propagation 令一個被拒 track 清空成個 `data`（連成功嘅 sibling `meta` 都冇）。今日不可達，AU-050 之前應處理 | pending |
+| **CUI-0018** | 🟢 Minor | Budget 拒絕嘅 GraphQL error 得 `['locations','message','path']`，**冇 `extensions.code`**，client 只能 match 由常數 f-string 砌出嚟嘅字串（常數一改就靜靜哋失效）。另外 non-null propagation 令一個被拒 track 清空成個 `data`（連成功嘅 sibling `meta` 都冇）。今日不可達，AU-050 之前應處理 | ✅ **done 2026-09-17**：(a) 四個 `extensions.code`（`LIST_ROW_BUDGET_EXCEEDED` / `TRACK_POINTS_BUDGET_EXCEEDED` / `TRACK_FIELD_BUDGET_EXCEEDED` / `ARGUMENT_OUT_OF_RANGE`，按 client 要改咩分，唔係按 exception class 分）；(b) `track` 改成 `[TrackPoint!]`（**breaking**），兄弟 field 保住。`activities` 維持 `[Activity!]!`，唔擴大 |
 
 > ✅ Response **零洩漏**：177 bytes、無 stacktrace、無絕對路徑、無 context key 名。W-013 特登唔講出 `track_points_remaining` 係啱嘅。
 

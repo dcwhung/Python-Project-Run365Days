@@ -916,7 +916,10 @@ TRACK_DESCRIPTION = (
     f"`{TRACK_POINTS_BUDGET_CODE}` (ask for fewer points), or "
     f"`{ARGUMENT_OUT_OF_RANGE_CODE}` for a `points` outside the range above, which "
     "retrying unchanged never fixes. Branch on the code rather than on the message; "
-    "the message quotes these limits and so changes whenever they are tuned."
+    "the message quotes these limits and so changes whenever they are tuned. "
+    "The list is nullable so that a refusal costs this field and nothing else: a "
+    "refused `track` is `null` in `data`, its error is in `errors`, and sibling "
+    "fields -- including other activities' tracks -- are still served."
 )
 """Description for ``Activity.track``.
 
@@ -930,6 +933,12 @@ code is the only half of a refusal that is safe to write a branch against
 ``run365-schema --check``, so a code renamed in the constants above without
 regenerating ``frontend/schema.graphql`` reds CI -- the same guard S-012 bought
 for the constants themselves.
+
+The last sentence states the field's nullability in words because the SDL
+states it in one character. ``[TrackPoint!]`` versus ``[TrackPoint!]!`` is the
+difference between losing one field and losing the entire response, and a
+client author reading the type alone has no reason to think the second was ever
+on the table (CUI-0018 (b)).
 """
 
 
@@ -1094,7 +1103,43 @@ class Activity:
     """
 
     @strawberry.field(description=TRACK_DESCRIPTION)
-    def track(self, info: Info, points: int = DEFAULT_TRACK_POINTS) -> list[TrackPoint]:
+    def track(self, info: Info, points: int = DEFAULT_TRACK_POINTS) -> list[TrackPoint] | None:
+        """Return this run's sampled track, or refuse the field without taking the rest with it.
+
+        ``list[TrackPoint] | None`` renders as ``[TrackPoint!]``: the list is
+        nullable, its elements are not. This resolver never *returns* ``None``
+        -- it either returns rows or raises -- so the nullability is not about
+        a track that is missing. It is about what a refusal costs the rest of
+        the document (CUI-0018 (b)).
+
+        ``[TrackPoint!]!`` made every refusal here fatal to the whole response.
+        A field error nulls its field, a non-null field cannot hold null, so the
+        error climbs: ``track`` to ``Activity`` (``[Activity!]!`` cannot hold
+        one either) to ``activities`` to the root. Measured before the change,
+        the ticket's own document -- ``{ meta { year } activities(limit: 65,
+        hasGps: true) { id distanceKm track(points: 1) { sec } } }`` -- came
+        back ``data: null``: 64 tracks served and paid for, a `meta` that never
+        touched a budget, and the client got none of it. Nullable here stops
+        the climb at this field, so the 65th ``track`` is ``null``, its error
+        sits beside it in ``errors``, and everything else in the document
+        arrives.
+
+        The elements stay non-null because nothing about a refusal makes a
+        *sample* missing: a track that is served is served whole, and
+        ``[TrackPoint]`` would ask every client to null-check rows that cannot
+        be null.
+
+        Args:
+            info: Resolver info carrying this request's context and budgets.
+            points: Samples to downsample the stored track to.
+
+        Returns:
+            The sampled track. Never ``None`` -- see above.
+
+        Raises:
+            BoundsError: If *points* is outside ``1..MAX_TRACK_POINTS``.
+            BudgetExceededError: If this operation has spent either track budget.
+        """
         # Spend first: the budgets exist to stop the query being issued at all.
         # The batch below reads no further than what is left of them, so
         # charging before reading still means refusing before the SQL goes out.
