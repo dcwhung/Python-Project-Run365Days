@@ -1804,8 +1804,19 @@ def test_a_budget_refusal_is_not_logged_as_a_server_fault(year_client, caplog, d
     # back as an oracle: at WARNING one bounds refusal writes 103 bytes to
     # stderr and one budget refusal 341, where INFO writes 0 for both, and all
     # 432 tests stayed green.
-    assert REFUSAL_LOG_LEVEL < logging.WARNING, (
-        "a refusal at WARNING or above is emitted by a deployment that configures nothing"
+    #
+    # Bounded from *below* as well (W-030), because the line above alone is
+    # still one-sided -- which is the very defect CUI-0038 was opened over.
+    # Measured on this branch: REFUSAL_LOG_LEVEL = logging.DEBUG passed all
+    # 522 tests, patched in-process on both modules that bind the name and
+    # with a real refusal's record level read back as an oracle. DEBUG keeps
+    # the silence, so the security property survives untouched; what it breaks
+    # is the affordance this constant's own docstring sells beside it, that an
+    # operator "opts in by lowering the level and gets every one of them". An
+    # operator lowering to INFO would get none.
+    assert logging.INFO <= REFUSAL_LOG_LEVEL < logging.WARNING, (
+        "a refusal at WARNING or above is emitted by a deployment that configures "
+        "nothing; one below INFO is invisible to the operator who opts in"
     )
     # The premise of the line above, asserted rather than assumed: WARNING is
     # the threshold only because `logging.lastResort` -- the handler a process
@@ -2030,6 +2041,18 @@ def _unconfigured_logging(monkeypatch):
         monkeypatch.setattr(logger, "disabled", False)
         monkeypatch.setattr(logger, "propagate", True)
         monkeypatch.setattr(logger, "level", logging.WARNING if name == "" else logging.NOTSET)
+        # `Logger._cache` memoises `isEnabledFor` per level, and `setLevel` is
+        # what normally invalidates it -- which assigning to `level` is not.
+        # Measured in the full suite: an earlier test leaves
+        # `strawberry.execution._cache == {20: False}` behind, so INFO reads
+        # back disabled here no matter what level was just installed, and every
+        # record vanishes for a reason that has nothing to do with the level
+        # under test. Silence proved that way would be the harness again, which
+        # is the trap `test_a_fault_still_writes_where_no_logging_is_configured`
+        # guards from the other side. Replaced rather than cleared so
+        # monkeypatch puts the original dict back, consistent with the level it
+        # was computed under (W-030).
+        monkeypatch.setattr(logger, "_cache", {})
 
 
 @pytest.mark.parametrize("document", CONFIGURELESS_REFUSALS)
@@ -2072,6 +2095,49 @@ def test_a_fault_still_writes_where_no_logging_is_configured(year_client, capfd,
     err = capfd.readouterr().err
     assert "_ResolverFaultError" in err, "a server fault must survive a configureless deployment"
     assert "Traceback" in err, "and it must keep the traceback that is all an operator gets"
+
+
+def test_an_operator_who_lowers_the_level_gets_every_refusal(year_client, monkeypatch):
+    # The other half of the sentence the silence test asserts (W-030).
+    # REFUSAL_LOG_LEVEL's docstring promises two things at once: nothing is
+    # emitted by a deployment that configures nothing, and the refusal is
+    # "silenced by default rather than discarded at the source", so an operator
+    # "opts in by lowering the level and gets every one of them". Only the
+    # first half was asserted, and `logging.DEBUG` satisfies it while breaking
+    # the second -- measured on this branch, in-process, with the constant
+    # patched on both modules that bind the name and a real refusal's record
+    # level read back as an oracle: DEBUG passed all 522 tests, and an operator
+    # who had lowered the level to INFO exactly as the docstring instructs
+    # would have been handed nothing at all.
+    #
+    # This is the property the inequality beside the silence test only
+    # restates, and it is the one that survives the constant being rewritten:
+    # what it watches is the operator's own action, not the number.
+    _unconfigured_logging(monkeypatch)
+    records = []
+    handler = logging.Handler()
+    handler.emit = records.append
+    logger = logging.getLogger("strawberry.execution")
+    monkeypatch.setattr(logger, "handlers", [handler])
+    monkeypatch.setattr(logger, "level", logging.INFO)  # the operator's own opt-in
+
+    # Counted per document rather than in total, because the counts are not all
+    # 1 -- the fan-out document earns one refusal per field it drives past the
+    # budget. A total would pin a number that moves with the fixtures; what is
+    # being asserted is that no document goes unreported.
+    emitted = {}
+    levels = []
+    for document in CONFIGURELESS_REFUSALS:
+        records.clear()
+        assert gql_errors(year_client, document.values[0])
+        emitted[document.id] = len(records)
+        levels.extend(record.levelno for record in records)
+
+    silent = sorted(name for name, count in emitted.items() if not count)
+    assert not silent, f"an operator who lowered the level to INFO was handed nothing for {silent}"
+    assert levels == [REFUSAL_LOG_LEVEL] * len(levels), (
+        "every record the operator opted in to must arrive at the level they opted in at"
+    )
 
 
 # ── CUI-0039: the one shape that can tell `faults` from `errors` ──────────
