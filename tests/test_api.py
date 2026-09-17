@@ -1981,14 +1981,20 @@ def test_an_int_coercion_failure_is_not_reclassified_as_a_client_refusal(
     #
     # Measured rather than assumed, because the tempting claim is wrong: that
     # mutant does *not* slip past the existing suite. Widening the classifier
-    # to `GraphQLError` also reds
+    # to `GraphQLError` reds at least four other test functions -- among them
     # `test_an_unseeded_budget_still_logs_its_traceback` and
     # `test_an_unexpected_resolver_error_is_still_logged_as_a_server_fault`,
     # since graphql-core wraps both of those in a `GraphQLError` on the way
-    # out. What this adds is not the only guard but the named one: CUI-0037
-    # decided in writing that a coercion failure stays a fault, and a decision
-    # held only by a test about something else is a decision that moves the
-    # first time that test is rewritten.
+    # out.
+    #
+    # Left unenumerated on purpose (S-084). An earlier version of this comment
+    # named those two as if they were the whole list, and two later commits in
+    # the same lane had already falsified it before it merged: the set grows
+    # with every fault test added, so any exhaustive list here is a list that
+    # goes stale. What this adds is not the only guard but the named one:
+    # CUI-0037 decided in writing that a coercion failure stays a fault, and a
+    # decision held only by a test about something else is a decision that
+    # moves the first time that test is rewritten.
     #
     # These lose nothing by staying at ERROR. Measured on this branch: a
     # coercion failure reaches stderr with zero stack frames either way,
