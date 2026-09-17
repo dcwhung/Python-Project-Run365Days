@@ -567,16 +567,59 @@ def test_a_negative_points_is_refused_where_the_rows_are_read(varied_session, po
         service.tracks(varied_session, [OVER_CAP_ID], points)
 
 
-@pytest.mark.parametrize("points", [None, 0, False])
+@pytest.mark.parametrize("points", [None, 0, False, -0.0])
 def test_a_falsy_points_still_means_the_ceiling_rather_than_a_refusal(varied_session, points):
     # The boundary the refusal above must not cross. `0` and `None` mean "I did
     # not ask", which this layer reads as the ceiling -- the reading CUI-0025
     # settled and CUI-0033 (a) made binding on the answer as well as the ask.
     # `False` is here because it is an `int` that is falsy and negative-adjacent
     # in every naive check, and it has to land with `0` rather than with `-1`.
+    #
+    # `-0.0` is here for the opposite reason and is CUI-0048's own decision
+    # (the argument is in `tracks`'s guard comment): it reads as negative and
+    # is not one. `-0.0 < 0` is `False`, which is why the guard lets it past,
+    # and that is correct rather than a leak -- CUI-0040 refused values *below*
+    # zero and `-0.0` equals zero. Pinned so the decision survives the next
+    # reader who notices the minus sign, and pinned here rather than in a test
+    # of its own so it sits with the three values it behaves identically to.
     rows = service.tracks(varied_session, [OVER_CAP_ID], points)[OVER_CAP_ID]
 
     assert len(rows) == MAX_TRACK_POINTS
+    # Identical to `0`, not merely the same length: "treated as zero" is the
+    # claim, and a cap that returned the first MAX_TRACK_POINTS rows for one
+    # value and an even sample for the other would pass a length check.
+    assert rows == service.tracks(varied_session, [OVER_CAP_ID], 0)[OVER_CAP_ID]
+
+
+def test_a_fractional_points_raises_the_type_error_the_docstring_promises(varied_session):
+    # CUI-0048's other half. `2.5` passes the guard -- it is not below zero --
+    # and `min(2.5, MAX_TRACK_POINTS)` carries it into `_even_positions`, where
+    # `range()` refuses it. The docstring used to name `ValueError` alone, so
+    # this was a raise no caller was told about.
+    #
+    # The exception is left where it is rather than converted: a non-integral
+    # count is the wrong type of thing to count with, so `TypeError` is the
+    # idiomatic answer and a `ValueError` would say it was merely out of range.
+    # What this pins is the promise, so narrowing the contract later has to be
+    # a decision rather than a drift.
+    with pytest.raises(TypeError):
+        service.tracks(varied_session, [OVER_CAP_ID], 2.5)
+
+
+def test_an_empty_batch_is_still_bounds_checked(varied_session):
+    # The guard's position, which nothing else measures: it stands in front of
+    # the empty-batch early return, so `tracks(s, [], -1)` refuses rather than
+    # answering `{}`. Order matters because the alternative reads as harmless
+    # -- there is no track to sample, so why check? -- and would make the
+    # function's contract depend on whether the caller happened to ask for any
+    # tracks, refusing a bad `points` for one id and accepting it for none.
+    with pytest.raises(ValueError, match="points must not be negative"):
+        service.tracks(varied_session, [], -1)
+
+    # The control: the same empty batch with a legal `points` still returns the
+    # empty mapping, so the assertion above is the guard firing and not the
+    # call failing for some reason of its own.
+    assert service.tracks(varied_session, [], 1) == {}
 
 
 def test_a_negative_points_never_reaches_the_service_from_a_client(year_client):
