@@ -1,6 +1,6 @@
 # 項目文件索引 — Run365Days
 
-**最後更新**：2026-09-16（**v3.2.0 release**：三個 breaking change（CUI-0027 list row budget、CUI-0025 `points` 契約、CUI-0033(a) omitted cap）；12 張 ticket + 27 條 review item；未清 suggestion **0**；ticket census 29 completed / 0 in-progress / 12 pending）
+**最後更新**：2026-09-17（**13 張 pending ticket 一次清空 + CUI-0018 (a)+(b)**：五條 lane 並行、四輪 code review（92 pass / 80 warn / 87 warn / 92 pass）、21 條 review finding 全部清完；**529 pytest / 143 vitest（25 files）/ TOTAL coverage 96%**，`api/schema.py`、`api/service.py`、`api/graphql.py` 都 100%；`npm audit --omit=dev` 入咗 CI gate；`CLAUDE.md` §6 加咗「GraphQL nullability widening，`tsc` 天生捉唔到」陷阱；⚠️ `track` 由 `[TrackPoint!]!` 改成 `[TrackPoint!]` 係 **breaking change**，下個版本 v3.3.0）
 
 > 本目錄為 ai-dev-team 產出文件嘅 Single Source of Truth。
 > 每次有新文件輸出，必須喺此更新條目同頂部日期。
