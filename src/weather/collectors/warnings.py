@@ -6,19 +6,12 @@ import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 
+from run365days.common.config import HTTP_REQUEST_TIMEOUT
 from run365days.weather.collectors._parsing import child_attr, section_after
 from run365days.weather.models import WeatherWarning
 
 _SIGNALS_URL = "https://www.hko.gov.hk/en/wxinfo/climat/warndb/warndba.shtml"
 _HISTORY_URL = "https://www.hko.gov.hk//cgi-bin/climat/warndb_ea.pl"
-
-# A socket with no timeout can hang forever, and fetch_range() pays that cost
-# once per day -- 365 times for a full year. Five seconds is generous for a TCP
-# handshake to a reachable host, so an unreachable one fails fast; thirty covers
-# the slowest warndb query without stalling the rest of the range (AU-014).
-_CONNECT_TIMEOUT_SEC = 5
-_READ_TIMEOUT_SEC = 30
-_REQUEST_TIMEOUT = (_CONNECT_TIMEOUT_SEC, _READ_TIMEOUT_SEC)
 
 # The heading the day's warning table sits under. It is page furniture, not a
 # consequence of the day's weather: a day with no warning at all still renders
@@ -43,7 +36,7 @@ _TIMESTAMP_FORMAT = "%d/%b/%Y %H:%M"
 
 def _load_signal_metadata() -> dict[str, dict]:
     """Return {signal_name: {Idx, Type}} from the HKO warnings reference page."""
-    bs = BeautifulSoup(requests.get(_SIGNALS_URL, timeout=_REQUEST_TIMEOUT).text, "html.parser")
+    bs = BeautifulSoup(requests.get(_SIGNALS_URL, timeout=HTTP_REQUEST_TIMEOUT).text, "html.parser")
     result = {}
     for table in bs.find_all(class_="self_row2_table"):
         tds = table.find_all("td")
@@ -76,7 +69,7 @@ def fetch_day(date_str: str, signal_meta: dict[str, dict]) -> list[WeatherWarnin
     html = requests.get(
         _HISTORY_URL,
         params={"start_ym": datetime.strptime(date_str, "%Y-%m-%d").strftime("%Y%m%d")},
-        timeout=_REQUEST_TIMEOUT,
+        timeout=HTTP_REQUEST_TIMEOUT,
     ).text
 
     bs = BeautifulSoup(section_after(html, _WARNING_TABLE_MARKER), "html.parser")

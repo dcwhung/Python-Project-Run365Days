@@ -4,6 +4,7 @@ import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 
+from run365days.common.config import HTTP_REQUEST_TIMEOUT
 from run365days.common.numeric import to_float
 from run365days.weather.collectors._parsing import child_string
 from run365days.weather.models import HourlyWeather
@@ -21,14 +22,6 @@ _DESCRIPTION_MAP = {
 """freemeteo weather-icon code -> description. Anything else reads "Unknown"."""
 
 _UNKNOWN_DESCRIPTION = "Unknown"
-
-# A socket with no timeout can hang forever, and fetch_range() pays that cost
-# once per day -- 365 times for a full year. Five seconds is generous for a TCP
-# handshake to a reachable host, so an unreachable one fails fast; thirty covers
-# freemeteo's slowest day page without stalling the rest of the range (AU-014).
-_CONNECT_TIMEOUT_SEC = 5
-_READ_TIMEOUT_SEC = 30
-_REQUEST_TIMEOUT = (_CONNECT_TIMEOUT_SEC, _READ_TIMEOUT_SEC)
 
 _URL = "https://freemeteo.hk/weather/hong-kong/history/daily-history/"
 _PARAMS_BASE = {
@@ -116,7 +109,7 @@ def fetch_day(date_str: str) -> list[HourlyWeather]:
         record, with the description reading "Unknown".
     """
     html = requests.get(
-        _URL, params={**_PARAMS_BASE, "date": date_str}, timeout=_REQUEST_TIMEOUT
+        _URL, params={**_PARAMS_BASE, "date": date_str}, timeout=HTTP_REQUEST_TIMEOUT
     ).text
     soup = BeautifulSoup(html, "html.parser")
     tables = soup.find_all("table", {"class": "daily-history"})
