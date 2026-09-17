@@ -2548,6 +2548,57 @@ def test_a_window_wrong_at_both_ends_names_the_argument_checked_first(year_clien
     assert "first of the two" in _field_descriptions()[field]
 
 
+REFUSED_WINDOWS = MappingProxyType(
+    {
+        "activities": ("limit: 0", "limit"),
+        "weight": ("limit: 1001", "limit"),
+        "weather": ("offset: -2", "offset"),
+        "warnings": ("limit: -9", "limit"),
+    }
+)
+"""A window each list field refuses, and the argument it names -- one of each kind of miss."""
+
+
+def _every_window_wrong(order: tuple[str, ...]) -> str:
+    """Return a document asking every windowed list field, in *order*, for a window it refuses."""
+    asks = " ".join(
+        f"{name}({REFUSED_WINDOWS[name][0]}) {{ {LIST_WINDOW_SELECTION[name]} }}" for name in order
+    )
+    return f"{{ {asks} }}"
+
+
+@pytest.mark.parametrize(
+    "order", [LIST_FIELDS, LIST_FIELDS[::-1]], ids=["document-order", "reversed"]
+)
+def test_several_windowed_fields_wrong_are_refused_at_the_first_of_them(year_client, order):
+    # S-129. The sentence above this one in the SDL settles the order of the
+    # two arguments *within* a field; this settles the order across fields,
+    # which the same request makes visible and nothing pinned. Every one of the
+    # four list fields is non-null, so the first refusal propagates to the root
+    # and nulls `data` -- the other three never run, however wrong they are.
+    # A client that got four windows wrong is told about one of them, so the
+    # figure to plan round trips against is one refusal per request, not one
+    # per bad argument.
+    #
+    # Sent in both orders, which is the whole gate: with one order this would
+    # only record that `activities` is refused first, and pass just as happily
+    # if the refusal were privileged to that field rather than taken in
+    # document order. Reversed, the two readings disagree.
+    field = order[0]
+    argument = REFUSED_WINDOWS[field][1]
+
+    body = year_client.post(GRAPHQL_PATH, json={"query": _every_window_wrong(order)}).get_json()
+
+    assert body["data"] is None
+    errors = body["errors"]
+    assert len(errors) == 1
+    assert errors[0]["path"] == [field]
+    assert errors[0]["extensions"][REFUSAL_ARGUMENT_KEY] == argument
+    # Held against the SDL as well, for the reason the two-argument order is:
+    # a client can only plan the round trips if the promise is published.
+    assert "first of those fields" in _field_descriptions()[field]
+
+
 @pytest.mark.parametrize(("document", "code"), CODED_BUDGET_DOCUMENTS)
 def test_a_budget_refusal_names_no_argument(year_client, document, code):
     # The bound on the new key, and the one a convenience default would have

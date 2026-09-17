@@ -1046,7 +1046,11 @@ PAGE_WINDOW_NOTE = (
     'first of the two that is out of range (`"limit"` or `"offset"`; `limit` is checked '
     "first, so a request with both wrong names `limit` until `limit` is valid), since "
     "both sit at the same `path` and the same `locations` -- and the budget above is "
-    "charged on `limit` as asked for rather than on the rows a page turns out to hold."
+    "charged on `limit` as asked for rather than on the rows a page turns out to hold. "
+    "A request that asks several windowed fields at once for windows they cannot have is "
+    "refused once as well, at the first of those fields in the document, and `data` is "
+    "null: the fields after it are never reached, so plan on one refusal per round trip "
+    "rather than one per argument that was wrong."
 )
 """Sentence appended to every field that takes a ``limit``/``offset`` page window.
 
