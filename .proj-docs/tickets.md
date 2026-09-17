@@ -1339,3 +1339,73 @@ Reviewer 打 15/15 嘅測試覆蓋維度係啱嘅（行覆蓋真係 100%），�
 - **Lane E 個 mutation harness 拒絕開波**：佢第一次寫嘅 oracle 錯咗（用咗一個本身已經會 null
   `data` 嘅 document），harness 印 `ORACLE FAILED: the mutant is not live -- the run below proves
   nothing` 兼 exit 3，冇當成 kill。正正係 `CLAUDE.md` §6「assert 個 mutant 真係生效」嗰步救返。
+
+---
+
+## 2026-09-17 Code Review — CUI-0018（(a) `extensions.code` + (b) nullable `track`）
+
+報告：[`reviews/2026-09-17_review_CUI-0018.md`](reviews/2026-09-17_review_CUI-0018.md)
+**92/100 ✅ pass** —— 0 🔴 / 1 🟡 / 3 🟢。Hard gates **6/6 pass**（522 pytest、142 vitest / 25 files、
+`api/schema.py` 同 `api/service.py` 都 100%、TOTAL 96%、SDL `track(points: Int! = 150): [TrackPoint!]`、
+`npm audit --omit=dev` 0、**兩個 build mode 都綠**、分層鐵律 held）。
+
+### 🟡 W-035｜「`path`/`locations` 已經指到邊個 argument」實測唔成立，而呢句係「bounds 只用一個 code」嘅唯一論據
+
+同一句假話喺**三處**：`src/api/schema.py:596-597`（production docstring）、
+`.tickets/pending/0001-0200/CUI-0018.md:137`、commit `3ee16c3` message。
+
+成因：`ClientRefusalError.__init__` 傳 `nodes=raw.field_nodes`，所以 `locations` 永遠指
+**field node 開頭**。實測：
+
+```
+{ activities(limit: 1000, offset: -1) { id } }
+  → path ["activities"]、locations col 3（指住 `activities` 個 'a'，唔係 `offset: -1`）
+```
+
+| 影響 | |
+|---|---|
+| `track` | ✅ 冇問題 —— `points` 係佢唯一有界 argument，`path` 實際上唯一決定得到 |
+| **四條 list field** | ⚠️ 每條有 `limit` 同 `offset` **兩個**有界 argument。client 收到 `ARGUMENT_OUT_OF_RANGE` + `path:["activities"]`，**冇任何結構化資料**話到俾佢知要改邊個 —— 只能返去 parse `message`，**正正係 CUI-0018 (a) 立項要消滅嘅行為** |
+
+Reviewer 透明交代咗評 Warning 而唔係 Suggestion 嘅理由（S-073/S-074 先例係測試檔 comment；
+呢條住喺 production docstring，而且係一個**已出街 public API 決定**嘅唯一記錄論據），
+並註明改判 Suggestion 分數會變 96、status 同 next_action 不變。
+
+**推薦方案 A**（改正三處措辭，講返真相：field 喺 `path`/`locations`，argument 只喺 message）；
+方案 B（加 `extensions.argument`）另飛，應由「有 client 真係要 branch」驅動。
+
+### 🟢 Suggestion
+
+| ID | 內容 |
+|---|---|
+| **S-100** | `ActivityView.test.tsx:74-77` 個 `clientError()` docstring 仍然寫住 "Captured from a real run"，而 reviewer **算得出呢張 document 不可能被拒**（1 個 track field ≤ 64、600 點 ≤ 10000，兩個 budget 都清）。⚠️ **S-074 同族第三宗**（前兩宗喺 `OverviewView` / `YearView`），S-074 冚唔到呢個檔。更不對稱嘅係：lane 喺隔離幾行親手寫咗「this file **claims** to hold a real capture」—— 即係佢睇到咗，然後由得佢企喺度 |
+| **S-101** | `BUDGET_MESSAGE` 跨語言 hardcode `10000`（= `MAX_TRACK_POINTS_PER_REQUEST`），**冇任何守衛**。⚠️ 內部矛盾：commit `3ee16c3` 自己個 message 用「嗰句 message 係 f-string over 常數，tune budget 就會靜靜哋拆爛所有 match message 嘅 client」論證咗成個 (a)，轉個頭就喺 TS 側 hardcode 咗同一句 f-string 嘅結果。本 repo 已有跨語言守衛先例（CUI-0034） |
+| **S-102** | `test_the_sdl_says_a_refused_track_is_null_rather_than_fatal` 喺 `track-back-to-non-null` mutant 之下**仍然綠**（佢只 assert description 入面有 "nullable"）。唔係測試漏洞（另外五條殺得到），係**命名不副實** |
+
+### Reviewer 重做嘅三個 mutant —— 三分三，逐項對數
+
+| Mutant | Lane 報 | Reviewer 實測 |
+|---|---|---|
+| `stamp-every-error`（喺 `process_errors` 統一貼 code）| 1 紅 | **1 紅**，正正係 `test_a_server_fault_carries_no_client_refusal_code`。Oracle 顯示一個 monkeypatch 爆咗嘅 `meta` resolver **喺 wire 上真係帶住 `code: LIST_ROW_BUDGET_EXCEEDED`** ⇒ 呢個誘人重構嘅**唯一**防線就係嗰條 sentinel |
+| `track-back-to-non-null` | 5 紅（含兄弟 field）| **5 紅**，含 `test_a_refused_track_does_not_take_its_siblings_with_it` |
+| `leak-the-counter` | 9 紅 | **9 紅**，W-013 條線守住 |
+
+### Lane 自報六條推翻：五條技術可驗，**五條全部成立**
+
+其中最重要嗰條推翻咗 **main agent 個 brief**：`npm run typecheck` 實測捉到 **0 處**。
+Reviewer 企喺新 SDL 嘅 tree 上把 `source.ts` / `types.ts` 還原成舊版再跑 → `TYPECHECK-EXIT=0`，
+成因確認喺 `src/gql/graphql.ts:318`（codegen 已產出 `| null`）撞上 `source.ts` 原有嗰個
+為「activity 唔存在」而寫嘅 `?? []`。
+
+> **一般教訓**：**GraphQL non-null → nullable 嘅 widening，`tsc` 天生捉唔到任何已經寫咗
+> `?? ` / `?.` 嘅取值點**，所以 codegen-based typecheck 做唔到 nullability widening 嘅 checklist。
+> 真 checklist 係後端測試。
+
+Reviewer 亦補查咗 lane 冇講嘅一步：全前端**只得一個** document 揀 `track`
+（`queries.ts:133`），所以 (b) 喺前端嘅影響面就係 `source.ts` 嗰一行，冇遺漏第二個取值點。
+
+### ⚠️ Registry 自我更正：`2026-09-17_review_CUI-0036_batch.md` 個重編漏咗一條
+
+Main agent 個重編 script 用咗 `f"S-0{n}"`，`n=100` 會砌出 `S-0100` 而唔係 `S-100`，
+所以最後一條冇被換 —— 正文變成 S-092…S-098 加一個孤兒 S-100，而 registry 嗰邊佢係 S-099。
+**由 CUI-0018 嗰輪 review 捉返**，已修正（正文全部 `S-100` → `S-099`，並喺報告頂部加咗補記）。
