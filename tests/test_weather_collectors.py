@@ -6,6 +6,7 @@ network: it severs ``socket.socket.connect`` for the whole module, so a test
 that forgot to install a fake would raise instead of quietly scraping HKO.
 """
 
+import importlib
 import json
 import logging
 import socket
@@ -18,8 +19,7 @@ from bs4 import BeautifulSoup
 from run365days.cli.collect_weather import _write_jsonl
 from run365days.dashboard.builder import hourly_at, load_jsonl, warnings_by_date
 from run365days.export.records import daily_weather_record, warning_record
-from run365days.weather.collectors import hko_daily, hourly, warnings
-from run365days.weather.collectors._parsing import WeatherPageStructureError
+from run365days.weather.collectors import WeatherPageStructureError, hko_daily, hourly, warnings
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "weather"
 
@@ -439,6 +439,28 @@ class TestWarningsFetchDay:
 
         with pytest.raises(WeatherPageStructureError):
             warnings.fetch_day("2021-01-01", {})
+
+    def test_the_documented_failure_mode_is_reachable_without_a_private_import(self):
+        # `fetch_day` and `fetch_range` both name this class in their public
+        # `Raises:`, so writing it down is part of using them -- and until
+        # W-032 the only place to import it from was `_parsing`, whose leading
+        # underscore says the opposite: rename or split it at will. A caller
+        # forced to reach into a private module to honour a public contract is
+        # a caller the next refactor breaks silently.
+        #
+        # Imported by name here rather than at the top of this module so the
+        # failure reads as this assertion. A top-level import would break
+        # collection instead, which reds the file without saying which promise
+        # was withdrawn.
+        collectors = importlib.import_module("run365days.weather.collectors")
+        parsing = importlib.import_module("run365days.weather.collectors._parsing")
+        published = getattr(collectors, "WeatherPageStructureError", None)
+
+        assert published is not None, "the documented Raises: type left the public surface"
+        assert published is parsing.WeatherPageStructureError, (
+            "the public name must be the class the collectors actually raise, not a copy"
+        )
+        assert "WeatherPageStructureError" in collectors.__all__
 
     def test_the_offset_a_missing_marker_used_to_yield_parses_the_wrong_table(self):
         # The trap the guard exists for, pinned so the guard cannot be removed
