@@ -1,6 +1,10 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { buildSchema, type GraphQLObjectType } from "graphql";
+// `?raw` rather than fs: Vite resolves the path at transform time, so this
+// keeps pointing at frontend/schema.graphql however the runner was started.
+import schemaSdl from "../../../schema.graphql?raw";
 import { act as activity } from "@/test/fixtures";
 import type { Activity, TrackPoint } from "@/data/types";
 import { useActivities, useActivity, useTrack } from "@/data/hooks";
@@ -59,8 +63,10 @@ function pending(): QueryStub {
 /**
  * The GraphQL error the API really returns when the track points budget is spent.
  *
- * The sentence `src/api/schema.py` actually builds, not a paraphrase: this file
- * claims to hold a real capture, and CUI-0018 rewrote what one looks like.
+ * The sentence `src/api/schema.py` actually builds, not a paraphrase. The
+ * `10000` in it is `MAX_TRACK_POINTS_PER_REQUEST`, which lives in Python; the
+ * test below is what stops this copy going stale the way the sentence it
+ * replaced did (S-101).
  */
 const BUDGET_MESSAGE = "track points budget exhausted: one request may return at most 10000 track points";
 
@@ -212,5 +218,27 @@ describe("ActivityView", () => {
     wire({ all: failed("list exploded") });
     renderView();
     expect(screen.getByText(/Could not load activities: list exploded/)).toBeInTheDocument();
+  });
+
+  // S-101. `BUDGET_MESSAGE` quotes `MAX_TRACK_POINTS_PER_REQUEST`, which lives
+  // in Python, and nothing held the two together: tuning the budget left this
+  // fixture quoting a number the server had stopped using, with every gate
+  // green. That is the same silent drift that let the sentence this one
+  // replaced survive being fabricated.
+  //
+  // frontend/schema.graphql is the link, exactly as in CUI-0034: run365-schema
+  // --check holds it equal to the Python constant, and this holds the fixture
+  // equal to it. Reading the number back out of the SDL is the whole point --
+  // spelling `10000` here would be a third copy rather than a guard.
+  it("quotes the track points budget the generated SDL advertises", () => {
+    const sdl = buildSchema(schemaSdl);
+    const track = (sdl.getType("Activity") as GraphQLObjectType).getFields().track;
+
+    // Assert the phrasing was found before comparing, so a reworded
+    // description fails loudly instead of skipping the comparison and going
+    // green on a number it could no longer locate.
+    const advertised = /totalling (\d+) points/.exec(track.description ?? "");
+    expect(advertised, `Activity.track description states no "totalling N points": ${track.description}`).not.toBeNull();
+    expect(BUDGET_MESSAGE).toContain(`at most ${advertised![1]} track points`);
   });
 });
