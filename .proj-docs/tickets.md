@@ -76,7 +76,7 @@
 | **CUI-0038** | 🟡 Medium | `REFUSAL_LOG_LEVEL` 改成 `WARNING` 可以殺死 CUI-0029 嘅頭號性質而 418 條測試全綠 | ⏳ pending | `pending/` |
 | **CUI-0039** | 🟡 Medium | 冇測試行過「同一 operation 同時帶 refusal 同 fault」，`process_errors` filter 係活 mutant | ⏳ pending | `pending/` |
 | **CUI-0040** | 🟢 Low | `service.tracks()` 收到負數 `points` 靜靜回 1 行，同 CUI-0033(a) 立嘅原則相反 | ⏳ pending | `pending/` |
-| **CUI-0041** | 🟢 Low | `finite_float()` 喺 `src/` 零 caller —— CUI-0011 方案 C 把 cast 收歸 `from_raw_row()`、有限性 gate 搬去 `finite()` 之後佢變死代碼；docstring 仍然宣稱佢守住九個 weather call site | ⏳ pending | `pending/` |
+| **CUI-0041** | 🟢 Low | `finite_float()` 喺 `src/` 零 caller —— CUI-0011 方案 C 把 cast 收歸 `from_raw_row()`、有限性 gate 搬去 `finite()` 之後佢變死代碼；docstring 仍然宣稱佢守住九個 weather call site（實測：九個讀數分兩處 gate，6 daily 喺 `records.py`、3 hourly 喺 `builder.py`） | ✅ done | `pending/`（檔案未搬） |
 | **CUI-0042** | 🟢 Low | `tag-release.yml` 係單向流程：tag 一旦建咗，`Validate tag name` 就 `exit 1`，而 release step 只有 `gh release create` 冇 edit 路徑 ⇒ **CHANGELOG 喺 tag 之後嘅更正同步唔返落已發佈嘅 Release body**。v3.2.0 實際撞到，最後要人手喺 GitHub UI 改一隻字 | ⏳ pending | `pending/` |
 
 ### ⚠️ 核實過程發現

@@ -5,6 +5,14 @@ rounding guard had drifted apart (AU-024): ``export.records`` screened out
 ``±inf`` while ``dashboard.builder`` let it through. Keeping one copy is what
 stops the two from diverging again.
 
+The cast and the bound are deliberately two names rather than one. CUI-0009
+paired them as a single ``finite_float`` helper, but CUI-0011 split them back
+apart on purpose: the collectors want ``to_float`` permissive, because
+``"inf"`` / ``"-inf"`` / ``"nan"`` are legal float literals they keep as
+parsed, while ``finite`` belongs at the boundary where a record meets the
+writers. That split left the combined helper with no callers at all, so
+CUI-0041 deleted it -- do not reintroduce it without a caller.
+
 Base layer, standard library only: ``run365days.export.records`` sits on the
 API's import path, which ``tests/test_api_imports.py`` pins to the light
 dependency set, so nothing here may reach for pandas, numpy or lxml.
@@ -65,21 +73,3 @@ def to_float(value) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
-
-
-def finite_float(value) -> float | None:
-    """Parse *value* as a float, keeping it only when the result is finite.
-
-    ``to_float`` is deliberately permissive because ``"inf"``, ``"-inf"`` and
-    ``"nan"`` are legal Python float literals and the collectors want them
-    preserved as parsed. A record on its way to the writers does not: pairing
-    the two guards once here is what stops any of the nine weather call sites
-    from remembering the cast and forgetting the bound (CUI-0009).
-
-    Args:
-        value: A scraped string or any object convertible to ``float``.
-
-    Returns:
-        The parsed float, or ``None`` when it is unreadable or not finite.
-    """
-    return finite(to_float(value))
