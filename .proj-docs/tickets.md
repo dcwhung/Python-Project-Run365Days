@@ -3,6 +3,7 @@
 **最後更新**：2026-09-17（13 張 pending ticket 清空 + CUI-0018；三輪 review 92/80/87 + 92；21 條 finding 全清；`CLAUDE.md` §6 加咗 nullability-widening 陷阱；529 pytest / 143 vitest / TOTAL 96%）
 **2026-09-17 後續**：CUI-0049（前端 dev 樹 bump + `npm audit` 擴闊到全樹）同 CUI-0044（Python 側 `pip-audit` 入 CI）完成；531 pytest / 144 vitest（25 files）
 **2026-09-17 後續 ②**：v3.3.0 QA 嘅 9 條 finding（W-061、S-125…S-132）全部清完，見最後一節；588 pytest / 144 vitest（25 files）
+**2026-09-17 後續 ③（v3.3.0 release）**：六張票（CUI-0044 / 0047 / 0048 / 0049 / 0050 / 0051）全部搬入 `completed/`，「檔案位置」同「狀態」**重新一致**；`pending/` 淨返 CUI-0052 一張（⏸️ 待用戶決定）
 
 > 由 `/audit`（AU-NNN）同 `/review`（C/W/S-NNN）產生嘅 ticket 集中登記處。
 > 編號全局唯一、永不重用。已完成嘅保留紀錄，只改狀態。
@@ -13,9 +14,9 @@
 
 **核實日期**：2026-09-17 ｜ **總數**：52 張（CUI-0001 … CUI-0052）
 
-> 量度方法（2026-09-17 喺 `824c682` 重量，同下面 Bucket 表係**同一次**點算）：
+> 量度方法（2026-09-17 喺 v3.3.0 release branch 重量，同下面 Bucket 表係**同一次**點算）：
 > `find .tickets -name 'CUI-*.md' | wc -l` → **52**；
-> `ls .tickets/<bucket>/0001-0200/CUI-*.md | wc -l` → pending **7** / in-progress **0** / completed **45**。
+> `ls .tickets/<bucket>/0001-0200/CUI-*.md | wc -l` → pending **1** / in-progress **0** / completed **51**。
 >
 > ⚠️ 呢個 block 之前留住 `6576e56` 嗰陣嘅讀數（**42**；pending 13 / 0 / completed 29），同三行之下嘅
 > Bucket 表（52；45 / 0 / 7）並存，兩套數仲掛住**同一個核實日期**，而本 section 自稱「權威快照」——
@@ -30,9 +31,9 @@
 
 | Bucket | 數量 | 檔案位置 |
 |---|---:|---|
-| ✅ completed | **45** | `.tickets/completed/0001-0200/` |
+| ✅ completed | **51** | `.tickets/completed/0001-0200/` |
 | 🔄 in-progress | **0** | `.tickets/in-progress/0001-0200/`（空） |
-| ⏳ pending | **7** | `.tickets/pending/0001-0200/` |
+| ⏳ pending | **1** | `.tickets/pending/0001-0200/`（淨返 CUI-0052） |
 | **總計** | **52** | |
 
 > ⚠️ **2026-09-17 後續（CUI-0049 / CUI-0044）**：兩張票狀態已轉 ✅ done，但**票檔冇搬**（依指示原地留喺
@@ -74,7 +75,7 @@
 ### 編號完整性核實
 
 逐一列舉 `.tickets/` 下全部 `CUI-*.md` 檔名並同 `0001…0052` 對比
-（2026-09-17 喺 `824c682` 用 `find .tickets -name 'CUI-*.md'` 點算，同上面 Bucket 表嘅 52 係同一次點算）：
+（2026-09-17 喺 v3.3.0 release branch 用 `find .tickets -name 'CUI-*.md'` 點算，同上面 Bucket 表係同一次點算）：
 
 - **編號連續**：✅ 是 —— `0001` 到 `0052` 一個不缺
 - **無跳號**：✅ 是 —— 應有 52 張，實有 52 張
@@ -131,14 +132,14 @@
 | **CUI-0041** | 🟢 Low | `finite_float()` 喺 `src/` 零 caller —— CUI-0011 方案 C 把 cast 收歸 `from_raw_row()`、有限性 gate 搬去 `finite()` 之後佢變死代碼；docstring 仍然宣稱佢守住九個 weather call site（實測：九個讀數分兩處 gate，6 daily 喺 `records.py`、3 hourly 喺 `builder.py`） | ✅ done | `completed/` |
 | **CUI-0042** | 🟢 Low | `tag-release.yml` 係單向流程：tag 一旦建咗，`Validate tag name` 就 `exit 1`，而 release step 只有 `gh release create` 冇 edit 路徑 ⇒ **CHANGELOG 喺 tag 之後嘅更正同步唔返落已發佈嘅 Release body**。v3.2.0 實際撞到，最後要人手喺 GitHub UI 改一隻字 | ✅ **done 2026-09-17** | `completed/` |
 | **CUI-0043** | 🟢 Low | TCX 座標經 `optional_float` 洗成 `None`，令 CUI-0008 個有限性 guard 喺唯一真實 corrupt 路徑上射唔到（GPX/KML 用 `parse_finite_float` 擋得住）。pre-existing；查證後 W-005 **從未**就座標定案（佢處理嘅係 `optional_int` 嘅 nan/inf，理由係污染統計） | ✅ done | `completed/` |
-| **CUI-0044** | 🟡 Medium | Python 側依然冇依賴審計 gate —— `pip-audit` 從來冇入過 CI，而 Flask / Strawberry 係 core dependency，直接入 Vercel production runtime。CUI-0036 只做咗前端一半（user 當時明確只揀咗 `npm audit --omit=dev`）| ✅ **done 2026-09-17**（方案 A：`lint-test` 尾加 `pip-audit`，先 upgrade pip+setuptools；重量讀數同票一致，upgrade 後 0 條）| `pending/`（**未搬**）|
+| **CUI-0044** | 🟡 Medium | Python 側依然冇依賴審計 gate —— `pip-audit` 從來冇入過 CI，而 Flask / Strawberry 係 core dependency，直接入 Vercel production runtime。CUI-0036 只做咗前端一半（user 當時明確只揀咗 `npm audit --omit=dev`）| ✅ **done 2026-09-17**（方案 A：`lint-test` 尾加 `pip-audit`，先 upgrade pip+setuptools；重量讀數同票一致，upgrade 後 0 條）| `completed/` |
 | **CUI-0045** | 🟢 Low | `tests/test_api.py` 已經 **3,543 行 / 228 個測試**（票原寫 3,166/197，已漂）（實測 **3,543 行 / 228 個**）；Vercel entry（deploy shim，唔係 `src/api/` 一部分）嘅測試應該抽做 `tests/test_vercel_entry.py`。pre-existing；7 條測試純機械搬走，`GRAPHIQL_ENV` 因 W-008 仍在用而兩邊各自定義 | ✅ done | `completed/` |
 | **CUI-0046** | 🟢 Low | `ActivitiesView.test.tsx:13` 個 `BUDGET_MESSAGE` hardcode 咗 `4000`（= `MAX_LIST_ROWS_PER_REQUEST`）冇守衛 —— **S-101 同一個病嘅第二宗**。S-101 只授權咗 `10000` 嗰條，cleanup lane 守範圍冇郁佢 | ✅ done | `completed/` |
-| **CUI-0047** | 🟢 Low | `haversine_distance` 守到「非有限」但**守唔到「唔係座標」** —— `lat=400` 回 4447.8 km、`lat=lon=1e308` 回 `nan`，而 `pandas.sum()` 會靜靜跌走個 `nan` ⇒ CUI-0001/0008 要滅嗰個「距離報細咗」形狀由另一道門返咗嚟 | ✅ done | `pending/` |
-| **CUI-0048** | 🟢 Low | `service.tracks` 個 negative guard 漏咗 `-0.0`（`-0.0 < 0` 係 `False`，而且 falsy ⇒ 回成條 track），`2.5` 掟未記錄嘅 `TypeError`。到唔到 client | ✅ done | `pending/`（狀態已改，未搬）|
-| **CUI-0049** | 🟡 Medium | `pages.yml` 註釋寫嗰 14 條 dev 樹 advisory「tracked separately in CUI-0036」，但 CUI-0036 已搬 `completed/` ⇒ 冇咗 owner。要 bump `@graphql-codegen/*` + `vitest` 再剷走 `--omit=dev` | ✅ **done 2026-09-17**（codegen cli 5→7 / client-preset 4→6 / vitest 3→5；全樹 `npm audit` 0 advisory；gate 剷走 `--omit=dev`）| `pending/`（**未搬**）|
-| **CUI-0050** | 🟢 Low | 四條 list field 嘅 `ARGUMENT_OUT_OF_RANGE` 分唔開 `limit` 定 `offset`（`path`/`locations`/`code` 三樣一樣，只有 message 唔同）⇒ client 照 SDL 講嘅「branch on the code」做唔到修正。W-035 方案 B 嘅承接票 | ✅ done | `pending/`（狀態已改，未搬）|
-| **CUI-0051** | 🟢 Low | CUI-0038 測試註釋引咗 `103`/`341` bytes 但冇講量邊個 document；QA 用兩組 document 量到 102/332 同 161/239，兩組都唔等於。同 S-068/S-069 同一種病 | ✅ done | `pending/`（狀態已改，未搬）|
+| **CUI-0047** | 🟢 Low | `haversine_distance` 守到「非有限」但**守唔到「唔係座標」** —— `lat=400` 回 4447.8 km、`lat=lon=1e308` 回 `nan`，而 `pandas.sum()` 會靜靜跌走個 `nan` ⇒ CUI-0001/0008 要滅嗰個「距離報細咗」形狀由另一道門返咗嚟 | ✅ done | `completed/` |
+| **CUI-0048** | 🟢 Low | `service.tracks` 個 negative guard 漏咗 `-0.0`（`-0.0 < 0` 係 `False`，而且 falsy ⇒ 回成條 track），`2.5` 掟未記錄嘅 `TypeError`。到唔到 client | ✅ done | `completed/` |
+| **CUI-0049** | 🟡 Medium | `pages.yml` 註釋寫嗰 14 條 dev 樹 advisory「tracked separately in CUI-0036」，但 CUI-0036 已搬 `completed/` ⇒ 冇咗 owner。要 bump `@graphql-codegen/*` + `vitest` 再剷走 `--omit=dev` | ✅ **done 2026-09-17**（codegen cli 5→7 / client-preset 4→6 / vitest 3→5；全樹 `npm audit` 0 advisory；gate 剷走 `--omit=dev`）| `completed/` |
+| **CUI-0050** | 🟢 Low | 四條 list field 嘅 `ARGUMENT_OUT_OF_RANGE` 分唔開 `limit` 定 `offset`（`path`/`locations`/`code` 三樣一樣，只有 message 唔同）⇒ client 照 SDL 講嘅「branch on the code」做唔到修正。W-035 方案 B 嘅承接票 | ✅ done | `completed/` |
+| **CUI-0051** | 🟢 Low | CUI-0038 測試註釋引咗 `103`/`341` bytes 但冇講量邊個 document；QA 用兩組 document 量到 102/332 同 161/239，兩組都唔等於。同 S-068/S-069 同一種病 | ✅ done | `completed/` |
 | **CUI-0052** | 🟢 Low | 兩個 supply-chain audit gate（`pip-audit` / `npm audit`）坐喺 `deploy` 上游（`build.needs = [lint-test, frontend]`、`deploy.needs = build`），而本 repo 每次 push `develop` 就 deploy ⇒ 一條同本 repo 完全無關嘅上游 advisory 可以停晒所有部署，包括 hotfix。兩份文件都認咗係刻意 trade，**唔當缺陷**；問題係要唔要解耦（標準做法：另開 `schedule:` audit workflow，**唔係** `continue-on-error`）。由 S-122 開出 | ⏸️ 待用戶決定 | `pending/` |
 
 ### ⚠️ 核實過程發現
