@@ -374,7 +374,11 @@ def tracks(
         points: Samples per track, or ``None``/``0`` for every stored row up to
             :data:`MAX_TRACK_POINTS`. ``-0.0`` is one of the values that mean
             ``0`` here, not one of the negatives; see the guard's own comment.
-            A count below zero is refused, not clamped; see Raises.
+            A count below zero is refused, not clamped; see Raises. The
+            ``float`` values named here and under Raises (``-0.0``, ``2.5``)
+            sit outside the ``int | None`` annotation above: Python does not
+            enforce it, so what they do is contracted here rather than left to
+            chance. They are not a widening of what this function accepts.
 
     Returns:
         ``{activity_id: rows}`` in :data:`TRACK_COLUMNS` shape, ordered by
