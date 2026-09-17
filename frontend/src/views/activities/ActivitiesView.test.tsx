@@ -1,6 +1,11 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
+import { buildSchema, type GraphQLObjectType } from "graphql";
+// `?raw` rather than fs: Vite resolves the path at transform time, so this
+// keeps pointing at frontend/schema.graphql no matter what directory the
+// runner was started from.
+import schemaSdl from "../../../schema.graphql?raw";
 import { useActivities, useMeta } from "@/data/hooks";
 import { ActivitiesView } from "./ActivitiesView";
 
@@ -9,7 +14,11 @@ vi.mock("@/data/hooks", () => ({
   useMeta: vi.fn(),
 }));
 
-/** The GraphQL error the API really returns when a document outgrows the list row budget. */
+/**
+ * The GraphQL error the API really returns when a document outgrows the list
+ * row budget. The `4000` in it is `MAX_LIST_ROWS_PER_REQUEST`, which lives in
+ * Python; the test at the bottom of this file holds the two together.
+ */
 const BUDGET_MESSAGE = "list row budget exhausted: one request may read at most 4000 rows";
 
 /** A distinctive slice of the document `graphql-request` folds into `message`. */
@@ -92,5 +101,38 @@ describe("ActivitiesView", () => {
     wire(failed(new Error("fetch failed")));
     renderView();
     expect(screen.getByText("Could not load activities: fetch failed")).toBeInTheDocument();
+  });
+
+  // CUI-0046, the second case of what S-101 fixed in ActivityView.test.tsx.
+  // `BUDGET_MESSAGE` quotes `MAX_LIST_ROWS_PER_REQUEST`, which lives in Python,
+  // and nothing held the two together: tuning the budget would leave this
+  // fixture quoting a number the server had stopped using, with every gate
+  // green.
+  //
+  // frontend/schema.graphql is the link, exactly as in CUI-0034: run365-schema
+  // --check holds it equal to the Python constant, and this holds the fixture
+  // equal to it. Reading the number back out of the SDL is the whole point --
+  // spelling `4000` here would be a third copy rather than a guard.
+  //
+  // Anchored on `Query.activities` by name, which S-101 did not have to do.
+  // Unlike the `10000` it read, `4000` reaches the SDL five times: activities,
+  // weight, weather, warnings and year all carry `LIST_ROWS_NOTE`, one shared
+  // f-string over the one constant, so a whole-document search would not say
+  // which field it had found. `activities` is the field this view's document
+  // opens and the one the fixture above blames in `path`, so its description is
+  // the one this fixture is answerable to.
+  it("quotes the list row budget the generated SDL advertises for Query.activities", () => {
+    const sdl = buildSchema(schemaSdl);
+    const activities = (sdl.getType("Query") as GraphQLObjectType).getFields().activities;
+
+    // Assert the phrasing was found before comparing, so a reworded description
+    // fails loudly instead of skipping the comparison and going green on a
+    // number it could no longer locate.
+    const advertised = /at most (\d+) rows of pages/.exec(activities.description ?? "");
+    expect(
+      advertised,
+      `Query.activities description states no "at most N rows of pages": ${activities.description}`,
+    ).not.toBeNull();
+    expect(BUDGET_MESSAGE).toContain(`at most ${advertised![1]} rows`);
   });
 });

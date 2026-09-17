@@ -29,7 +29,7 @@
 | | **42** | |
 
 > ⚠️ 上表數嘅係**檔案位置**，唔係狀態。2026-09-17 之後兩者唔再一一對應：
-> `pending/` 嗰 13 個檔案入面，**CUI-0035 / CUI-0036 / CUI-0042 已經係 ✅ done**，
+> `pending/` 嗰堆檔案入面，**CUI-0035 / CUI-0036 / CUI-0042 / CUI-0046 已經係 ✅ done**，
 > 刻意留喺 `pending/` 等一次過搬。狀態以下面全表同 ticket 檔案為準。
 > （之前個總數寫 40，係 CUI-0041 / CUI-0042 開咗之後冇更新；已按實測改成 42。）
 
@@ -90,7 +90,7 @@
 | **CUI-0043** | 🟢 Low | TCX 座標經 `optional_float` 洗成 `None`，令 CUI-0008 個有限性 guard 喺唯一真實 corrupt 路徑上射唔到（GPX/KML 用 `parse_finite_float` 擋得住）。pre-existing，W-005 定案 | ⏳ pending | `pending/` |
 | **CUI-0044** | 🟡 Medium | Python 側依然冇依賴審計 gate —— `pip-audit` 從來冇入過 CI，而 Flask / Strawberry 係 core dependency，直接入 Vercel production runtime。CUI-0036 只做咗前端一半（user 當時明確只揀咗 `npm audit --omit=dev`）| ⏳ pending | `pending/` |
 | **CUI-0045** | 🟢 Low | `tests/test_api.py` 已經 3,166 行 / 197 個測試；Vercel entry（deploy shim，唔係 `src/api/` 一部分）嘅測試應該抽做 `tests/test_vercel_entry.py`。pre-existing | ⏳ pending | `pending/` |
-| **CUI-0046** | 🟢 Low | `ActivitiesView.test.tsx:13` 個 `BUDGET_MESSAGE` hardcode 咗 `4000`（= `MAX_LIST_ROWS_PER_REQUEST`）冇守衛 —— **S-101 同一個病嘅第二宗**。S-101 只授權咗 `10000` 嗰條，cleanup lane 守範圍冇郁佢 | ⏳ pending | `pending/` |
+| **CUI-0046** | 🟢 Low | `ActivitiesView.test.tsx:13` 個 `BUDGET_MESSAGE` hardcode 咗 `4000`（= `MAX_LIST_ROWS_PER_REQUEST`）冇守衛 —— **S-101 同一個病嘅第二宗**。S-101 只授權咗 `10000` 嗰條，cleanup lane 守範圍冇郁佢 | ✅ done | `pending/`（檔案未搬） |
 
 ### ⚠️ 核實過程發現
 
