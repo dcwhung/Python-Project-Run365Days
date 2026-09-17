@@ -61,11 +61,16 @@ python -m venv .venv && .venv/bin/pip install -e ".[dev]"
 .venv/bin/ruff check src tests               # lint
 .venv/bin/ruff format --check src tests      # format check
 .venv/bin/run365-schema --check frontend/schema.graphql   # SDL 同 frontend 同步
+.venv/bin/pip install pip-audit -q && .venv/bin/pip-audit --progress-spinner=off
+# ↑ CI gate：審成個環境（10 個 runtime dep + [dev] extras + pip-audit 自己嘅 closure）。
+#   CI 個 step 會先 `python -m pip install --upgrade pip setuptools` 至 audit —— 唔 upgrade 就會見到
+#   14 條落喺 pip 24.0 / setuptools 79.0.1 嘅 advisory（全部有 fix version，所以 upgrade 係真修）。
+#   `run365days` 自己永遠被 skip（editable，唔喺 PyPI），所以唔用 `--strict`。
 
 # Frontend
 cd frontend
 npm ci
-npm audit --omit=dev       # CI gate：只審 runtime 依賴（dev 樹嗰啲 advisory 係 pre-existing，見 CUI-0036）
+npm audit                  # CI gate：全樹（dev 都審）。CUI-0049 bump 完 dev 樹後剷走 --omit=dev，exit 0 = 零 advisory
 npm run lint
 npm run typecheck          # 會先跑 codegen
 npx vitest run
@@ -126,7 +131,8 @@ Commit：Conventional Commits（`feat` / `fix` / `refactor` / `chore` / `docs` /
 | 環境錯誤 | `MissingTimeZoneDataError` 刻意繼承 `RuntimeError`，令 `parse_all` 任何 except 分支都食唔到 |
 | `graphql` 名字遮蔽（只係 tooling 層）| `[tool.ruff] src` 包含 `api/`，而 Vercel 只認 `api/graphql.py` ⇒ ruff 將 bare `from graphql import ...` 當成本 repo 自己嘅 module，迫佢入 first-party block（`src/api/schema.py`、`tests/test_api.py`）。已用 `known-third-party = ["graphql"]` 釘死；移走呢個 setting 兩個檔案即刻 `I001` 紅。⚠️ **唔好為咗閃開遮蔽而改 entry 名** —— `fd252a3` 改做 `api/index.py`、`e506531` 改做 `api/graphql_api.py`，兩個都被 Vercel 個 functions pattern 拒，最後 `5aa1b2f` 改返。而且 `5aa1b2f` 查明**真正嘅 crash 由頭到尾係欠 Flask 依賴**（`12c31fe` 修），遮蔽從來冇喺 runtime 咬過人 ——兩個 deploy cycle 蝕喺一個誤診度。遮蔽只喺 import-sorting 層有影響，喺嗰層解 |
 | Mutation testing 用 stale `.pyc` | 改完源碼即刻重跑，可以行到**舊** bytecode（mtime 係秒精度，size 又啱 ⇒ cache 判定為有效），令 mutant 假綠。`python -B` **救唔到**（佢擋寫唔擋讀），而且單一次觀察**判定唔到**成因（stale `.pyc` 定 `sys.modules` 已 import 都解釋得晒）。要開嘅係**方法**唔係一個補救指令：in-process `setattr` 落 mutant → assert 個 mutant 真係生效咗（唔好假設）→ 用一個獨立 oracle 驗結果 |
-| GraphQL nullability widening，`tsc` 天生捉唔到 | non-null → nullable 嘅 widening，凡係落喺一個已經寫咗 `??` / `?.` 嘅取值點，`tsc` 一聲都唔會出。CUI-0018 (b) 把 `track` 由 `[TrackPoint!]!` 改成 `[TrackPoint!]`，codegen 照樣產出 `| null`（`frontend/src/gql/graphql.ts:318`），但 `npm run typecheck` 實測捉到 **0 處** —— 因為 `frontend/src/data/api/source.ts:77` 原本就有個為「activity 唔存在」而寫嘅 `?? []`，照單全收吞晒。**唔係 `tsc` 盲**：同一行剷走 `?? []` 即刻 `TS2322`，明文寫住 `... | null | undefined`，所以個 coalesce 正正就係塊遮眼布。**Nullability widening 嘅 checklist 係後端測試**：同一個改動 type-only 倒返轉頭（resolver annotation 去返 `list[TrackPoint]`、清 `__pycache__`、regenerate SDL 確認變咗 `[TrackPoint!]!`），`tests/test_api.py` 實測紅 **5 條**（4 條驗 wire 上 `track is None`，1 條驗 SDL type）。前端 codegen 綠唔代表冇嘢郁 |
+| `@graphql-codegen/client-preset` 6 唔再產出 schema-wide type | CUI-0049 由 client-preset 4 bump 上 6 之後，`frontend/src/gql/graphql.ts` 由 345 行縮到 69 行：`Maybe` / `InputMaybe` / `Scalars` 同所有 schema type（`Activity`、`TrackPoint` …）唔再產出，淨低 operation / fragment type 加 `*Document`。今日只有 `frontend/src/data/api/queries.ts` 用 `@/gql`（而且淨係攞個 `graphql` helper），所以 `tsc -b` 實測零錯；但如果將來想 `import type { Activity } from "@/gql"`，佢已經唔存在，要自己喺 `src/data/types.ts` 寫。另外 `ID` input 而家係 `string | number`（舊版係 `string`） |
+| GraphQL nullability widening，`tsc` 天生捉唔到 | non-null → nullable 嘅 widening，凡係落喺一個已經寫咗 `??` / `?.` 嘅取值點，`tsc` 一聲都唔會出。CUI-0018 (b) 把 `track` 由 `[TrackPoint!]!` 改成 `[TrackPoint!]`，codegen 照樣產出 `| null`（`frontend/src/gql/graphql.ts`，CUI-0049 bump 後喺 `TrackQuery` 嗰行），但 `npm run typecheck` 實測捉到 **0 處** —— 因為 `frontend/src/data/api/source.ts:77` 原本就有個為「activity 唔存在」而寫嘅 `?? []`，照單全收吞晒。**唔係 `tsc` 盲**：同一行剷走 `?? []` 即刻 `TS2322`，明文寫住 `... | null | undefined`，所以個 coalesce 正正就係塊遮眼布。**Nullability widening 嘅 checklist 係後端測試**：同一個改動 type-only 倒返轉頭（resolver annotation 去返 `list[TrackPoint]`、清 `__pycache__`、regenerate SDL 確認變咗 `[TrackPoint!]!`），`tests/test_api.py` 實測紅 **5 條**（4 條驗 wire 上 `track is None`，1 條驗 SDL type）。前端 codegen 綠唔代表冇嘢郁 |
 
 ---
 
