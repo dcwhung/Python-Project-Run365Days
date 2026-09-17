@@ -64,7 +64,7 @@ pages.
 | Front end (v3, in progress) | React 19 + TypeScript on Vite, TanStack Query + graphql-request with GraphQL Codegen, Tailwind CSS 4; runs in `api` or `static` data mode |
 | HTTP | requests |
 | Front end | Single HTML page, vanilla JS, Chart.js 4 from cdnjs, Canvas for the route map |
-| Packaging | setuptools with a src-layout, console scripts in `pyproject.toml` |
+| Packaging | setuptools with a src-layout, console scripts in `pyproject.toml`; core dependencies are the API runtime only, the parsing stack sits in the `pipeline` extra |
 | Quality | ruff (lint, import order, format, docstrings), pytest, pre-commit |
 | Delivery | GitHub Actions, GitHub Pages |
 
@@ -112,6 +112,24 @@ cd frontend && npm install && npm run dev       # dashboard at http://localhost:
 The package finds its data relative to the repository. To point it
 elsewhere, set `RUN365_DATA_DIR` to a directory with the same
 `raw/` and `processed/` structure.
+
+### Dependency extras
+
+Installing the package bare gives you the API runtime only — Flask,
+SQLAlchemy and Strawberry. That is deliberate: `requirements.txt` installs
+the package, so the core list is exactly what Vercel bundles into the
+`api/graphql.py` function, and pandas, numpy and lxml would add roughly
+165 MB to every deployment for code the API never imports.
+
+| Install | Gets you | Use it for |
+|---|---|---|
+| `pip install -e .` | Flask, SQLAlchemy, Strawberry | serving the GraphQL API |
+| `pip install -e ".[pipeline]"` | the above plus pandas, numpy, lxml, BeautifulSoup, requests, pytz, python-dateutil | `run365-activities`, `run365-weather`, `run365-export` |
+| `pip install -e ".[dev]"` | `[pipeline]` plus pytest, ruff, pre-commit | working on the repo |
+
+Running any console script other than `run365-schema` without the
+`pipeline` extra raises `ModuleNotFoundError`. `tests/test_packaging.py` and
+`tests/test_api_imports.py` keep the two sides of this split honest.
 
 ## Command-line tools
 
