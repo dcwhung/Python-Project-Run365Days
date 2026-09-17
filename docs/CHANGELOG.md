@@ -4,6 +4,114 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Release branches
 are named `release/vX` and tags `vX.Y.Z`.
 
+## [3.3.0] - 2026-09-17 - `develop`
+
+Six tickets and twenty-one review items, in three batches. One change is
+breaking: a coordinate outside the range of the globe is now refused rather
+than turned into a number that looks like a distance. The rest close the
+supply-chain gate CUI-0036 left half-built, give a bounds refusal a
+machine-readable name for the argument it refused, and pay off a run of
+figures that had been quoted in comments with nothing holding them to a
+number.
+
+### Breaking
+- `haversine_distance` screens for a *range* now, not only for finiteness: a
+  latitude outside `-90..90` or a longitude outside `-180..180` raises
+  `ValueError` reading `out-of-range coordinate`, so `parse_all` logs the file
+  by name at WARNING and drops it rather than letting it contribute. Before,
+  `lat=400` answered 4,447.8 km and nothing downstream could tell that from a
+  real reading; push the magnitude to around `1e308` -- finite, so CUI-0008's
+  screen passed it -- and `np.sin` overflowed back to `nan`, which `pandas`
+  drops out of a sum, reopening the exact CUI-0001 shape where a track
+  silently reports short. The bounds are inclusive: the poles and the
+  antimeridian are real places and stay valid. The four range tests *replace*
+  the four `math.isfinite` calls rather than joining them -- `abs(nan)` is
+  `nan` and loses every comparison, and no infinity survives `<= 90.0` -- so
+  the check count is unchanged and the `nan`/`±inf` message is unchanged byte
+  for byte. On the real export (356 tracks, 97,003 points) the old and new
+  guards answer identically for every one, so this breaks corrupt input only
+  (CUI-0047).
+
+### Added
+- A bounds refusal now carries `extensions.argument`, naming which argument
+  was refused: `"limit"`, `"offset"` or `"points"`. `path`, `locations` and
+  `extensions.code` are identical for `limit` and `offset` on the same field,
+  so branching on the code -- which the SDL tells clients to do -- could not
+  tell a client which of the two to correct. The value is a hard-coded literal
+  at each of the three raise sites, never interpolated from the request, and
+  it is the schema name rather than the alias (CUI-0050, following W-035).
+- `pip-audit` runs in CI, as the last step of `lint-test`, preceded by
+  `python -m pip install --upgrade pip setuptools`. It audits the whole
+  environment -- the ten runtime dependencies, the `[dev]` extras and
+  pip-audit's own closure -- and reports none. Flask and Strawberry are core
+  dependencies that go straight into the Vercel runtime, and nothing had been
+  auditing them. An `--ignore-vuln` allowlist was considered and rejected on
+  the grounds W-034 and S-095 already established: a list of exceptions drifts,
+  and the gate then reports on the list rather than on the tree (CUI-0044).
+
+### Changed
+- `npm audit` runs over the whole tree; the `--omit=dev` CUI-0036 shipped with
+  is gone. The fourteen advisories that flag hid were real, and they are fixed
+  rather than filtered: `@graphql-codegen/cli` 5 to 7, `client-preset` 4 to 6
+  and `vitest` 3 to 5 take `lodash` out of the dependency tree entirely, and
+  the full-tree audit now reports zero. This closes the last open half of
+  CUI-0036 (CUI-0049).
+- `client-preset` 6 no longer emits schema-wide types. `Maybe`, `InputMaybe`,
+  `Scalars` and every schema type are gone from `frontend/src/gql/graphql.ts`,
+  which keeps operation and fragment types and the `*Document` constants. Only
+  `frontend/src/data/api/queries.ts` imports from `@/gql` today, and only for
+  the `graphql` helper, so `tsc -b` is unaffected; an `import type { Activity }
+  from "@/gql"` added later will not resolve and belongs in
+  `src/data/types.ts`. An `ID` input is now `string | number` (CUI-0049).
+
+### Fixed
+- The key set a refusal publishes in `extensions` has a gate. CUI-0050 turned
+  a literal `extensions={code}` -- where "nothing but the code" held by
+  construction -- into a dict built up across two statements, which makes the
+  invariant one that can be lost; a mutant adding a third key left all 573
+  tests of the day green and still reached the wire. The existing guard is a
+  denylist of three counter names, so a key under any other spelling walked
+  past it. The new test is an allowlist over the same documents the codes and
+  the arguments are held over, and it fails at every one of its parameters
+  under that mutant (W-050).
+
+### Documented
+- `tracks()` treats `-0.0` as zero, which is what the Args section always
+  said; `-0.0 < 0` is `False` and `-0.0` is falsy, so both paths agree. That
+  was filed as a defect and settled as not one, with tests pinning the five
+  values that mean "every row" and the negatives that are refused. A `float`
+  that reaches the sampler raises `TypeError`, which nothing had written down
+  -- and it is any such `float`, not only a fractional one: `2.0` raises as
+  surely as `2.5`, while `1.5`, `1000.5` and `0.0` do not, each for a
+  different reason now recorded in the docstring (CUI-0048, S-106, S-130).
+- The SDL says which of `limit` and `offset` a refusal names when both are
+  out of range -- `limit` is checked first -- and where a request with several
+  bad windows is refused: at the first such field in document order, not at a
+  privileged field. Both are pinned by tests that run the orders in both
+  directions, because a test on one order records the wrong rule and stays
+  green (S-103, S-104, S-129).
+- Figures quoted in comments are pinned to the commit they were measured at,
+  or removed. The CUI-0038 comment no longer quotes byte counts without saying
+  which document produced them; `CLAUDE.md` §6 no longer offers codegen line
+  counts as a baseline, since they were short by the six-line preamble and
+  even the percentage moves with the counting method; and three suite sizes
+  quoted in `tests/test_api.py` now name the commit where collecting the suite
+  reproduces them (CUI-0051, W-060, W-061, S-105, S-128).
+- `docs/deployment.md` states what the audit gates actually cover, including
+  pip-audit's own closure, and that both sit upstream of `deploy` -- so an
+  advisory in a package this project never touches can hold a deployment,
+  including a hotfix. `CLAUDE.md` §3 carries the pip upgrade line that CI runs,
+  without which the same command reports fourteen advisories locally while CI
+  is green (S-120, S-121, S-122).
+
+### Known
+- Both supply-chain gates run upstream of `deploy`, and this repository
+  deploys on every push to `develop`. The trade is deliberate and both
+  documents now say so, but it means an unrelated upstream advisory can stop
+  every deployment. Decoupling it would mean a separate `schedule:` workflow;
+  `continue-on-error` is not the answer, since it retires the gate rather than
+  moving it (CUI-0052, open).
+
 ## [3.2.0] - 2026-09-16 - `develop`
 
 Twelve tickets and twenty-seven review items, in four batches. Three of the
