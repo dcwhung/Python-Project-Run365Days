@@ -2468,11 +2468,19 @@ def test_the_sdl_leaves_the_track_list_nullable_and_its_samples_not():
     )
 
 
-def test_the_sdl_says_a_refused_track_is_null_rather_than_fatal():
+def test_the_track_description_says_a_refusal_is_null_rather_than_fatal():
     # The nullability is one character in the SDL and a client author reading
     # the type alone has no reason to think the alternative was ever on the
     # table. S-012's pattern again: the contract a client needs is in the
     # description, under `run365-schema --check`.
+    #
+    # Named for what it checks, which is the description and only the
+    # description. The *type* is held by
+    # `test_the_sdl_leaves_the_track_list_nullable_and_its_samples_not`; this
+    # one deliberately stays green under a type-only change so that the two
+    # failures stay distinguishable -- measured, reverting `track` to
+    # `[TrackPoint!]!` reds five tests in this file and never this one. The
+    # earlier name promised the type and so read as a guard it was not (S-102).
     description = build_schema_from_sdl(schema.as_str()).type_map["Activity"].fields["track"]
 
     assert "nullable" in (description.description or "")
