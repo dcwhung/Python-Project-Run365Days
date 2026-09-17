@@ -2444,6 +2444,22 @@ reach it by a second path -- the field descriptions -- so a rename has to go
 wrong twice to go unnoticed.
 """
 
+PUBLISHED_EXTENSION_KEYS = frozenset({"code", REFUSAL_ARGUMENT_KEY})
+"""Every key a refusal's ``extensions`` may carry, as a client reads them.
+
+An allowlist rather than a denylist, which is the difference CUI-0050 made
+necessary. Before it, ``extensions={REFUSAL_CODE_KEY: code}`` was a literal, so
+"nothing but the code" held by construction and needed no gate. It is now a
+dict built up across two statements, so the invariant became one that can be
+lost -- measured: a third key added to it leaves all 573 tests green and still
+reaches the wire. ``CONTEXT_KEY_NAMES`` does not catch it, being three specific
+counter names; a key under any other spelling walks straight past.
+
+Spelled out rather than imported, for the reason the codes and
+:data:`REFUSAL_ARGUMENT_KEY` are: this is the wire contract, so a test that
+followed a rename would stay green while every deployed client broke.
+"""
+
 LIST_WINDOW_SELECTION = MappingProxyType(
     {"activities": "id", "weight": "date", "weather": "date", "warnings": "date"}
 )
@@ -2510,6 +2526,28 @@ def test_a_budget_refusal_names_no_argument(year_client, document, code):
 
     for error in body["errors"]:
         assert REFUSAL_ARGUMENT_KEY not in error["extensions"]
+
+
+@pytest.mark.parametrize(
+    "document",
+    [p.values[0] for p in CODED_BUDGET_DOCUMENTS] + [p.values[0] for p in BOUNDS_REFUSED_DOCUMENTS],
+)
+def test_a_refusal_publishes_no_extension_key_beyond_the_two(year_client, document):
+    # The gate under REFUSAL_ARGUMENT_KEY's own first sentence, which calls
+    # `argument` "the second and last key this schema publishes" -- a claim
+    # about the future that nothing held until this test. Held over the same
+    # list the codes and the arguments are held over, so a raise site added
+    # later is measured by all three lines at once.
+    #
+    # Read off the parsed body rather than the raw text on purpose: this is the
+    # complement of `test_a_coded_refusal_still_leaks_nothing_it_did_not_leak_before`,
+    # which reads raw text to catch a key *anywhere*. That one bans three names;
+    # this one admits two. A new key needs a decision in both places to land.
+    body = year_client.post(GRAPHQL_PATH, json={"query": document}).get_json()
+
+    for error in body["errors"]:
+        extra = set(error["extensions"]) - PUBLISHED_EXTENSION_KEYS
+        assert not extra, f"the refusal published an extension key nothing decided on: {extra}"
 
 
 @pytest.mark.parametrize("field", LIST_FIELDS)
