@@ -13,11 +13,13 @@ from pathlib import Path
 
 import pytest
 import requests
+from bs4 import BeautifulSoup
 
 from run365days.cli.collect_weather import _write_jsonl
 from run365days.dashboard.builder import hourly_at, load_jsonl, warnings_by_date
 from run365days.export.records import daily_weather_record, warning_record
 from run365days.weather.collectors import hko_daily, hourly, warnings
+from run365days.weather.collectors._parsing import WeatherPageStructureError
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "weather"
 
@@ -251,15 +253,58 @@ class TestHourlyFetchDay:
 
         assert_bounded_timeout(recorder.calls[0]["timeout"])
 
-    def test_a_row_without_a_weather_script_still_crashes(self, monkeypatch):
-        # Documents the unguarded ``tds[9].find("script").string`` read; out of
-        # scope for CUI-0010 / AU-013 / AU-014 and reported as a follow-up.
+    def test_the_column_map_matches_the_header_row_it_names(self):
+        # Binds every column constant to the header text it claims to point at,
+        # so renumbering one without moving it fails here rather than silently
+        # reading humidity as a wind speed.
+        soup = BeautifulSoup(read_fixture("freemeteo_day.html"), "html.parser")
+        history = soup.find_all("table", {"class": "daily-history"})[0]
+        headers = [th.text.strip() for th in history.find_all("th")]
+
+        assert headers[hourly._TIME_COL] == "Time"
+        assert headers[hourly._TEMPERATURE_COL] == "Temperature"
+        assert headers[hourly._WIND_COL] == "Wind"
+        assert headers[hourly._HUMIDITY_COL] == "Humidity"
+        assert headers[hourly._WEATHER_COL] == "Weather"
+
+    def test_a_row_without_a_weather_script_keeps_the_row(self, monkeypatch):
         install_fake_get(
             monkeypatch, hourly, {hourly._URL: read_fixture("freemeteo_no_script.html")}
         )
 
-        with pytest.raises(AttributeError):
-            hourly.fetch_day("2021-01-01")
+        records = hourly.fetch_day("2021-01-01")
+
+        assert [r.time for r in records] == ["00:00"]
+        assert records[0].description == "Unknown"
+        assert records[0].temperature_c == 11.0
+
+    def test_a_script_that_is_not_the_documented_call_reads_unknown(self, monkeypatch):
+        # The other half of the icon guard, and the half a missing-script test
+        # cannot reach: this cell *has* a script, it just is not the documented
+        # ``writeWeatherIcon(<code>, 'CurrentWeather', ...)`` call. Nothing says
+        # drawIcon's argument is a current-weather code -- it could as easily be
+        # tomorrow's forecast icon -- so the honest answer is Unknown.
+        install_fake_get(
+            monkeypatch, hourly, {hourly._URL: read_fixture("freemeteo_unexpected_script.html")}
+        )
+
+        records = hourly.fetch_day("2021-01-01")
+
+        assert [r.description for r in records] == ["Unknown"]
+        assert records[0].temperature_c == 11.0
+
+    def test_the_old_icon_arithmetic_would_have_named_a_description(self):
+        # Pins what the guard prevents. Both str.find() calls below can return
+        # -1, and on this script the second one does; the old slice therefore
+        # read s[start:-1], which lands exactly on "7" and named it Rain with
+        # no evidence whatsoever. Without this the guard could be deleted and
+        # every other test would stay green.
+        script = "drawIcon(7)"
+        old_reading = script[script.find("n(") + 2 : script.find(", 'CurrentWeather")]
+
+        assert old_reading == "7"
+        assert hourly._DESCRIPTION_MAP[old_reading] == "Rain"
+        assert hourly._icon_code(script) is None
 
 
 class TestHourlyFetchRange:
@@ -355,6 +400,65 @@ class TestWarningsFetchDay:
 
         frost = next(r for r in records if r.warning_signal == "FROST WARNING")
         assert frost.warning_type == "Unknown"
+
+    def test_the_column_map_matches_the_header_row_it_names(self):
+        soup = BeautifulSoup(read_fixture("hko_warning_day.html"), "html.parser")
+        headers = [th.text.strip() for th in soup.find_all("th")]
+
+        assert len(headers) == warnings._WARNING_ROW_CELLS
+        assert headers[warnings._ICON_COL] == "Signal"
+        assert headers[warnings._SIGNAL_COL] == "Name"
+        assert headers[warnings._START_TIME_COL] == "From"
+        assert headers[warnings._START_DATE_COL] == "Date"
+        assert headers[warnings._END_TIME_COL] == "To"
+        assert headers[warnings._END_DATE_COL] == "Date"
+
+    def test_a_page_without_the_marker_raises_instead_of_parsing(self, monkeypatch):
+        install_fake_get(monkeypatch, warnings, warning_routes("hko_warning_day_no_marker.html"))
+
+        with pytest.raises(WeatherPageStructureError):
+            warnings.fetch_day("2021-01-01", {})
+
+    def test_the_offset_a_missing_marker_used_to_yield_parses_the_wrong_table(self):
+        # The trap the guard exists for, pinned so the guard cannot be removed
+        # without this failing: str.find() answers "absent" with -1, and
+        # -1 + len(marker) is a perfectly usable slice index. On this fixture
+        # that index lands ahead of a complete six-cell table, so the unguarded
+        # slice returned a full, plausible and entirely wrong record instead of
+        # returning nothing. Asserting only that fetch_day no longer crashes
+        # would not have told these two apart.
+        page = read_fixture("hko_warning_day_no_marker.html")
+        marker = warnings._WARNING_TABLE_MARKER
+        assert page.find(marker) == -1
+
+        bad_offset = page.find(marker) + len(marker)
+        assert bad_offset == 31
+
+        salvaged = BeautifulSoup(page[bad_offset:], "html.parser")
+        wrong_rows = [
+            tr
+            for table in salvaged.find_all("table")
+            for tr in table.find_all("tr")
+            if len(tr.find_all("td")) == warnings._WARNING_ROW_CELLS
+        ]
+        assert len(wrong_rows) == 1
+        assert "ROW FROM AN UNRELATED TABLE" in wrong_rows[0].text
+
+    def test_a_day_with_no_warning_still_carries_the_marker(self):
+        # Why a missing marker is an error and not an empty result: the heading
+        # is page furniture rather than a consequence of the weather, so it is
+        # there even on a day when nothing was in force. Its absence can only
+        # mean the page changed shape, which is not the same thing as a quiet
+        # day -- and the quiet day already has its own empty-list test below.
+        assert warnings._WARNING_TABLE_MARKER in read_fixture("hko_warning_day_empty.html")
+
+    def test_a_row_without_an_icon_keeps_the_row(self, monkeypatch):
+        install_fake_get(monkeypatch, warnings, warning_routes("hko_warning_day_no_icon.html"))
+
+        records = warnings.fetch_day("2021-01-01", {})
+
+        assert [r.warning_signal for r in records] == ["COLD WEATHER WARNING"]
+        assert records[0].icon_url == ""
 
     def test_returns_empty_list_when_no_warning_was_in_force(self, monkeypatch):
         install_fake_get(monkeypatch, warnings, warning_routes("hko_warning_day_empty.html"))
