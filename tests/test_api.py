@@ -1810,9 +1810,32 @@ def test_a_budget_refusal_is_not_logged_as_a_server_fault(year_client, caplog, d
     # all under the configuration Vercel runs", and WARNING is the threshold
     # that decides that -- so `< logging.ERROR` left the WARNING mutant alive.
     # Measured on this branch, in-process, with the mutant's own level read
-    # back as an oracle: at WARNING one bounds refusal writes 103 bytes to
-    # stderr and one budget refusal 341, where INFO writes 0 for both, and all
-    # 432 tests stayed green.
+    # back as an oracle, on two documents: the bounds refusal
+    # `{ activities(offset: -1) { id } }` and the budget refusal that is the
+    # `list-rows` param of REFUSED_DOCUMENTS above. At WARNING each reached
+    # stderr; at INFO each wrote nothing at all; the suite stayed green
+    # throughout.
+    #
+    # Named documents and no byte counts, which is CUI-0051 deciding between
+    # its two options. An earlier version of this comment quoted a figure for
+    # each refusal and did not say what had produced them, which left them
+    # unreproducible for precisely the reason they were quotable in the first
+    # place: the count is set by the document. graphql-core renders the
+    # offending source line into the message, so most of each figure is the
+    # document's own text handed back, and the remainder is the refusal's
+    # English -- which this schema's own field descriptions tell clients not to
+    # depend on, since it quotes limits that move whenever a budget is tuned.
+    # Re-measured here on the two documents named above, it reproduces the
+    # figures it quoted exactly, so they were never wrong; what was missing was
+    # the sentence that let anyone check, which is the S-068 / S-069 defect and
+    # S-098's answer to it.
+    #
+    # The qualitative half is the half the mutation test actually needed, and
+    # it is the half that has a gate rather than a comment:
+    # `test_a_refusal_writes_nothing_where_no_logging_is_configured` asserts the
+    # zero across every refusal a client can earn, and the `lastResort`
+    # assertion at the end of this test says why WARNING is the threshold that
+    # decides it.
     #
     # Bounded from *below* as well (W-030), because the line above alone is
     # still one-sided -- which is the very defect CUI-0038 was opened over.
