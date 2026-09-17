@@ -1,6 +1,7 @@
 # Ticket Registry — Run365Days
 
 **最後更新**：2026-09-17（13 張 pending ticket 清空 + CUI-0018；三輪 review 92/80/87 + 92；21 條 finding 全清；`CLAUDE.md` §6 加咗 nullability-widening 陷阱；529 pytest / 143 vitest / TOTAL 96%）
+**2026-09-17 後續**：CUI-0049 完成（前端 dev 樹 bump + `npm audit` 擴闊到全樹）；531 pytest / 144 vitest（25 files）
 
 > 由 `/audit`（AU-NNN）同 `/review`（C/W/S-NNN）產生嘅 ticket 集中登記處。
 > 編號全局唯一、永不重用。已完成嘅保留紀錄，只改狀態。
@@ -28,6 +29,10 @@
 | ⏳ pending | **6** | `.tickets/pending/0001-0200/` |
 | **總計** | **51** | |
 
+> ⚠️ **2026-09-17 後續（CUI-0049）**：CUI-0049 狀態已轉 ✅ done，但**票檔冇搬**（依指示原地留喺
+> `pending/`）。所以上面「Bucket 數」仍然係**按檔案位置**數，completed **45** / pending **6** 未變 ——
+> 「狀態」同「檔案位置」由呢一刻起唔再一一對應，以**狀態欄**為準。
+>
 > ✅ **2026-09-17 對數**：本表由 `find .tickets -name 'CUI-*.md'` 重新生成，同檔案實際位置**一一對應**。
 > QA pass 之後，13 張「內容 done 但仲留喺 `pending/`」嘅票已全部搬去 `completed/`，
 > 所以「檔案位置」同「狀態」而家一致 —— `pending/` 嗰 6 張全部真係未做。
@@ -92,7 +97,7 @@
 | **CUI-0046** | 🟢 Low | `ActivitiesView.test.tsx:13` 個 `BUDGET_MESSAGE` hardcode 咗 `4000`（= `MAX_LIST_ROWS_PER_REQUEST`）冇守衛 —— **S-101 同一個病嘅第二宗**。S-101 只授權咗 `10000` 嗰條，cleanup lane 守範圍冇郁佢 | ✅ done | `completed/` |
 | **CUI-0047** | 🟢 Low | `haversine_distance` 守到「非有限」但**守唔到「唔係座標」** —— `lat=400` 回 4447.8 km、`lat=lon=1e308` 回 `nan`，而 `pandas.sum()` 會靜靜跌走個 `nan` ⇒ CUI-0001/0008 要滅嗰個「距離報細咗」形狀由另一道門返咗嚟 | ⏳ pending | `pending/` |
 | **CUI-0048** | 🟢 Low | `service.tracks` 個 negative guard 漏咗 `-0.0`（`-0.0 < 0` 係 `False`，而且 falsy ⇒ 回成條 track），`2.5` 掟未記錄嘅 `TypeError`。到唔到 client | ⏳ pending | `pending/` |
-| **CUI-0049** | 🟡 Medium | `pages.yml` 註釋寫嗰 14 條 dev 樹 advisory「tracked separately in CUI-0036」，但 CUI-0036 已搬 `completed/` ⇒ 冇咗 owner。要 bump `@graphql-codegen/*` + `vitest` 再剷走 `--omit=dev` | ⏳ pending | `pending/` |
+| **CUI-0049** | 🟡 Medium | `pages.yml` 註釋寫嗰 14 條 dev 樹 advisory「tracked separately in CUI-0036」，但 CUI-0036 已搬 `completed/` ⇒ 冇咗 owner。要 bump `@graphql-codegen/*` + `vitest` 再剷走 `--omit=dev` | ✅ **done 2026-09-17**（codegen cli 5→7 / client-preset 4→6 / vitest 3→5；全樹 `npm audit` 0 advisory；gate 剷走 `--omit=dev`）| `pending/`（**未搬**）|
 | **CUI-0050** | 🟢 Low | 四條 list field 嘅 `ARGUMENT_OUT_OF_RANGE` 分唔開 `limit` 定 `offset`（`path`/`locations`/`code` 三樣一樣，只有 message 唔同）⇒ client 照 SDL 講嘅「branch on the code」做唔到修正。W-035 方案 B 嘅承接票 | ⏳ pending | `pending/` |
 | **CUI-0051** | 🟢 Low | CUI-0038 測試註釋引咗 `103`/`341` bytes 但冇講量邊個 document；QA 用兩組 document 量到 102/332 同 161/239，兩組都唔等於。同 S-068/S-069 同一種病 | ⏳ pending | `pending/` |
 
