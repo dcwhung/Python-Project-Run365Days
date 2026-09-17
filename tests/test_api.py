@@ -1,6 +1,8 @@
 import importlib.util
+import json
 import logging
 import re
+import sys
 from contextlib import ExitStack
 from datetime import date, timedelta
 from pathlib import Path
@@ -2675,3 +2677,106 @@ def test_an_empty_batch_reads_nothing_and_returns_nothing(varied_session, sql_pa
     sql_params.clear()
     assert service.tracks(varied_session, [], 7) == {}
     assert list(sql_params) == [], "an empty batch must not reach the database"
+
+
+# ── CUI-0035: the Vercel entry's start-up failure path ─────────────────────
+# api/graphql.py keeps a reporting app so that a deploy which cannot start still
+# says why on /api/health instead of only in the function logs. That app runs
+# only once start-up has already failed, which is also the moment nobody is
+# placed to notice it is itself broken -- so it is pinned here, not in
+# production. `_load_vercel_entry` above exec_module()s the real file, so these
+# exercise the shipped entry rather than a copy of it.
+START_UP_ERROR = "no database bundled"
+
+
+def _entry_with_failing_start_up(monkeypatch, tmp_path, *, flask_importable=True):
+    def explode(*_args, **_kwargs):
+        raise RuntimeError(START_UP_ERROR)
+
+    monkeypatch.setattr("run365days.api.app.create_app", explode)
+    if not flask_importable:
+        # `from flask import ...` raises once the name maps to None, which is
+        # the only way the second fallback layer is ever reached.
+        monkeypatch.setitem(sys.modules, "flask", None)
+    return _load_vercel_entry(monkeypatch, tmp_path / "unreadable.db")
+
+
+def test_a_failed_start_up_reports_the_reason_instead_of_serving_the_api(monkeypatch, tmp_path):
+    module = _entry_with_failing_start_up(monkeypatch, tmp_path)
+    response = module.app.test_client().get(HEALTH_PATH)
+    assert response.status_code == 500
+    assert response.get_json() == {
+        "status": "error",
+        "error": f"RuntimeError: {START_UP_ERROR}",
+    }, "the health endpoint has to name the exception, not merely fail"
+
+
+def test_the_failure_report_answers_every_path_the_rewrite_sends_it(monkeypatch, tmp_path):
+    # vercel.json rewrites all of /api/* to this one function, so a request that
+    # would have been GraphQL has to get the reason too rather than a 404 from
+    # the fallback app's own routing table.
+    module = _entry_with_failing_start_up(monkeypatch, tmp_path)
+    client = module.app.test_client()
+    for path in (GRAPHQL_PATH, "/", "/api/anything"):
+        response = client.get(path)
+        assert response.status_code == 500, path
+        assert START_UP_ERROR in response.get_json()["error"], path
+
+
+def test_the_reason_is_still_reported_when_flask_itself_is_missing(monkeypatch, tmp_path):
+    module = _entry_with_failing_start_up(monkeypatch, tmp_path, flask_importable=False)
+    assert not hasattr(module.app, "test_client"), "flask is gone, so this must be raw WSGI"
+
+    captured = {}
+
+    def start_response(status, headers):
+        captured["status"] = status
+        captured["headers"] = headers
+
+    chunks = module.app({"PATH_INFO": HEALTH_PATH, "REQUEST_METHOD": "GET"}, start_response)
+
+    assert captured["status"] == "500 Internal Server Error"
+    assert ("Content-Type", "application/json") in captured["headers"]
+    assert json.loads(b"".join(chunks)) == {
+        "status": "error",
+        "error": f"RuntimeError: {START_UP_ERROR}",
+    }
+
+
+def test_the_entry_registers_src_as_the_package_when_it_is_not_installed(
+    monkeypatch, sample_records, tmp_path
+):
+    # The docstring's "safety net": Vercel installs the project from
+    # pyproject.toml, and were that to stop putting `run365days` on the path the
+    # entry registers src/ itself instead of failing to start.
+    path = tmp_path / "run365.db"
+    write_sqlite(sample_records, path)
+    module = _load_vercel_entry(monkeypatch, path)
+
+    # _load_package_from_source rebinds sys.modules[PACKAGE_NAME]; registering
+    # the installed module here is what restores it for the rest of the session.
+    installed = sys.modules[module.PACKAGE_NAME]
+    monkeypatch.setitem(sys.modules, module.PACKAGE_NAME, installed)
+    monkeypatch.setattr(importlib.util, "find_spec", lambda _name: None)
+
+    module._load_package_from_source()
+
+    loaded = sys.modules[module.PACKAGE_NAME]
+    # The dev install is editable, so `__file__` already points at src/ and
+    # cannot tell the two apart; only a fresh module object shows the loader ran.
+    assert loaded is not installed, "src/ was never executed, so nothing was registered"
+    assert Path(__file__).resolve().parents[1] / "src" == module.PACKAGE_DIR
+    assert Path(loaded.__file__) == module.PACKAGE_DIR / "__init__.py"
+
+
+def test_an_installed_package_is_left_alone(monkeypatch, sample_records, tmp_path):
+    path = tmp_path / "run365.db"
+    write_sqlite(sample_records, path)
+    module = _load_vercel_entry(monkeypatch, path)
+    installed = sys.modules[module.PACKAGE_NAME]
+
+    module._load_package_from_source()
+
+    assert sys.modules[module.PACKAGE_NAME] is installed, (
+        "an importable package must not be re-executed from src/ behind its back"
+    )
