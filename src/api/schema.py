@@ -549,6 +549,63 @@ class _RequestBudgets(SchemaExtension):
         yield
 
 
+REFUSAL_CODE_KEY = "code"
+"""Key a refusal's classification is published under inside ``extensions``.
+
+``code`` rather than a name of this project's own: the GraphQL spec leaves
+``extensions`` free-form but names ``code`` in its own error examples, and it
+is what Apollo, urql and graphql-request clients already reach for. A client
+should not have to learn a private spelling to do the one thing it was given
+the map for.
+"""
+
+LIST_ROW_BUDGET_CODE = "LIST_ROW_BUDGET_EXCEEDED"
+"""Refusal code: the operation's list fields together opened too many rows.
+
+Remedy: a smaller ``limit``, or fewer list fields in one document. Worth
+retrying, because the document is legal -- it is the size of the ask that was
+refused, and the client controls that.
+"""
+
+TRACK_POINTS_BUDGET_CODE = "TRACK_POINTS_BUDGET_EXCEEDED"
+"""Refusal code: the operation's ``track`` fields together asked for too many samples.
+
+Remedy: a lower ``points``, with the same number of ``track`` fields. Worth
+retrying, and this budget does not latch -- a field refused here leaves the
+remainder for the fields behind it (:func:`_charge_track_field`), so a client
+that lowers ``points`` and resends is not fighting a counter that already
+gave up on the request.
+"""
+
+TRACK_FIELD_BUDGET_CODE = "TRACK_FIELD_BUDGET_EXCEEDED"
+"""Refusal code: the operation asked for too many ``track`` fields.
+
+Remedy: fewer ``track`` fields, split across more requests. Lowering ``points``
+does **not** help, which is the whole reason this is not the same code as
+:data:`TRACK_POINTS_BUDGET_CODE`: each ``track`` field costs the same query
+however small its ``points``, so a client told only "too big" would shrink the
+one dial that cannot move this limit and be refused again.
+"""
+
+ARGUMENT_OUT_OF_RANGE_CODE = "ARGUMENT_OUT_OF_RANGE"
+"""Refusal code: an argument fell outside the range the SDL advertises for it.
+
+Remedy: change the value. **Not** worth retrying unchanged -- and that, not the
+argument's name, is the distinction a client acts on, which is why one code
+covers ``limit``, ``offset`` and ``points`` and both ends of each range. The
+field and the argument are already in ``path`` and ``locations``, which
+CUI-0037 made load-bearing, and the legal range is in the field's description,
+so splitting this three ways would publish a third copy of what the client can
+already read off the response and the schema.
+
+Four codes rather than two (one per exception class) or one (a flat
+"refused"): the split follows what the client must *change*, and the three
+budgets ask for three different changes even though they share a class. It
+stops there because a fifth code would have to name a change nothing else
+names -- every bounds refusal asks for the same one.
+"""
+
+
 class ClientRefusalError(GraphQLError):
     """A refusal the client's own document earned, raised so it is not logged as a fault.
 
@@ -593,7 +650,7 @@ class ClientRefusalError(GraphQLError):
       both deployment modes by ``frontend/src/data/static/source.ts``.
     """
 
-    def __init__(self, info: Info, message: str) -> None:
+    def __init__(self, info: Info, message: str, code: str) -> None:
         # Strawberry's ``Info`` publishes ``path`` but has no public accessor
         # for ``field_nodes``, and ``locations`` cannot be reconstructed
         # without them. Both are read off the one underlying
@@ -610,8 +667,27 @@ class ClientRefusalError(GraphQLError):
         # two assertions carry this tripwire; the message assertion is
         # load-bearing here even though it reads as the redundant one beside
         # the other refusal tests (S-075).
+        # *code* is required rather than defaulted from a class attribute, and
+        # rather than attached once in ``process_errors``. A default would let a
+        # new subclass inherit a classification meant for a different remedy in
+        # silence; attaching it centrally would have to recover the reason from
+        # the message, which is the string-matching this whole change exists to
+        # take away from clients -- and it would put a client-actionable code on
+        # a server fault, which ``test_a_server_fault_carries_no_client_refusal_code``
+        # is what stops (CUI-0018 (a)).
+        #
+        # Nothing but the code goes in ``extensions``. How much budget is left is
+        # the obvious next thing to add and is deliberately still absent: W-013
+        # kept the counters' own key names out of the response, and publishing
+        # the remainder under a new key would undo that decision sideways rather
+        # than reopen it.
         raw = info._raw_info
-        super().__init__(message, nodes=raw.field_nodes, path=raw.path.as_list())
+        super().__init__(
+            message,
+            nodes=raw.field_nodes,
+            path=raw.path.as_list(),
+            extensions={REFUSAL_CODE_KEY: code},
+        )
 
 
 class BudgetExceededError(ClientRefusalError):
@@ -682,6 +758,7 @@ def _charge_list_rows(info: Info, rows: int) -> int:
             info,
             "list row budget exhausted: one request may read at most "
             f"{MAX_LIST_ROWS_PER_REQUEST} rows",
+            LIST_ROW_BUDGET_CODE,
         )
     info.context[LIST_ROWS_KEY] = rows_left
     return rows
@@ -749,12 +826,14 @@ def _charge_track_field(info: Info, points: int) -> int:
             info,
             "track field budget exhausted: one request may read at most "
             f"{MAX_TRACK_FIELDS_PER_REQUEST} tracks",
+            TRACK_FIELD_BUDGET_CODE,
         )
     if points_left < 0:
         raise BudgetExceededError(
             info,
             "track points budget exhausted: one request may return at most "
             f"{MAX_TRACK_POINTS_PER_REQUEST} track points",
+            TRACK_POINTS_BUDGET_CODE,
         )
     info.context[TRACK_FIELDS_KEY] = fields_left
     info.context[TRACK_BUDGET_KEY] = points_left
@@ -831,18 +910,34 @@ TRACK_DESCRIPTION = (
     f"totalling {MAX_TRACK_POINTS_PER_REQUEST} points. Both are counted across every "
     "`track` field in the request; points are charged on `points` as asked for, not "
     "on the rows a track turns out to hold. The field limit applies however small "
-    "`points` is, because each `track` field costs the same query either way."
+    "`points` is, because each `track` field costs the same query either way. "
+    f"A refusal carries `extensions.{REFUSAL_CODE_KEY}`: `{TRACK_FIELD_BUDGET_CODE}` "
+    f"(send fewer `track` fields -- a smaller `points` will not help), "
+    f"`{TRACK_POINTS_BUDGET_CODE}` (ask for fewer points), or "
+    f"`{ARGUMENT_OUT_OF_RANGE_CODE}` for a `points` outside the range above, which "
+    "retrying unchanged never fixes. Branch on the code rather than on the message; "
+    "the message quotes these limits and so changes whenever they are tuned."
 )
 """Description for ``Activity.track``.
 
 Both budgets are part of the field's contract, so a client reading the SDL can
 see why a wide fan-out is refused without having to trigger the error first.
+
+The refusal codes are in it for the same reason and one more: the numbers tell
+a client *when* it will be refused, the code tells it *what to do*, and the
+code is the only half of a refusal that is safe to write a branch against
+(CUI-0018 (a)). Naming them here also puts them under
+``run365-schema --check``, so a code renamed in the constants above without
+regenerating ``frontend/schema.graphql`` reds CI -- the same guard S-012 bought
+for the constants themselves.
 """
 
 
 LIST_ROWS_NOTE = (
     f" One request may open at most {MAX_LIST_ROWS_PER_REQUEST} rows of pages in total, "
-    "counted across every field in it that opens one."
+    "counted across every field in it that opens one. Overrunning it is refused with "
+    f"`extensions.{REFUSAL_CODE_KEY}` `{LIST_ROW_BUDGET_CODE}`, which a narrower "
+    "request can succeed at."
 )
 """Sentence appended to every field description that spends the list row budget.
 
@@ -861,14 +956,20 @@ beside the argument it is about.
 
 PAGE_WINDOW_NOTE = (
     f" The window is `limit` (1-{MAX_PAGE_SIZE}) rows from `offset` (0 or more); "
-    "either side of that range is refused rather than clamped, and the budget above is "
-    "charged on `limit` as asked for rather than on the rows a page turns out to hold."
+    "either side of that range is refused rather than clamped -- with "
+    f"`extensions.{REFUSAL_CODE_KEY}` `{ARGUMENT_OUT_OF_RANGE_CODE}`, which retrying "
+    "unchanged never fixes -- and the budget above is charged on `limit` as asked for "
+    "rather than on the rows a page turns out to hold."
 )
 """Sentence appended to every field that takes a ``limit``/``offset`` page window.
 
 Separate from :data:`LIST_ROWS_NOTE` because the two do not cover the same
 fields: ``year`` spends the row budget without taking a window, so it carries
-that note and not this one (S-053). The four list fields carry both, in that
+that note and not this one (S-053). That split is also why
+:data:`ARGUMENT_OUT_OF_RANGE_CODE` is named here rather than in the shared
+note: ``year`` has no argument that can be out of range, and
+``test_the_year_description_names_the_budget_code_but_not_the_window_one``
+holds the same line S-053 drew for the ``limit`` sentence. The four list fields carry both, in that
 order, so the budget is stated before the sentence that says what it is charged
 on.
 
@@ -910,9 +1011,15 @@ def _page(info: Info, limit: int, offset: int) -> tuple[int, int]:
         BoundsError: If the window is empty, negative, or over MAX_PAGE_SIZE.
     """
     if not 1 <= limit <= MAX_PAGE_SIZE:
-        raise BoundsError(info, f"limit must be between 1 and {MAX_PAGE_SIZE}, got {limit}")
+        raise BoundsError(
+            info,
+            f"limit must be between 1 and {MAX_PAGE_SIZE}, got {limit}",
+            ARGUMENT_OUT_OF_RANGE_CODE,
+        )
     if offset < 0:
-        raise BoundsError(info, f"offset must not be negative, got {offset}")
+        raise BoundsError(
+            info, f"offset must not be negative, got {offset}", ARGUMENT_OUT_OF_RANGE_CODE
+        )
     return limit, offset
 
 
@@ -930,7 +1037,11 @@ def _track_points(info: Info, points: int) -> int:
         BoundsError: If the count is below 1 or over MAX_TRACK_POINTS.
     """
     if not 1 <= points <= MAX_TRACK_POINTS:
-        raise BoundsError(info, f"points must be between 1 and {MAX_TRACK_POINTS}, got {points}")
+        raise BoundsError(
+            info,
+            f"points must be between 1 and {MAX_TRACK_POINTS}, got {points}",
+            ARGUMENT_OUT_OF_RANGE_CODE,
+        )
     return points
 
 
