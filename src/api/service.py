@@ -392,8 +392,11 @@ def tracks(
     ``points=1`` returns.
 
     Clamping is the smaller change and was the ticket's own first suggestion,
-    but at this layer it would have to clamp *upward*, to
-    :data:`MAX_TRACK_POINTS`, because that is already what falsy means here.
+    but neither direction survives. Clamping *down* into the legal range lands
+    on ``1`` -- which is precisely what a negative already returned above, so
+    it would preserve the bug it was meant to fix while looking deliberate.
+    That leaves clamping *upward*, to :data:`MAX_TRACK_POINTS`, because that is
+    already what falsy means here.
     That hands the largest answer this function can give to the most obviously
     broken question, and it erases the distinction CUI-0025 was argued over:
     ``0`` means "I did not ask", while ``-5`` means "I asked for something that
