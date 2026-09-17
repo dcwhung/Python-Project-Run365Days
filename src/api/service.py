@@ -372,8 +372,9 @@ def tracks(
         session: Open read-only session.
         activity_ids: Tracks wanted. Duplicates are collapsed.
         points: Samples per track, or ``None``/``0`` for every stored row up to
-            :data:`MAX_TRACK_POINTS`. A negative count is refused, not clamped;
-            see Raises.
+            :data:`MAX_TRACK_POINTS`. ``-0.0`` is one of the values that mean
+            ``0`` here, not one of the negatives; see the guard's own comment.
+            A count below zero is refused, not clamped; see Raises.
 
     Returns:
         ``{activity_id: rows}`` in :data:`TRACK_COLUMNS` shape, ordered by
@@ -382,8 +383,19 @@ def tracks(
         :data:`MAX_TRACK_POINTS` rows for one.
 
     Raises:
-        ValueError: If *points* is negative. Refused rather than clamped; the
+        ValueError: If *points* is below zero. Refused rather than clamped; the
             reasoning is in the block comment on the guard below.
+        TypeError: If *points* is a non-integral number such as ``2.5``. Raised
+            from ``range()`` inside :func:`_even_positions` rather than by a
+            check here, and documented rather than converted: a count that is
+            not a whole number is the wrong *type* of thing to count with, which
+            is what ``TypeError`` means in Python, where ``ValueError`` would
+            say the count was the right kind of thing and merely out of range.
+            Converting it would also have to guess whether ``2.0`` is a mistake.
+            Costs one grouped COUNT before it raises, since the sampler is
+            reached after :func:`_stored_counts`; no client can drive it
+            (``Int`` coercion refuses a fractional literal three layers up), so
+            that is not worth a second guard to save.
     """
     # CUI-0040, and the half of it that was a choice rather than a bug.
     # `min(points, MAX_TRACK_POINTS)` passed a negative straight through, and
@@ -409,6 +421,28 @@ def tracks(
     # client ever reads this one: `_track_points` and `checkPoints` in
     # `frontend/src/data/static/source.ts` both refuse a negative first, in the
     # single sentence CUI-0025 bought for both deployment modes.
+    #
+    # `< 0` rather than `not (points > 0)`, which CUI-0048 proposed so that
+    # `-0.0` would be refused alongside the other negatives. Measured: it would
+    # not have closed a hole, it would have opened one -- `not (0 > 0)` is
+    # `True`, so `points=0` would start raising, and `0` is legal here and
+    # documented as such two paragraphs up.
+    #
+    # `-0.0` itself is left with `0`, deliberately, and that is the same line
+    # CUI-0040 drew rather than an exception to it. CUI-0040 split "I did not
+    # ask" from "I asked for something that cannot exist", and the second is
+    # values *below* zero. `-0.0` is not one: `-0.0 == 0` and `-0.0 < 0` is
+    # `False` and `bool(-0.0)` is `False`, so every question Python can ask
+    # about its magnitude answers "zero". IEEE-754 gives it a sign bit, not a
+    # magnitude under zero -- it records which direction zero was approached
+    # from, which is not something a sample count has an opinion about. So the
+    # guard and the falsy test below it agree about `-0.0`, and that agreement
+    # is the contract rather than a gap in it.
+    #
+    # Refusing it anyway would mean reading the sign bit -- `math.copysign` or
+    # sniffing the sign off `repr` -- to refuse a value for how it is written
+    # rather than for what it is. That could not be stated in this function's
+    # own vocabulary: the sentence below says "negative", and `-0.0` is not.
     if points is not None and points < 0:
         raise ValueError(f"points must not be negative, got {points}")
     wanted = list(dict.fromkeys(str(a) for a in activity_ids))

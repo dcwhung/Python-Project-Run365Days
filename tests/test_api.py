@@ -567,16 +567,59 @@ def test_a_negative_points_is_refused_where_the_rows_are_read(varied_session, po
         service.tracks(varied_session, [OVER_CAP_ID], points)
 
 
-@pytest.mark.parametrize("points", [None, 0, False])
+@pytest.mark.parametrize("points", [None, 0, False, -0.0])
 def test_a_falsy_points_still_means_the_ceiling_rather_than_a_refusal(varied_session, points):
     # The boundary the refusal above must not cross. `0` and `None` mean "I did
     # not ask", which this layer reads as the ceiling -- the reading CUI-0025
     # settled and CUI-0033 (a) made binding on the answer as well as the ask.
     # `False` is here because it is an `int` that is falsy and negative-adjacent
     # in every naive check, and it has to land with `0` rather than with `-1`.
+    #
+    # `-0.0` is here for the opposite reason and is CUI-0048's own decision
+    # (the argument is in `tracks`'s guard comment): it reads as negative and
+    # is not one. `-0.0 < 0` is `False`, which is why the guard lets it past,
+    # and that is correct rather than a leak -- CUI-0040 refused values *below*
+    # zero and `-0.0` equals zero. Pinned so the decision survives the next
+    # reader who notices the minus sign, and pinned here rather than in a test
+    # of its own so it sits with the three values it behaves identically to.
     rows = service.tracks(varied_session, [OVER_CAP_ID], points)[OVER_CAP_ID]
 
     assert len(rows) == MAX_TRACK_POINTS
+    # Identical to `0`, not merely the same length: "treated as zero" is the
+    # claim, and a cap that returned the first MAX_TRACK_POINTS rows for one
+    # value and an even sample for the other would pass a length check.
+    assert rows == service.tracks(varied_session, [OVER_CAP_ID], 0)[OVER_CAP_ID]
+
+
+def test_a_fractional_points_raises_the_type_error_the_docstring_promises(varied_session):
+    # CUI-0048's other half. `2.5` passes the guard -- it is not below zero --
+    # and `min(2.5, MAX_TRACK_POINTS)` carries it into `_even_positions`, where
+    # `range()` refuses it. The docstring used to name `ValueError` alone, so
+    # this was a raise no caller was told about.
+    #
+    # The exception is left where it is rather than converted: a non-integral
+    # count is the wrong type of thing to count with, so `TypeError` is the
+    # idiomatic answer and a `ValueError` would say it was merely out of range.
+    # What this pins is the promise, so narrowing the contract later has to be
+    # a decision rather than a drift.
+    with pytest.raises(TypeError):
+        service.tracks(varied_session, [OVER_CAP_ID], 2.5)
+
+
+def test_an_empty_batch_is_still_bounds_checked(varied_session):
+    # The guard's position, which nothing else measures: it stands in front of
+    # the empty-batch early return, so `tracks(s, [], -1)` refuses rather than
+    # answering `{}`. Order matters because the alternative reads as harmless
+    # -- there is no track to sample, so why check? -- and would make the
+    # function's contract depend on whether the caller happened to ask for any
+    # tracks, refusing a bad `points` for one id and accepting it for none.
+    with pytest.raises(ValueError, match="points must not be negative"):
+        service.tracks(varied_session, [], -1)
+
+    # The control: the same empty batch with a legal `points` still returns the
+    # empty mapping, so the assertion above is the guard firing and not the
+    # call failing for some reason of its own.
+    assert service.tracks(varied_session, [], 1) == {}
 
 
 def test_a_negative_points_never_reaches_the_service_from_a_client(year_client):
@@ -1767,9 +1810,32 @@ def test_a_budget_refusal_is_not_logged_as_a_server_fault(year_client, caplog, d
     # all under the configuration Vercel runs", and WARNING is the threshold
     # that decides that -- so `< logging.ERROR` left the WARNING mutant alive.
     # Measured on this branch, in-process, with the mutant's own level read
-    # back as an oracle: at WARNING one bounds refusal writes 103 bytes to
-    # stderr and one budget refusal 341, where INFO writes 0 for both, and all
-    # 432 tests stayed green.
+    # back as an oracle, on two documents: the bounds refusal
+    # `{ activities(offset: -1) { id } }` and the budget refusal that is the
+    # `list-rows` param of REFUSED_DOCUMENTS above. At WARNING each reached
+    # stderr; at INFO each wrote nothing at all; the suite stayed green
+    # throughout.
+    #
+    # Named documents and no byte counts, which is CUI-0051 deciding between
+    # its two options. An earlier version of this comment quoted a figure for
+    # each refusal and did not say what had produced them, which left them
+    # unreproducible for precisely the reason they were quotable in the first
+    # place: the count is set by the document. graphql-core renders the
+    # offending source line into the message, so most of each figure is the
+    # document's own text handed back, and the remainder is the refusal's
+    # English -- which this schema's own field descriptions tell clients not to
+    # depend on, since it quotes limits that move whenever a budget is tuned.
+    # Re-measured here on the two documents named above, it reproduces the
+    # figures it quoted exactly, so they were never wrong; what was missing was
+    # the sentence that let anyone check, which is the S-068 / S-069 defect and
+    # S-098's answer to it.
+    #
+    # The qualitative half is the half the mutation test actually needed, and
+    # it is the half that has a gate rather than a comment:
+    # `test_a_refusal_writes_nothing_where_no_logging_is_configured` asserts the
+    # zero across every refusal a client can earn, and the `lastResort`
+    # assertion at the end of this test says why WARNING is the threshold that
+    # decides it.
     #
     # Bounded from *below* as well (W-030), because the line above alone is
     # still one-sided -- which is the very defect CUI-0038 was opened over.
@@ -2365,6 +2431,112 @@ def test_the_year_description_names_the_budget_code_but_not_the_window_one():
     description = build_schema_from_sdl(schema.as_str()).query_type.fields["year"].description or ""
     assert LIST_ROW_BUDGET_CODE in description
     assert ARGUMENT_OUT_OF_RANGE_CODE not in description
+
+
+# ── CUI-0050: which argument, for the fields `path` cannot say it for ─────
+REFUSAL_ARGUMENT_KEY = "argument"
+"""The key a bounds refusal names its argument under, as a client reads it.
+
+Spelled out rather than imported for the reason the four codes above are: this
+string is the wire contract, so a test that followed a rename would stay green
+while every deployed client stopped finding the key. The SDL assertions below
+reach it by a second path -- the field descriptions -- so a rename has to go
+wrong twice to go unnoticed.
+"""
+
+LIST_WINDOW_SELECTION = MappingProxyType(
+    {"activities": "id", "weight": "date", "weather": "date", "warnings": "date"}
+)
+"""A field a client can select off each windowed list, so a document can be built per field."""
+
+
+@pytest.mark.parametrize(("document", "argument"), BOUNDS_REFUSED_DOCUMENTS)
+def test_a_bounds_refusal_names_the_argument_it_refused(year_client, document, argument):
+    # The half of the refusal `path` and `locations` cannot carry. Held over
+    # the same documents the code and the message are held over, so all three
+    # facts a bounds refusal publishes are asserted against one list -- a raise
+    # site added to that list without an argument fails here rather than
+    # quietly publishing two-thirds of a refusal.
+    body = year_client.post(GRAPHQL_PATH, json={"query": document}).get_json()
+
+    error = body["errors"][0]
+    assert error["extensions"][REFUSAL_ARGUMENT_KEY] == argument
+    # Alongside the code, not instead of it: the code still says what to do and
+    # this still says only where. A client that branched on this key to decide
+    # whether to retry would be reading the wrong half.
+    assert error["extensions"]["code"] == ARGUMENT_OUT_OF_RANGE_CODE
+
+
+@pytest.mark.parametrize("field", LIST_FIELDS)
+def test_the_two_bounded_arguments_of_a_list_field_are_told_apart(year_client, field):
+    # The ticket's own finding, turned into the gate that stops it coming back.
+    # Measured on the base commit, for all four fields: `limit: -5, offset: 0`
+    # and `limit: 1000, offset: -1` came back with the same `path`, the same
+    # `locations` (line 1, column 3 -- the field name, never the argument) and
+    # the same `code`, and differed in `message` alone. The SDL tells clients
+    # to branch on the code rather than on the message, so a client following
+    # its own field's documentation could tell that something was out of range
+    # and not which dial to turn.
+    #
+    # Asserting the sameness as well as the difference is the point. Were
+    # `locations` ever to start pointing at the argument, this key would be
+    # redundant and the reason for it would have evaporated without anyone
+    # noticing; were a second code added instead, the difference below would
+    # pass while CUI-0018 (a)'s "one code per remedy" quietly broke.
+    selection = LIST_WINDOW_SELECTION[field]
+    errors = {}
+    for which, args in (("limit", "limit: -5, offset: 0"), ("offset", "limit: 1000, offset: -1")):
+        document = f"{{ {field}({args}) {{ {selection} }} }}"
+        body = year_client.post(GRAPHQL_PATH, json={"query": document}).get_json()
+        errors[which] = body["errors"][0]
+
+    limit_error, offset_error = errors["limit"], errors["offset"]
+    assert limit_error["path"] == offset_error["path"] == [field]
+    assert limit_error["locations"] == offset_error["locations"]
+    assert limit_error["extensions"]["code"] == offset_error["extensions"]["code"]
+    assert limit_error["extensions"][REFUSAL_ARGUMENT_KEY] == "limit"
+    assert offset_error["extensions"][REFUSAL_ARGUMENT_KEY] == "offset"
+
+
+@pytest.mark.parametrize(("document", "code"), CODED_BUDGET_DOCUMENTS)
+def test_a_budget_refusal_names_no_argument(year_client, document, code):
+    # The bound on the new key, and the one a convenience default would have
+    # broken: a budget is spent by the request as a whole, so there is no
+    # single argument whose value was wrong and naming one would send a client
+    # to change a number that was never the problem. `limit` is the tempting
+    # wrong answer -- it is what the row budget is charged on, and `year` pays
+    # that budget without having one at all.
+    body = year_client.post(GRAPHQL_PATH, json={"query": document}).get_json()
+
+    for error in body["errors"]:
+        assert REFUSAL_ARGUMENT_KEY not in error["extensions"]
+
+
+@pytest.mark.parametrize("field", LIST_FIELDS)
+def test_the_sdl_names_the_key_that_says_which_argument_was_refused(field):
+    # Same standard the codes are held to (S-012): a client writes against the
+    # SDL, so a key it is expected to read has to be in the SDL rather than
+    # discovered by triggering the error. `run365-schema --check` carries it
+    # into `frontend/schema.graphql` from there.
+    assert REFUSAL_ARGUMENT_KEY in _field_descriptions()[field]
+
+
+def test_the_sdl_says_track_names_its_argument_too():
+    # `track` gains nothing from the key -- `points` is its only argument, so
+    # `path` already says which one -- and carries it anyway, so that one shape
+    # reads off every bounds refusal. That redundancy is a decision, and a
+    # decision only a resolver makes is one the next reader has to re-derive,
+    # so the SDL states it where the codes are stated.
+    description = build_schema_from_sdl(schema.as_str()).type_map["Activity"].fields["track"]
+    assert f'{REFUSAL_ARGUMENT_KEY}: "points"' in (description.description or "")
+
+
+def test_the_year_description_names_no_argument_key_either():
+    # S-053's line, extended to the new key for the same reason it applies to
+    # the code: `year` spends the row budget without taking a window, so it has
+    # no argument that can be out of range and nothing to name one for.
+    description = build_schema_from_sdl(schema.as_str()).query_type.fields["year"].description or ""
+    assert REFUSAL_ARGUMENT_KEY not in description
 
 
 # ── CUI-0018 (b): a refused `track` costs that field and nothing else ──────
