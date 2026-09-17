@@ -43,7 +43,7 @@
 | **CUI-0005** | 🟢 Low | `app.test_client()` 漏 DB session，超過約 130 個 request 嘅測試會撞 QueuePool 上限 | ⏳ pending | `pending/` |
 | **CUI-0006** | 🟢 Low | parse_datetime 嘅 ISO-with-offset 分支完全無視 timezone 參數 | ✅ completed | `completed/` |
 | **CUI-0007** | 🟡 High | dashboard/builder.py 嘅 _num() 有同 CUI-0001 一模一樣嘅 ±inf 缺口 | ✅ completed | `completed/` |
-| **CUI-0008** | 🟢 Low | haversine_distance 對非有限座標只出 RuntimeWarning 而唔拒絕 | ⏳ pending | `pending/` |
+| **CUI-0008** | 🟢 Low | haversine_distance 對非有限座標只出 RuntimeWarning 而唔拒絕（實測：`nan` 連 warning 都冇） | ✅ done | `pending/`（檔案未搬） |
 | **CUI-0009** | 🟢 Low | to_float() 對 "inf" / "nan" 字串會回傳非有限值，直接餵入 writer | ✅ completed | `completed/` |
 | **CUI-0010** | 🟡 Medium | src/weather/collectors/ 三個模組零測試覆蓋 | ✅ completed | `completed/` |
 | **CUI-0011** | 🔴 Critical（latent） | Collector 寫出嘅 schema 同 exporter 讀嘅 schema 唔夾——重新採集資料會炸爛 pipeline | ✅ completed | `completed/` |
