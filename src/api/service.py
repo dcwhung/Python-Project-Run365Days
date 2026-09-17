@@ -382,35 +382,33 @@ def tracks(
         :data:`MAX_TRACK_POINTS` rows for one.
 
     Raises:
-        ValueError: If *points* is negative.
-
-    Refused rather than clamped, which is the half of CUI-0040 that was a
-    choice rather than a bug. ``min(points, MAX_TRACK_POINTS)`` passed a
-    negative straight through, and :func:`_even_positions` turns anything under
-    2 into the last row alone: measured against a 1250-row track, ``-1``,
-    ``-5`` and ``-1000`` each came back as exactly one row, which is also what
-    ``points=1`` returns.
-
-    Clamping is the smaller change and was the ticket's own first suggestion,
-    but neither direction survives. Clamping *down* into the legal range lands
-    on ``1`` -- which is precisely what a negative already returned above, so
-    it would preserve the bug it was meant to fix while looking deliberate.
-    That leaves clamping *upward*, to :data:`MAX_TRACK_POINTS`, because that is
-    already what falsy means here.
-    That hands the largest answer this function can give to the most obviously
-    broken question, and it erases the distinction CUI-0025 was argued over:
-    ``0`` means "I did not ask", while ``-5`` means "I asked for something that
-    cannot exist". Those deserve different answers, and only one of them can be
-    silent.
-
-    The wording is deliberately not :func:`run365days.api.schema._track_points`'s
-    sentence, near as it is. That one says "between 1 and MAX_TRACK_POINTS",
-    which would be false here, where ``None`` and ``0`` are both legal. The two
-    layers refuse different sets, so they say different things -- and no client
-    ever reads this one: ``_track_points`` and ``checkPoints`` in
-    ``frontend/src/data/static/source.ts`` both refuse a negative first, in the
-    single sentence CUI-0025 bought for both deployment modes.
+        ValueError: If *points* is negative. Refused rather than clamped; the
+            reasoning is in the block comment on the guard below.
     """
+    # CUI-0040, and the half of it that was a choice rather than a bug.
+    # `min(points, MAX_TRACK_POINTS)` passed a negative straight through, and
+    # `_even_positions` turns anything under 2 into the last row alone:
+    # measured against a 1250-row track, -1, -5 and -1000 each came back as
+    # exactly one row, which is also what `points=1` returns.
+    #
+    # Clamping is the smaller change and was the ticket's own first suggestion,
+    # but neither direction survives. Clamping *down* into the legal range
+    # lands on 1 -- precisely what a negative already returned, so it would
+    # preserve the bug it was meant to fix while looking deliberate. That
+    # leaves clamping *up*, to MAX_TRACK_POINTS, because that is already what
+    # falsy means here: it hands the largest answer this function can give to
+    # the most obviously broken question, and it erases the distinction
+    # CUI-0025 was argued over. `0` means "I did not ask", while `-5` means
+    # "I asked for something that cannot exist". Those deserve different
+    # answers, and only one of them can be silent.
+    #
+    # The wording is deliberately not `run365days.api.schema._track_points`'s
+    # sentence, near as it is. That one says "between 1 and MAX_TRACK_POINTS",
+    # which would be false here, where `None` and `0` are both legal. The two
+    # layers refuse different sets, so they say different things -- and no
+    # client ever reads this one: `_track_points` and `checkPoints` in
+    # `frontend/src/data/static/source.ts` both refuse a negative first, in the
+    # single sentence CUI-0025 bought for both deployment modes.
     if points is not None and points < 0:
         raise ValueError(f"points must not be negative, got {points}")
     wanted = list(dict.fromkeys(str(a) for a in activity_ids))
