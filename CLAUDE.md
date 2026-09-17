@@ -65,7 +65,7 @@ python -m venv .venv && .venv/bin/pip install -e ".[dev]"
 # Frontend
 cd frontend
 npm ci
-npm audit --omit=dev       # CI gate：只審 runtime 依賴（dev 樹嘅 12 high 係 pre-existing，見 CUI-0036）
+npm audit --omit=dev       # CI gate：只審 runtime 依賴（dev 樹嗰啲 advisory 係 pre-existing，見 CUI-0036）
 npm run lint
 npm run typecheck          # 會先跑 codegen
 npx vitest run
