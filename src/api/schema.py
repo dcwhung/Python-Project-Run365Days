@@ -549,7 +549,7 @@ class _RequestBudgets(SchemaExtension):
         yield
 
 
-class BudgetExceededError(GraphQLError):
+class ClientRefusalError(GraphQLError):
     """A refusal the client's own document earned, raised so it is not logged as a fault.
 
     Strawberry hands every error an operation produces to the
@@ -567,16 +567,30 @@ class BudgetExceededError(GraphQLError):
 
     What the client sees does not move: same message, same ``locations``, same
     ``path``, because those are the fields being filled in here rather than
-    being left for graphql-core to rebuild. What stops is a refusal that costs
-    a client 998 tokens on a public, unauthenticated endpoint writing nine
-    frames of absolute source paths -- repository layout and the interpreter's
-    ``site-packages`` directory among them -- into the deployment's log, once
-    per refused request (CUI-0029).
+    being left for graphql-core to rebuild. What stops is a public,
+    unauthenticated endpoint writing nine frames of absolute source paths --
+    repository layout and the interpreter's ``site-packages`` directory among
+    them -- into the deployment's log, once per refused request (CUI-0029).
 
-    Deliberately not used for a budget that was never seeded. That one means a
-    schema built without :class:`_RequestBudgets` or a context it could not
-    write to: nobody's request caused it and no client can act on it, so it
-    keeps raising ``RuntimeError`` and keeps its traceback.
+    A base class rather than one exception because the two refusals a client
+    can earn cost wildly different amounts to trigger, and the cheap one was
+    the one left leaking. CUI-0029 costed a budget refusal at 57 tokens of
+    request; ``{ activities(offset: -1) { id } }`` is 11 tokens and 33 bytes,
+    and until CUI-0037 it produced the same nine frames. Measured on this
+    branch, both counted the way ``MaxTokensLimiter`` counts, which is
+    graphql-core's own parser budget.
+
+    Deliberately *not* a subclass of this, in both directions of the same
+    judgement:
+
+    * a budget that was never seeded means a schema built without
+      :class:`_RequestBudgets` or a context it could not be written to. Nobody's
+      request caused it and no client can act on it, so it keeps raising
+      ``RuntimeError`` and keeps its traceback.
+    * an ``Int`` coercion failure is refused before any resolver runs, so it
+      has no ``original_error`` and renders zero frames already (measured).
+      There is nothing to reclassify it for, and its wording is pinned across
+      both deployment modes by ``frontend/src/data/static/source.ts``.
     """
 
     def __init__(self, info: Info, message: str) -> None:
@@ -584,20 +598,44 @@ class BudgetExceededError(GraphQLError):
         # for ``field_nodes``, and ``locations`` cannot be reconstructed
         # without them. Both are read off the one underlying
         # ``GraphQLResolveInfo`` rather than from two sources that could
-        # drift. If this attribute is ever renamed,
-        # ``test_a_budget_refusal_still_tells_the_client_where_it_happened``
-        # is what goes red -- on its ``message`` assertion specifically, and
-        # only on that one. Measured: rename this attribute and the client
-        # still gets both ``locations`` and ``path``, because graphql-core
-        # rebuilds them around the resulting ``AttributeError`` at the very
-        # field the refusal came from, so they are identical either way. Only
-        # the message changes, from the budget sentence to the AttributeError.
-        # That is also why there is no way to make the other two assertions
-        # carry this tripwire; the message assertion is load-bearing here even
-        # though it reads as the redundant one beside the other budget tests
-        # (S-075).
+        # drift. If this attribute is ever renamed, the two
+        # ``..._still_tells_the_client_where_it_happened`` tests are what go
+        # red -- on their ``message`` assertions specifically, and only on
+        # those. Measured again on this branch: rename this attribute and the
+        # client still gets both ``locations`` and ``path``, because
+        # graphql-core rebuilds them around the resulting ``AttributeError`` at
+        # the very field the refusal came from, so they are identical either
+        # way. Only the message changes, from the refusal's sentence to the
+        # AttributeError. That is also why there is no way to make the other
+        # two assertions carry this tripwire; the message assertion is
+        # load-bearing here even though it reads as the redundant one beside
+        # the other refusal tests (S-075).
         raw = info._raw_info
         super().__init__(message, nodes=raw.field_nodes, path=raw.path.as_list())
+
+
+class BudgetExceededError(ClientRefusalError):
+    """An operation that asked for more than one request's share of the budgets.
+
+    Raised by :func:`_charge_list_rows` and :func:`_charge_track_field`, which
+    is after the document parsed and validated: the budgets bound the *product*
+    of per-field limits, so nothing before execution can see it coming.
+    """
+
+
+class BoundsError(ClientRefusalError):
+    """An argument outside the range the SDL advertises for it.
+
+    Raised by :func:`_page` and :func:`_track_points`, which run at the top of
+    a resolver, before the budget is charged and before any SQL is built. The
+    range is in the field's description as well as in the message, so a client
+    can avoid this without sending the request first (CUI-0025).
+
+    Was a bare ``ValueError`` until CUI-0037. graphql-core wrapped it in
+    ``located_error``, which set ``original_error`` and so handed Strawberry a
+    traceback to log at ``ERROR`` -- the exact amplification CUI-0029 removed
+    from the budget refusals beside it, left in place on the cheaper document.
+    """
 
 
 def _charge_list_rows(info: Info, rows: int) -> int:
@@ -855,10 +893,13 @@ def _iso(d: date_type | None) -> str | None:
     return d.isoformat() if d else None
 
 
-def _page(limit: int, offset: int) -> tuple[int, int]:
+def _page(info: Info, limit: int, offset: int) -> tuple[int, int]:
     """Return the requested page window after bounds-checking it.
 
     Args:
+        info: The resolver's own info, so the refusal carries the field it came
+            from rather than leaving graphql-core to rebuild it around a
+            traceback (:class:`ClientRefusalError`).
         limit: Rows the client asked for.
         offset: Rows to skip.
 
@@ -866,29 +907,30 @@ def _page(limit: int, offset: int) -> tuple[int, int]:
         The validated ``(limit, offset)`` pair.
 
     Raises:
-        ValueError: If the window is empty, negative, or over MAX_PAGE_SIZE.
+        BoundsError: If the window is empty, negative, or over MAX_PAGE_SIZE.
     """
     if not 1 <= limit <= MAX_PAGE_SIZE:
-        raise ValueError(f"limit must be between 1 and {MAX_PAGE_SIZE}, got {limit}")
+        raise BoundsError(info, f"limit must be between 1 and {MAX_PAGE_SIZE}, got {limit}")
     if offset < 0:
-        raise ValueError(f"offset must not be negative, got {offset}")
+        raise BoundsError(info, f"offset must not be negative, got {offset}")
     return limit, offset
 
 
-def _track_points(points: int) -> int:
+def _track_points(info: Info, points: int) -> int:
     """Return the requested track sample count after bounds-checking it.
 
     Args:
+        info: The resolver's own info; see :func:`_page`.
         points: Samples the client asked for.
 
     Returns:
         The validated sample count.
 
     Raises:
-        ValueError: If the count is below 1 or over MAX_TRACK_POINTS.
+        BoundsError: If the count is below 1 or over MAX_TRACK_POINTS.
     """
     if not 1 <= points <= MAX_TRACK_POINTS:
-        raise ValueError(f"points must be between 1 and {MAX_TRACK_POINTS}, got {points}")
+        raise BoundsError(info, f"points must be between 1 and {MAX_TRACK_POINTS}, got {points}")
     return points
 
 
@@ -945,7 +987,7 @@ class Activity:
         # Spend first: the budgets exist to stop the query being issued at all.
         # The batch below reads no further than what is left of them, so
         # charging before reading still means refusing before the SQL goes out.
-        wanted = _charge_track_field(info, _track_points(points))
+        wanted = _charge_track_field(info, _track_points(info, points))
         rows = _track_rows(info, str(self.id), self.page, wanted)
         return [TrackPoint(**row) for row in rows]
 
@@ -1115,7 +1157,7 @@ class Query:
     ) -> list[Activity]:
         # Charge first: the budget exists to stop the page being read at all,
         # and the rows it would return are only known once it has been.
-        limit, offset = _page(limit, offset)
+        limit, offset = _page(info, limit, offset)
         _charge_list_rows(info, limit)
         rows = service.activities(
             info.context["session"], _iso(from_date), _iso(to_date), min_km, has_gps, limit, offset
@@ -1150,7 +1192,7 @@ class Query:
         limit: int = DEFAULT_PAGE_SIZE,
         offset: int = 0,
     ) -> list[WeightEntry]:
-        limit, offset = _page(limit, offset)
+        limit, offset = _page(info, limit, offset)
         _charge_list_rows(info, limit)
         rows = service.weight(
             info.context["session"], _iso(from_date), _iso(to_date), limit, offset
@@ -1174,7 +1216,7 @@ class Query:
         limit: int = DEFAULT_PAGE_SIZE,
         offset: int = 0,
     ) -> list[DailyWeather]:
-        limit, offset = _page(limit, offset)
+        limit, offset = _page(info, limit, offset)
         _charge_list_rows(info, limit)
         rows = service.daily_weather(
             info.context["session"], _iso(from_date), _iso(to_date), limit, offset
@@ -1200,7 +1242,7 @@ class Query:
         limit: int = DEFAULT_PAGE_SIZE,
         offset: int = 0,
     ) -> list[WeatherWarning]:
-        limit, offset = _page(limit, offset)
+        limit, offset = _page(info, limit, offset)
         _charge_list_rows(info, limit)
         rows = service.warnings(
             info.context["session"], _iso(from_date), _iso(to_date), limit, offset
@@ -1243,7 +1285,7 @@ class Query:
 
 
 REFUSAL_LOG_LEVEL = logging.INFO
-"""Level a budget refusal is logged at, below the ``ERROR`` a fault gets.
+"""Level a :class:`ClientRefusalError` is logged at, below the ``ERROR`` a fault gets.
 
 ``INFO`` rather than ``WARNING`` for two reasons, one about meaning and one
 measured. A refusal is not a degraded state or a near miss: the request asked
@@ -1280,28 +1322,36 @@ class RefusalAwareSchema(strawberry.Schema):
 
     Strawberry hands every error an operation produces to
     :meth:`process_errors`, which logs all of them at ``ERROR``. That is right
-    for a fault and wrong for a refusal: :class:`BudgetExceededError` is raised
+    for a fault and wrong for a refusal: a :class:`ClientRefusalError` is raised
     because a client's own document asked for more than the contract offers,
-    which is the budget working rather than anything failing. Carrying the
+    which is the contract working rather than anything failing. Carrying the
     resolver's ``path`` already took the traceback off those records; this
     takes them off ``ERROR`` as well, so the most common entry in a deployment's
     log stops being a refusal working as designed (CUI-0029).
 
-    Only that one class is reclassified. Everything else -- validation errors,
-    ``Int`` coercion failures, an unseeded budget's ``RuntimeError``, a resolver
-    that breaks mid-request -- is handed to ``super()`` untouched and keeps its
-    ``ERROR`` and its ``exc_info``. The distinction is the exception type, not a
-    substring of the message: a filter matching on wording would silence a real
-    fault that happened to mention a budget, and would stop silencing these the
-    day the wording changes. ``test_an_unexpected_resolver_error_is_still
-    _logged_as_a_server_fault`` is what holds that line, since no budget test
-    would notice a classifier that swept up everything.
+    Only that one hierarchy is reclassified, and it is deliberately a *narrow*
+    one: :class:`BudgetExceededError` and :class:`BoundsError`, the two things a
+    client can ask for and be told no about. Everything else -- validation
+    errors, ``Int`` coercion failures, an unseeded budget's ``RuntimeError``, a
+    resolver that breaks mid-request -- is handed to ``super()`` untouched and
+    keeps its ``ERROR`` and its ``exc_info``.
+
+    The distinction is the exception type, not a substring of the message: a
+    filter matching on wording would silence a real fault that happened to
+    mention a budget, and would stop silencing these the day the wording
+    changes. Two tests hold that line from opposite sides, since no refusal test
+    would notice a classifier that swept up everything:
+    ``test_an_unexpected_resolver_error_is_still_logged_as_a_server_fault`` for
+    a non-``GraphQLError`` fault, and
+    ``test_an_int_coercion_failure_is_not_reclassified_as_a_client_refusal``
+    for the tempting widening -- matching on ``GraphQLError`` itself, which
+    every error reaching here already is (CUI-0037).
     """
 
     def process_errors(
         self, errors: list[GraphQLError], execution_context: ExecutionContext | None = None
     ) -> None:
-        """Log budget refusals below ``ERROR``, and everything else as Strawberry would.
+        """Log client refusals below ``ERROR``, and everything else as Strawberry would.
 
         Args:
             errors: Every error this operation produced.
@@ -1310,7 +1360,7 @@ class RefusalAwareSchema(strawberry.Schema):
         """
         faults = []
         for error in errors:
-            if isinstance(error, BudgetExceededError):
+            if isinstance(error, ClientRefusalError):
                 # Logged the way StrawberryLogger logs one -- the error object
                 # as the message, no exc_info -- so a deployment's handlers see
                 # the same record they saw before, at a different level.

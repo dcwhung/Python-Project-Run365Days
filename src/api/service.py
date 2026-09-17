@@ -372,14 +372,44 @@ def tracks(
         session: Open read-only session.
         activity_ids: Tracks wanted. Duplicates are collapsed.
         points: Samples per track, or ``None``/``0`` for every stored row up to
-            :data:`MAX_TRACK_POINTS`.
+            :data:`MAX_TRACK_POINTS`. A negative count is refused, not clamped;
+            see Raises.
 
     Returns:
         ``{activity_id: rows}`` in :data:`TRACK_COLUMNS` shape, ordered by
         ``seq``, with an entry for every id asked for -- an empty list for an
         activity that stores no track, and never more than
         :data:`MAX_TRACK_POINTS` rows for one.
+
+    Raises:
+        ValueError: If *points* is negative.
+
+    Refused rather than clamped, which is the half of CUI-0040 that was a
+    choice rather than a bug. ``min(points, MAX_TRACK_POINTS)`` passed a
+    negative straight through, and :func:`_even_positions` turns anything under
+    2 into the last row alone: measured against a 1250-row track, ``-1``,
+    ``-5`` and ``-1000`` each came back as exactly one row, which is also what
+    ``points=1`` returns.
+
+    Clamping is the smaller change and was the ticket's own first suggestion,
+    but at this layer it would have to clamp *upward*, to
+    :data:`MAX_TRACK_POINTS`, because that is already what falsy means here.
+    That hands the largest answer this function can give to the most obviously
+    broken question, and it erases the distinction CUI-0025 was argued over:
+    ``0`` means "I did not ask", while ``-5`` means "I asked for something that
+    cannot exist". Those deserve different answers, and only one of them can be
+    silent.
+
+    The wording is deliberately not :func:`run365days.api.schema._track_points`'s
+    sentence, near as it is. That one says "between 1 and MAX_TRACK_POINTS",
+    which would be false here, where ``None`` and ``0`` are both legal. The two
+    layers refuse different sets, so they say different things -- and no client
+    ever reads this one: ``_track_points`` and ``checkPoints`` in
+    ``frontend/src/data/static/source.ts`` both refuse a negative first, in the
+    single sentence CUI-0025 bought for both deployment modes.
     """
+    if points is not None and points < 0:
+        raise ValueError(f"points must not be negative, got {points}")
     wanted = list(dict.fromkeys(str(a) for a in activity_ids))
     found: dict[str, list[dict]] = {activity_id: [] for activity_id in wanted}
     if not wanted:

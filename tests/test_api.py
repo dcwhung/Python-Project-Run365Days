@@ -247,6 +247,81 @@ def test_health(client):
     assert r.get_json()["status"] == "ok"
 
 
+# ── CUI-0005: the test client has to end a request the way a server does ──
+PAGING_QUERY = "query($o:Int!){activities(limit:1,offset:$o){id}}"
+"""One row at a time, so a run of these is a run of *requests* and not of rows."""
+
+REQUESTS_PAST_THE_POOL = 400
+"""Requests the run below makes, from the ticket's own reproduction.
+
+Far past the pool's capacity -- SQLAlchemy's default ``QueuePool`` is 5
+connections plus 10 of overflow -- but the number is the ticket's rather than
+that ceiling plus one, because where the failure lands is not stable. A session
+that is never closed still gives its connection back when the garbage collector
+reaches it, so the run survives well past 15: CUI-0005 recorded the first
+timeout at request 134 and the same script on this branch recorded it at 100.
+It is not idle -- it went red under all three regressions this fix was
+mutation-tested against -- but where it fails is a property of the collector,
+so the test above is the one that makes the guarantee.
+"""
+
+
+@pytest.fixture
+def request_sessions(monkeypatch):
+    """Record every session the app opens, and every one it closes.
+
+    References are kept, deliberately. An unclosed session hands its connection
+    back when it is collected, which is what makes the symptom wander; holding
+    the objects takes the garbage collector out of the measurement so that what
+    is left is the lifecycle itself.
+    """
+    opened, closed = [], []
+    real = db.Session
+
+    class Tracked(real):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            opened.append(self)
+
+        def close(self):
+            closed.append(self)
+            super().close()
+
+    monkeypatch.setattr(db, "Session", Tracked)
+    return opened, closed
+
+
+def test_a_request_through_the_test_client_closes_its_session(year_client, request_sessions):
+    # The mechanism, and the load-bearing assertion of the pair. `get_context`
+    # used to hand the session to `response.call_on_close`, which fires only
+    # when the WSGI iterable is closed: a real server closes it, and
+    # `app.test_client()` never does. Measured on this branch with the same
+    # tracking as here, 40 requests per transport: the real server opened 40
+    # sessions and closed 40, the test client opened 40 and closed none.
+    #
+    # Three requests are enough, because what is wrong is not a threshold.
+    opened, closed = request_sessions
+    for offset in range(3):
+        assert len(gql(year_client, PAGING_QUERY, {"o": offset})["activities"]) == 1
+
+    assert len(opened) == 3, "one session per request, which is what get_context promises"
+    assert closed == opened, "a request ended without returning its session to the pool"
+
+
+def test_a_long_run_of_requests_is_served_whole(year_client):
+    # The symptom, written the way the ticket reproduced it. Not the gate --
+    # see REQUESTS_PAST_THE_POOL for why the failure point wanders -- but it
+    # does pin the thing a developer would actually hit, and it checks the
+    # paging walked rather than only that nothing raised: a fix that returned
+    # sessions by breaking the request would pass a bare "no exception" run.
+    ids = []
+    for offset in range(REQUESTS_PAST_THE_POOL):
+        ids.extend(row["id"] for row in gql(year_client, PAGING_QUERY, {"o": offset})["activities"])
+
+    assert len(ids) == YEAR_DAYS, "the window walks the whole year and then runs out"
+    assert len(set(ids)) == YEAR_DAYS, "and never serves the same activity twice"
+
+
 def test_meta(client):
     d = gql(client, "{ meta { year generatedAt trackColumns } }")
     assert d["meta"]["year"] == 2021
@@ -476,6 +551,48 @@ def test_a_points_over_the_ceiling_is_capped_where_the_rows_are_read(varied_sess
 
     assert len(rows) == MAX_TRACK_POINTS
     assert rows == service.track(varied_session, OVER_CAP_ID, MAX_TRACK_POINTS)
+
+
+@pytest.mark.parametrize("points", [-1, -5, -1000])
+def test_a_negative_points_is_refused_where_the_rows_are_read(varied_session, points):
+    # The same argument as the test above, run off the other end of the range
+    # (CUI-0040). `min(points, MAX_TRACK_POINTS)` returned a negative unchanged
+    # and `_even_positions` turns anything under 2 into the last row alone, so
+    # every negative came back as exactly one row. Measured against a
+    # 1250-row track before the fix: -1, -5 and -1000 all returned 1, which is
+    # what `points=1` returns, leaving a caller unable to tell a broken
+    # argument from a legitimate one.
+    #
+    # Refused rather than clamped, and the choice is argued in `tracks`'s own
+    # docstring because the two are not interchangeable here: clamping would
+    # have to clamp upward to MAX_TRACK_POINTS, since that is what falsy
+    # already means at this layer.
+    with pytest.raises(ValueError, match="points must not be negative"):
+        service.tracks(varied_session, [OVER_CAP_ID], points)
+
+
+@pytest.mark.parametrize("points", [None, 0, False])
+def test_a_falsy_points_still_means_the_ceiling_rather_than_a_refusal(varied_session, points):
+    # The boundary the refusal above must not cross. `0` and `None` mean "I did
+    # not ask", which this layer reads as the ceiling -- the reading CUI-0025
+    # settled and CUI-0033 (a) made binding on the answer as well as the ask.
+    # `False` is here because it is an `int` that is falsy and negative-adjacent
+    # in every naive check, and it has to land with `0` rather than with `-1`.
+    rows = service.tracks(varied_session, [OVER_CAP_ID], points)[OVER_CAP_ID]
+
+    assert len(rows) == MAX_TRACK_POINTS
+
+
+def test_a_negative_points_never_reaches_the_service_from_a_client(year_client):
+    # What must not move: the refusal above is for a caller inside this
+    # repository, and no client can drive it. `_track_points` refuses first and
+    # answers in its own words, which `checkPoints` in
+    # `frontend/src/data/static/source.ts` matches -- so the sentence a client
+    # reads is the same in both deployment modes, and it is not the service's.
+    message = gql_errors(year_client, '{ activity(id: "r0") { track(points: -5) { sec } } }')
+
+    assert f"points must be between 1 and {MAX_TRACK_POINTS}, got -5" in message
+    assert "must not be negative" not in message
 
 
 def test_an_omitted_points_still_returns_every_stored_row_under_the_ceiling(varied_session):
@@ -1664,7 +1781,26 @@ def test_a_budget_refusal_is_not_logged_as_a_server_fault(year_client, caplog, d
     # The constant is imported rather than spelled out so this test follows the
     # decision, and bounded here so it cannot follow it back to where it began:
     # REFUSAL_LOG_LEVEL = logging.ERROR would satisfy the line above on its own.
-    assert REFUSAL_LOG_LEVEL < logging.ERROR, "a refusal logged at ERROR is the state being fixed"
+    #
+    # Bounded against WARNING rather than ERROR (CUI-0038). The property
+    # CUI-0029 sold is not "quieter than a fault", it is "emitted by nothing at
+    # all under the configuration Vercel runs", and WARNING is the threshold
+    # that decides that -- so `< logging.ERROR` left the WARNING mutant alive.
+    # Measured on this branch, in-process, with the mutant's own level read
+    # back as an oracle: at WARNING one bounds refusal writes 103 bytes to
+    # stderr and one budget refusal 341, where INFO writes 0 for both, and all
+    # 432 tests stayed green.
+    assert REFUSAL_LOG_LEVEL < logging.WARNING, (
+        "a refusal at WARNING or above is emitted by a deployment that configures nothing"
+    )
+    # The premise of the line above, asserted rather than assumed: WARNING is
+    # the threshold only because `logging.lastResort` -- the handler a process
+    # that has configured nothing falls back to -- carries that level. If
+    # CPython ever moves it, the reasoning moves with it and this says so
+    # rather than going quietly wrong.
+    assert logging.lastResort.level == logging.WARNING, (
+        "the configureless threshold is read off `logging` rather than restated here"
+    )
 
 
 @pytest.mark.parametrize(("document", "path"), UNSEEDED_DOCUMENTS)
@@ -1736,6 +1872,254 @@ def test_a_budget_refusal_still_tells_the_client_where_it_happened(year_client, 
     assert "budget exhausted" in error["message"]
     assert error["locations"], "a refusal with no location cannot be traced to a field"
     assert error["path"], "a refusal with no path cannot be traced to a field"
+
+
+# ── CUI-0037: a bounds refusal is a client refusal too ────────────────────
+BOUNDS_REFUSED_DOCUMENTS = (
+    pytest.param("{ activities(offset: -1) { id } }", "offset", id="offset-negative"),
+    pytest.param("{ activities(limit: 0) { id } }", "limit", id="limit-empty-window"),
+    pytest.param(
+        f"{{ activities(limit: {MAX_PAGE_SIZE + 1}) {{ id }} }}", "limit", id="limit-over-max"
+    ),
+    pytest.param("{ weight(limit: -5) { date } }", "limit", id="limit-negative-other-field"),
+    pytest.param(
+        f'{{ activity(id: "{TRACKED_ACTIVITY_ID}") {{ track(points: 0) {{ sec }} }} }}',
+        "points",
+        id="points-empty",
+    ),
+    pytest.param(
+        f'{{ activity(id: "{TRACKED_ACTIVITY_ID}") '
+        f"{{ track(points: {MAX_TRACK_POINTS + 1}) {{ sec }} }} }}",
+        "points",
+        id="points-over-max",
+    ),
+)
+"""One document per bounds check a client can trip, and the argument it names.
+
+Both refusing functions and more than one call site of each: ``_page`` is
+reached from four list fields and ``_track_points`` from ``Activity.track``, so
+``weight`` is here beside ``activities`` to keep the fix from being applied at
+one resolver and missed at the others. Each of the three arguments is driven
+past both ends of its range where it has two, since the low end and the high
+end are separate ``raise`` statements.
+"""
+
+
+@pytest.mark.parametrize(("document", "argument"), BOUNDS_REFUSED_DOCUMENTS)
+def test_a_bounds_refusal_is_not_logged_as_a_server_fault(year_client, caplog, document, argument):
+    # The half of CUI-0029 its own tests did not reach. A budget refusal stopped
+    # writing a traceback; a bounds refusal kept doing it, from a document an
+    # order of magnitude cheaper to send. Measured on this branch before the
+    # fix, under the default logging configuration a Vercel deployment runs
+    # with: `{ activities(offset: -1) { id } }` is 33 bytes of request and
+    # produced one ERROR record carrying nine stack frames, against zero bytes
+    # for an already-fixed budget refusal.
+    #
+    # The byte count is deliberately not asserted -- it is dominated by the
+    # absolute length of the checkout's own path, so it measures the machine
+    # rather than the code. `exc_info` and the level are what the fix moves and
+    # what a deployment's handlers actually read.
+    with caplog.at_level(logging.DEBUG, logger="strawberry.execution"):
+        assert argument in gql_errors(year_client, document)
+
+    records = _strawberry_records(caplog)
+    assert records, "the refusal must still be logged -- silence is not the fix here"
+    assert [record.exc_info for record in records] == [None] * len(records)
+    assert [record.levelno for record in records] == [REFUSAL_LOG_LEVEL] * len(records)
+
+
+@pytest.mark.parametrize(("document", "argument"), BOUNDS_REFUSED_DOCUMENTS)
+def test_a_bounds_refusal_still_tells_the_client_where_it_happened(year_client, document, argument):
+    # What must not move while the log record does. graphql-core used to build
+    # `locations` and `path` for these by wrapping the resolver's ValueError,
+    # which is the same act that attached the traceback; raising them already
+    # located is what lets the traceback go without taking the client's
+    # bearings with it. The message is pinned whole because
+    # `frontend/src/data/static/source.ts` answers the same arguments with the
+    # same sentences, and CUI-0025 bought that agreement.
+    body = year_client.post(GRAPHQL_PATH, json={"query": document}).get_json()
+
+    error = body["errors"][0]
+    assert error["message"].startswith(f"{argument} must ")
+    assert error["locations"], "a refusal with no location cannot be traced to a field"
+    assert error["path"], "a refusal with no path cannot be traced to a field"
+
+
+@pytest.mark.parametrize(("literal", "reason"), UNREPRESENTABLE_POINTS)
+def test_an_int_coercion_failure_is_not_reclassified_as_a_client_refusal(
+    year_client, caplog, literal, reason
+):
+    # The bound on the widening. Reclassifying two exception types instead of
+    # one invites the classifier to be written against `GraphQLError` itself,
+    # which every error here already is -- coercion failures, validation errors
+    # and the introspection gate included.
+    #
+    # Measured rather than assumed, because the tempting claim is wrong: that
+    # mutant does *not* slip past the existing suite. Widening the classifier
+    # to `GraphQLError` also reds
+    # `test_an_unseeded_budget_still_logs_its_traceback` and
+    # `test_an_unexpected_resolver_error_is_still_logged_as_a_server_fault`,
+    # since graphql-core wraps both of those in a `GraphQLError` on the way
+    # out. What this adds is not the only guard but the named one: CUI-0037
+    # decided in writing that a coercion failure stays a fault, and a decision
+    # held only by a test about something else is a decision that moves the
+    # first time that test is rewritten.
+    #
+    # These lose nothing by staying at ERROR. Measured on this branch: a
+    # coercion failure reaches stderr with zero stack frames either way,
+    # because it is raised before any resolver and so has no `original_error`
+    # to render. There is no traceback here worth reclassifying for, only the
+    # message `source.ts` pins in both deployment modes.
+    with caplog.at_level(logging.DEBUG, logger="strawberry.execution"):
+        message = gql_errors(
+            year_client,
+            f'{{ activity(id: "{TRACKED_ACTIVITY_ID}") {{ track(points: {literal}) {{ sec }} }} }}',
+        )
+
+    assert "Int cannot represent" in message and reason in message
+    records = _strawberry_records(caplog)
+    assert records, "a coercion failure must not go unlogged"
+    assert all(record.levelno == logging.ERROR for record in records)
+
+
+# ── CUI-0038: the level's promise is silence, so silence is what is measured ─
+CONFIGURELESS_REFUSALS = REFUSED_DOCUMENTS + tuple(
+    pytest.param(param.values[0], id=param.id) for param in BOUNDS_REFUSED_DOCUMENTS
+)
+"""Every refusal a client can earn, as a bare document.
+
+Both kinds, because one constant and one ``isinstance`` decide the whole set:
+a regression in either puts all of them back on stderr. The bounds half is
+re-wrapped rather than re-spelled so the two lists cannot drift -- its params
+carry an argument name these tests have no use for.
+"""
+
+
+def _unconfigured_logging(monkeypatch):
+    """Put ``logging`` back into the state a process that configures nothing starts in.
+
+    pytest configures a great deal -- a capturing handler on the root logger,
+    levels raised and lowered around each test -- and every bit of it makes
+    records visible that a Vercel function would never emit. Stripping the
+    chain the execution logger propagates along leaves ``logging.lastResort``
+    as the only thing that can write, which is the condition CUI-0029 measured
+    its zero under and the only condition :data:`REFUSAL_LOG_LEVEL` decides
+    anything in.
+
+    Root keeps ``WARNING`` because that is its own default, not because this
+    test wants it: the level under test has to be compared against the real
+    default rather than against one chosen here.
+    """
+    for name in ("strawberry.execution", "strawberry", ""):
+        logger = logging.getLogger(name)
+        monkeypatch.setattr(logger, "handlers", [])
+        monkeypatch.setattr(logger, "disabled", False)
+        monkeypatch.setattr(logger, "propagate", True)
+        monkeypatch.setattr(logger, "level", logging.WARNING if name == "" else logging.NOTSET)
+
+
+@pytest.mark.parametrize("document", CONFIGURELESS_REFUSALS)
+def test_a_refusal_writes_nothing_where_no_logging_is_configured(
+    year_client, capfd, monkeypatch, document
+):
+    # The property itself, rather than an inequality that restates the
+    # constant. CUI-0029's headline number is "0 bytes on a deployment that
+    # configures nothing", and nothing asserted it: the suite only knew the
+    # refusal was quieter than a fault, which `logging.WARNING` also satisfies
+    # while writing every refusal out (CUI-0038).
+    #
+    # Bytes on fd 2, not a record on a handler, because the handler is exactly
+    # what is absent in the case being modelled.
+    _unconfigured_logging(monkeypatch)
+    capfd.readouterr()
+
+    assert gql_errors(year_client, document)
+
+    assert capfd.readouterr().err == "", (
+        "a refusal reached stderr on a deployment that configured no logging"
+    )
+
+
+def test_a_fault_still_writes_where_no_logging_is_configured(year_client, capfd, monkeypatch):
+    # The control, and the reason the test above is not vacuous: strip enough
+    # of `logging` and everything writes nothing, which would make silence
+    # prove the harness rather than the level. A fault goes out at ERROR, over
+    # `lastResort`'s threshold, so it still lands -- traceback and all, which
+    # is the half CUI-0029 deliberately kept.
+    def explode(_session):
+        raise _ResolverFaultError("the database went away")
+
+    monkeypatch.setattr(service, "meta", explode)
+    _unconfigured_logging(monkeypatch)
+    capfd.readouterr()
+
+    assert gql_errors(year_client, "{ year { year } }")
+
+    err = capfd.readouterr().err
+    assert "_ResolverFaultError" in err, "a server fault must survive a configureless deployment"
+    assert "Traceback" in err, "and it must keep the traceback that is all an operator gets"
+
+
+# ── CUI-0039: the one shape that can tell `faults` from `errors` ──────────
+FAULTING_ACTIVITY_ID = "BOOM"
+"""An id no fixture stores, used to make one field of a document fail on purpose."""
+
+
+def _mixed_operation() -> str:
+    """One operation that earns a refusal at one field and a fault at another.
+
+    The refusal is driven by the points budget rather than by a bounds check,
+    because that one refuses *part-way through* a list of sibling fields: the
+    first ``MAX_TRACK_POINTS_PER_REQUEST // MAX_TRACK_POINTS`` of them are
+    served and only the next is refused, so the operation genuinely carries
+    both kinds of error at once rather than failing at its first field. The
+    field count is derived from the two constants for that reason and not
+    written out.
+    """
+    fields = MAX_TRACK_POINTS_PER_REQUEST // MAX_TRACK_POINTS + 1
+    tracks = " ".join(f"t{i}: track(points: {MAX_TRACK_POINTS}) {{ sec }}" for i in range(fields))
+    return (
+        f'{{ a1: activity(id: "{TRACKED_ACTIVITY_ID}") {{ {tracks} }} '
+        f'a2: activity(id: "{FAULTING_ACTIVITY_ID}") {{ id }} }}'
+    )
+
+
+def test_a_refusal_and_a_fault_in_one_operation_are_logged_apart(year_client, caplog, monkeypatch):
+    # The only shape that can tell `faults` from `errors` apart in
+    # `process_errors`. An operation whose errors are all refusals never
+    # reaches `super()` at all, and one whose errors are all faults hands over
+    # a list identical to the one it was given -- so the three logging tests
+    # that existed before this one all pass with the filtering removed.
+    # Measured on this branch: `super().process_errors(errors, ...)` in place of
+    # `faults` left the whole suite green, and the mixed operation below showed
+    # exactly what it cost -- 1 INFO + 1 ERROR became 1 INFO + 2 ERROR, the
+    # extra record being the refusal itself, logged a second time as a fault.
+    real = service.activity
+
+    def selective(session, activity_id):
+        if activity_id == FAULTING_ACTIVITY_ID:
+            raise _ResolverFaultError("the database went away")
+        return real(session, activity_id)
+
+    monkeypatch.setattr(service, "activity", selective)
+
+    with caplog.at_level(logging.DEBUG, logger="strawberry.execution"):
+        body = gql_partial(year_client, _mixed_operation())
+
+    assert len(body["errors"]) == 2, "the client must still be told both things"
+    records = _strawberry_records(caplog)
+    refusals = [record for record in records if record.levelno == REFUSAL_LOG_LEVEL]
+    faults = [record for record in records if record.levelno == logging.ERROR]
+    assert len(refusals) == 1 and refusals[0].exc_info is None
+    assert len(faults) == 1
+    assert issubclass(faults[0].exc_info[0], _ResolverFaultError)
+    # The assertion the mutant dies on, and it has to be this one: handing the
+    # unfiltered list to `super()` logs the refusal a second time at ERROR
+    # *without* exc_info, so a check that the faults all carried tracebacks
+    # would have walked straight past it. Counting them is what catches it.
+    assert not any("budget exhausted" in str(record.msg) for record in faults), (
+        "the refusal went to the fault handler as well as to its own"
+    )
 
 
 # ── AU-050: one statement per batch of tracks, not two per track ───────────
