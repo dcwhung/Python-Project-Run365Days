@@ -194,10 +194,16 @@ receives rather than only what it may ask for.
 ### Known
 - The budget refusals are fixed; the bounds refusals beside them are not.
   `_page` and `_track_points` still raise a bare `ValueError`, so
-  `{ activities(offset: -1) { id } }` -- 33 bytes, seven tokens, no
+  `{ activities(offset: -1) { id } }` -- 33 bytes, eleven tokens, no
   authentication -- still writes 2,016 bytes of traceback with the same nine
-  absolute paths. That is 140 times cheaper to trigger than the request
-  CUI-0029 measured (CUI-0037).
+  absolute paths. That is about five times cheaper to trigger than the
+  cheapest document that reaches a budget refusal, five aliased `activities`
+  fields at `limit: 1000`: eleven tokens against fifty-seven, 33 bytes against
+  173 (CUI-0037). Corrected on 2026-09-17: this bullet first said seven tokens
+  and 140 times cheaper. Seven was a miscount, and 140 was 998 divided by it --
+  998 being the size of CUI-0027's worst-case query-cost document rather than
+  the cost of triggering a budget refusal, so the two were never like for like.
+  CUI-0037 carries the working; the conclusion it draws is unchanged.
 - Two mutants survive the whole suite behind 100% line coverage on
   `api/schema.py`: raising `REFUSAL_LOG_LEVEL` to `WARNING` undoes what
   CUI-0029 buys in an unconfigured deployment, and handing `process_errors`

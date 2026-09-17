@@ -9,11 +9,13 @@ the project is developed in spare time.
 API, the React dashboard with all nine views in both data modes, and the
 Vercel / GitHub Pages deployments are live. See `docs/deployment.md`.
 
+The smoke test this section used to list under Next — `/api/health` and
+one query against the deployed API after each Vercel deployment — landed
+as CUI-0053 and is described in `docs/deployment.md`.
+
 ## Next
 
 - Container image and a `docker compose` file for local development.
-- A smoke test in CI against the deployed API (`/api/health` and one
-  query) after each Vercel deployment.
 - Code-split the React bundle (Chart.js and the Activity view are the
   bulk of the 650 kB main chunk).
 - Playwright end-to-end test for the Overview to Activity flow.

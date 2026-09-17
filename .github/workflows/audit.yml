@@ -1,0 +1,186 @@
+name: Dependency audit
+
+# The two supply-chain gates. They lived in pages.yml -- as the last step of
+# `lint-test` and of `frontend` -- until CUI-0052 moved them here.
+#
+# What moved is the dependency edge and nothing else. In pages.yml they sat in
+# the two jobs `build` needs, and `deploy` needs `build`, so both audits were
+# upstream of deployment; this repository deploys on every push to develop, so a
+# single advisory published upstream and unrelated to anything in this
+# repository could hold every deployment, a hotfix included. Both gates are
+# *expected* to go red that way -- that is stated beside each step below -- which
+# is what made the coupling worth undoing rather than tolerating.
+#
+# The threshold did not move with them. Each audit still runs on every push and
+# every pull request to the same two branches pages.yml gates, still fails its
+# job on a single advisory, and still reports as a red check on the commit and on
+# the pull request, exactly as visible as it was before. Neither gate was ever a
+# *required* check -- this repository has no branch protection on develop or
+# master (`GET /repos/.../branches/develop` reports `"protected": false`,
+# measured 2026-09-17) -- so "a human sees red" was always the whole of the
+# enforcement, and it still is. `continue-on-error` was rejected for the reason
+# CUI-0044 rejected `--ignore-vuln` (W-034, S-095): it leaves the gate on the
+# page while removing its only effect. Nothing here is excused; it is simply no
+# longer in the deployment path.
+#
+# The daily schedule is the one thing that is new rather than moved. A gate that
+# only fires on a push measures the tree at the moments someone happened to push,
+# and upstream drift -- the failure mode these gates exist for -- runs on its own
+# clock.
+#
+# Two of GitHub's own rules bite here, and both bite silently, so they are
+# written down rather than discovered:
+#
+#   - `schedule` only fires for workflow files on the DEFAULT branch, which in
+#     this repository is master -- not develop, the branch that deploys. Until
+#     this file reaches master on a release merge, the daily run does not happen
+#     at all. `push` and `pull_request` carry no such restriction and work on
+#     develop from the moment this file lands there, which is why they, and not
+#     the schedule, are what replaces the old coupling.
+#   - a scheduled run checks out the default branch, so left alone it would audit
+#     master, which lags develop between releases. The checkout in each job names
+#     develop for the scheduled run so the tree being audited is the tree being
+#     deployed.
+
+on:
+  push:
+    branches: [develop, master]
+  pull_request:
+    branches: [develop, master]
+  schedule:
+    # Daily. Deliberately not on the hour: GitHub delays scheduled runs under
+    # load, and :00 is the worst-contended minute.
+    - cron: "37 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Nothing here deploys, so unlike pages.yml there is no group that must survive:
+# superseding an in-flight audit of an older commit with one of a newer commit
+# loses nothing.
+concurrency:
+  group: audit-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.12"
+  NODE_VERSION: "22"
+
+jobs:
+  python:
+    name: Audit Python dependencies
+    runs-on: ubuntu-latest
+    steps:
+      # An empty `ref` is checkout's own default -- the ref the event carries --
+      # so this only overrides the scheduled run. See the schedule note above.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'schedule' && 'develop' || '' }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      # The audit reads the environment it runs in, so the tree it sees is
+      # whatever this step installed. `[dev]` matches what lint-test installs in
+      # pages.yml, which keeps the audited tree the same tree the rest of CI runs
+      # on rather than a narrower one chosen here.
+      - name: Install package with dev extras
+        run: pip install -e ".[dev]"
+
+      # The Python half of the dependency gate (CUI-0044). The npm half below has
+      # existed since CUI-0036; until CUI-0044 the Python side had no SCA at all
+      # and pip-audit had only ever been run by hand, in CUI-0032 -- which matters
+      # because Flask and strawberry-graphql are core dependencies, not extras, so
+      # they go straight into the Vercel production runtime.
+      #
+      # pip-audit reads the environment it runs in, so the scope here is
+      # everything the step above installed: the ten runtime dependencies from
+      # pyproject.toml, the [dev] extras, and their transitives -- 65
+      # distributions as measured on 2026-09-17. Installing pip-audit puts its own
+      # closure (CacheControl, cyclonedx-python-lib, requests, rich, ...) in that
+      # set too. That is the cost of auditing the environment rather than a
+      # lockfile, and it is worth naming: a red here can in principle come from a
+      # package only pip-audit needs. It has not so far.
+      #
+      # pip and setuptools are upgraded first, and that is the whole decision in
+      # this step. Measured on 2026-09-17, twice -- once on the repo venv and once
+      # on a fresh python 3.12 venv built the way this job builds one -- the only
+      # advisories in the tree were 14 against the toolchain the runner happens to
+      # ship: pip 24.0 and setuptools 79.0.1. The ten declared dependencies had
+      # none. Every one of the 14 has a fix version (pip 26.2, setuptools 83.0.0),
+      # so upgrading past them actually removes them; after the upgrade pip-audit
+      # reports "No known vulnerabilities found" and exits 0. This is a fix, not a
+      # suppression -- which is why it is not an --ignore-vuln allowlist. An
+      # allowlist would have to be maintained and would drift out of date, and
+      # W-034 and S-095 are both findings about exactly that failure mode.
+      #
+      # The trade this accepts: the runner's pip version floats, so a future pip
+      # advisory published before its own fix ships would turn this step red on
+      # something no pull request here can cause. That is a known and deliberate
+      # cost of keeping the gate honest, and since CUI-0052 it is a cost paid in
+      # this workflow alone rather than in the deployment path. When it happens
+      # the answer is a ticket and a decision, not an --ignore-vuln added in
+      # passing or a narrower scope chosen on the spot.
+      #
+      # Not --strict: pip-audit always skips run365days itself, because the
+      # editable local package is not on PyPI and cannot be looked up. That skip
+      # is permanent and by design, and --strict would fail every run on it.
+      - name: Audit Python dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools
+          pip install pip-audit
+          pip-audit --progress-spinner=off
+
+  frontend:
+    name: Audit npm dependencies
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'schedule' && 'develop' || '' }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # `npm audit` resolves from package-lock.json and does not strictly need
+      # node_modules. The install is kept because it is what ran ahead of this
+      # audit in pages.yml, and CUI-0052 is a move, not a retune: changing what
+      # the auditor sees in the same pass would make any change in its verdict
+      # impossible to attribute.
+      - name: Install
+        run: npm ci
+
+      # The whole tree, devDependencies included. `npm ci` above installs them,
+      # they run on this runner and on maintainer machines, and the ones that emit
+      # INTO the bundle -- vite ships its modulepreload polyfill, tailwindcss
+      # generates the whole stylesheet -- are devDependencies too. So an advisory
+      # here is a real exposure, not a backlog item.
+      #
+      # This step carried `--omit=dev` from its introduction (CUI-0036) until
+      # CUI-0049. That flag narrowed the gate to the declared `dependencies`
+      # closure -- eight runtime packages, 16 resolved -- and it was there for one
+      # reason: the dev tree was not clean. As of 2026-09-17 `npm audit` reported
+      # 14 advisories (12 high, 2 moderate, 0 critical), every one reached only
+      # through devDependencies (@graphql-codegen/* -> lodash, vitest ->
+      # @vitest/mocker), none fixable without a major bump, so gating on them
+      # would have parked CI red on a backlog that change could not clear. The
+      # comment said to widen this step once that bump landed. CUI-0049 landed it
+      # (@graphql-codegen/cli 5 -> 7, client-preset 4 -> 6, vitest 3 -> 5) and the
+      # full tree now reports 0 advisories, so the flag is gone -- that was the
+      # point of the ticket, not a regression.
+      #
+      # This is the full tree and the gate holds it at zero, so it is stricter
+      # than an allowlist and needs no list to maintain. If an upstream advisory
+      # with no fix available ever lands here, the answer is a ticket and a
+      # decision, not an `--audit-level` or an exclusion added in passing.
+      - name: Audit npm dependencies (whole tree, dev included)
+        run: npm audit
