@@ -12,9 +12,14 @@
 
 **核實日期**：2026-09-17 ｜ **總數**：52 張（CUI-0001 … CUI-0052）
 
-> 量度方法（2026-09-17，base `6576e56`）：
-> `find .tickets -name 'CUI-*.md' | wc -l` → **42**；
-> `ls .tickets/<bucket>/0001-0200/CUI-*.md | wc -l` → pending **13** / in-progress **0** / completed **29**。
+> 量度方法（2026-09-17 喺 `824c682` 重量，同下面 Bucket 表係**同一次**點算）：
+> `find .tickets -name 'CUI-*.md' | wc -l` → **52**；
+> `ls .tickets/<bucket>/0001-0200/CUI-*.md | wc -l` → pending **7** / in-progress **0** / completed **45**。
+>
+> ⚠️ 呢個 block 之前留住 `6576e56` 嗰陣嘅讀數（**42**；pending 13 / 0 / completed 29），同三行之下嘅
+> Bucket 表（52；45 / 0 / 7）並存，兩套數仲掛住**同一個核實日期**，而本 section 自稱「權威快照」——
+> 舊嗰套冇一個字講佢已被取代（S-126）。讀數由而家起只留一套：**量度方法同 Bucket 表要同一次點算**，
+> 改其中一個就要改另一個，順埋下面「編號完整性核實」段。
 
 > 呢個 section 係 CUI ticket 狀態嘅**權威快照**：每一行嘅狀態同「檔案實際位置」都經逐張核實，
 > 而唔係照抄下面各個 section 嘅敘述。下面有日期 heading 嘅 section 係**歷史紀錄，永不修改**；
