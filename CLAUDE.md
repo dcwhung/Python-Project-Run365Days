@@ -126,6 +126,8 @@ Commit：Conventional Commits（`feat` / `fix` / `refactor` / `chore` / `docs` /
 | 常數 | 全部 module-level `UPPER_SNAKE_CASE` 加 docstring；`src/common/config.py` 收納所有 path 同共用常數 |
 | 測試 | pytest，測試名即文件（`tests/*` 豁免 `D`）；TDD Red-Green-Refactor |
 | 前端 | ESLint + `tsc -b`；GraphQL document 一定要過 codegen，SDL 改動要跑 `run365-schema` 更新 `frontend/schema.graphql` |
+| **註釋／文件入面嘅數字** | **唔准出現冇 gate 嘅絕對數字。** 一個寫死嘅測試數、行數、byte 數、百分比，冇嘢守住就會隨下一個 commit 靜靜哋變錯，而且錯得睇唔出。三個出路，揀一個：(a) 加一條測試釘住佢；(b) 寫成「喺 `<commit>` 量到 N」，令讀者可以喺嗰個 commit 重現；(c) 改成一句可核實嘅描述（「縮減超過 3/4」、「fails this test at every one of its parameters」），唔留裸數。⚠️ 呢條係由 **W-017 / S-068 / S-069 / W-060 / W-061 / S-105 / S-128** 七條同族 finding 歸納出嚟 —— 其中 W-060 修完種出 W-061，W-061 修完種出 S-128，同一個 §6 表格 row 修咗三轉，冇一轉改到行為 |
+| **量度先落 brief** | 派 lane 之前，凡係 brief 入面有可以 30 秒內量到嘅事實（行數、job 圖、token 數、某個 symbol 存唔存在、某個 URL 喺唔喺 repo 入面），**自己量咗先寫**。本 session 至少四次 brief 帶住錯前提出街（`npm run typecheck` 做 nullability checklist 實測捉 0 處、CUI-0052 嘅雙 threshold 設計其實兩個 branch 都冇 branch protection、CUI-0053 講「production URL repo 入面讀唔到」但佢喺 `docs/deployment.md:9`、CUI-0043 個路徑同「只有方案 B」嘅假二分）。一個錯前提 = 一條 lane 行錯方向 30–45 分鐘 |
 
 ---
 
@@ -160,6 +162,21 @@ Commit：Conventional Commits（`feat` / `fix` / `refactor` / `chore` / `docs` /
 | 項目技術文件 | `docs/architecture.md`、`docs/data-pipeline.md`、`docs/deployment.md`、`docs/roadmap.md`、`docs/CHANGELOG.md` |
 
 編號全局唯一、永不重用；完成嘅保留紀錄只改狀態。
+
+### Census 唔准人手維護
+
+`.proj-docs/tickets.md` 入面三處數字（量度方法 block、Bucket 表、編號完整性核實）**永遠同一次點算，三處一齊改**，
+而且每次都要由指令重新生成，唔准憑記憶寫：
+
+```bash
+find .tickets -name 'CUI-*.md' | wc -l                      # 總數
+ls .tickets/pending/0001-0200/CUI-*.md 2>/dev/null | wc -l   # pending
+ls .tickets/completed/0001-0200/CUI-*.md | wc -l             # completed
+```
+
+⚠️ **S-125 / S-126 / S-127 三條 finding 全部係呢三處數錯。** S-125 最陰險：
+「編號連續 / 無跳號 / 無撞號」三句結論喺加票之後**照舊成立**，所以嗰段停留喺 `0001…0042` / 42 張
+（實際 52 張）都睇唔出過時。**會過時嘅係範圍同張數，唔係結論** —— 所以唔可以靠讀落順唔順嚟判斷。
 
 ---
 
