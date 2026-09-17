@@ -9,7 +9,11 @@
 
 ## 📋 CUI ticket census（權威總覽）
 
-**核實日期**：2026-09-16 ｜ **總數**：42 張（CUI-0001 … CUI-0042）
+**核實日期**：2026-09-17 ｜ **總數**：42 張（CUI-0001 … CUI-0042）
+
+> 量度方法（2026-09-17，base `6576e56`）：
+> `find .tickets -name 'CUI-*.md' | wc -l` → **42**；
+> `ls .tickets/<bucket>/0001-0200/CUI-*.md | wc -l` → pending **13** / in-progress **0** / completed **29**。
 
 > 呢個 section 係 CUI ticket 狀態嘅**權威快照**：每一行嘅狀態同「檔案實際位置」都經逐張核實，
 > 而唔係照抄下面各個 section 嘅敘述。下面有日期 heading 嘅 section 係**歷史紀錄，永不修改**；
@@ -22,14 +26,19 @@
 | ✅ completed | **29** | `.tickets/completed/0001-0200/` |
 | 🔄 in-progress | **0** | `.tickets/in-progress/0001-0200/`（空） |
 | ⏳ pending | **13** | `.tickets/pending/0001-0200/` |
-| | **40** | |
+| | **42** | |
+
+> ⚠️ 上表數嘅係**檔案位置**，唔係狀態。2026-09-17 之後兩者唔再一一對應：
+> `pending/` 嗰 13 個檔案入面，**CUI-0035 / CUI-0036 / CUI-0042 已經係 ✅ done**，
+> 刻意留喺 `pending/` 等一次過搬。狀態以下面全表同 ticket 檔案為準。
+> （之前個總數寫 40，係 CUI-0041 / CUI-0042 開咗之後冇更新；已按實測改成 42。）
 
 ### 編號完整性核實
 
-逐一列舉 `.tickets/` 下全部 `CUI-*.md` 檔名並同 `0001…0040` 對比：
+逐一列舉 `.tickets/` 下全部 `CUI-*.md` 檔名並同 `0001…0042` 對比：
 
-- **編號連續**：✅ 是 —— `0001` 到 `0040` 一個不缺
-- **無跳號**：✅ 是 —— 應有 40 張，實有 40 張
+- **編號連續**：✅ 是 —— `0001` 到 `0042` 一個不缺
+- **無跳號**：✅ 是 —— 應有 42 張，實有 42 張
 - **無撞號**：✅ 是 —— 每個編號只有一個檔案，冇一個編號出現兩次
 
 ### 全表
@@ -70,14 +79,14 @@
 | **CUI-0032** | 🟢 Low | `pytest-cov` 唔喺 `[dev]` extras，每次量 coverage 都要手動裝 | ✅ completed | `completed/` |
 | **CUI-0033** | 🟡 Medium | `track()` 契約仲有三個未對齊嘅邊界（`undefined` 上界、非整數/超 Int32 錯誤訊息、未知 id） | ✅ completed | `completed/` |
 | **CUI-0034** | 🟢 Low | `MAX_TRACK_POINTS` 係兩個獨立寫死嘅 1000，前端嗰個只被字面量釘住，唔係被 SDL 釘住 | ✅ completed | `completed/` |
-| **CUI-0035** | 🟡 Medium | Vercel 入口嘅 start-up 失敗路徑（`_error_app`）零測試，而且被 coverage 永久隱形 | ⏳ pending | `pending/` |
-| **CUI-0036** | 🟡 Medium | `npm audit` 從來冇喺任何 gate 行過：14 個已知漏洞（12 high）喺 devDependencies 鏈 | ⏳ pending | `pending/` |
+| **CUI-0035** | 🟡 Medium | Vercel 入口嘅 start-up 失敗路徑（`_error_app`）零測試，而且被 coverage 永久隱形 | ✅ **done 2026-09-17** | `pending/`（未搬）|
+| **CUI-0036** | 🟡 Medium | `npm audit` 從來冇喺任何 gate 行過：14 個已知漏洞（12 high）喺 devDependencies 鏈 | ✅ **done 2026-09-17**（gate；bump 未做）| `pending/`（未搬）|
 | **CUI-0037** | 🟡 Medium | `_page` / `_track_points` 嘅 bounds refusal 仍然每 request 寫 9 個絕對路徑 frame | ⏳ pending | `pending/` |
 | **CUI-0038** | 🟡 Medium | `REFUSAL_LOG_LEVEL` 改成 `WARNING` 可以殺死 CUI-0029 嘅頭號性質而 418 條測試全綠 | ⏳ pending | `pending/` |
 | **CUI-0039** | 🟡 Medium | 冇測試行過「同一 operation 同時帶 refusal 同 fault」，`process_errors` filter 係活 mutant | ⏳ pending | `pending/` |
 | **CUI-0040** | 🟢 Low | `service.tracks()` 收到負數 `points` 靜靜回 1 行，同 CUI-0033(a) 立嘅原則相反 | ⏳ pending | `pending/` |
 | **CUI-0041** | 🟢 Low | `finite_float()` 喺 `src/` 零 caller —— CUI-0011 方案 C 把 cast 收歸 `from_raw_row()`、有限性 gate 搬去 `finite()` 之後佢變死代碼；docstring 仍然宣稱佢守住九個 weather call site（實測：九個讀數分兩處 gate，6 daily 喺 `records.py`、3 hourly 喺 `builder.py`） | ✅ done | `pending/`（檔案未搬） |
-| **CUI-0042** | 🟢 Low | `tag-release.yml` 係單向流程：tag 一旦建咗，`Validate tag name` 就 `exit 1`，而 release step 只有 `gh release create` 冇 edit 路徑 ⇒ **CHANGELOG 喺 tag 之後嘅更正同步唔返落已發佈嘅 Release body**。v3.2.0 實際撞到，最後要人手喺 GitHub UI 改一隻字 | ⏳ pending | `pending/` |
+| **CUI-0042** | 🟢 Low | `tag-release.yml` 係單向流程：tag 一旦建咗，`Validate tag name` 就 `exit 1`，而 release step 只有 `gh release create` 冇 edit 路徑 ⇒ **CHANGELOG 喺 tag 之後嘅更正同步唔返落已發佈嘅 Release body**。v3.2.0 實際撞到，最後要人手喺 GitHub UI 改一隻字 | ✅ **done 2026-09-17** | `pending/`（未搬）|
 
 ### ⚠️ 核實過程發現
 

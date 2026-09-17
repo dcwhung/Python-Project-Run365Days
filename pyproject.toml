@@ -71,8 +71,16 @@ testpaths = ["tests"]
 # No `fail_under` either -- a threshold is one more hardcoded number that drifts
 # out of step with the thing it describes (CUI-0024, CUI-0031), and this project
 # reads coverage as a signal rather than as a gate.
+#
+# `api/` is in the denominator because api/graphql.py is the Vercel entry point,
+# the only production deploy entry this repo has; with `src` alone it could not
+# appear in any report, and its start-up failure path sat at 48% unnoticed
+# (S-066, CUI-0035). Adding it moved TOTAL from 1652/81/95% to 1696/81/95%
+# -- reproduce either figure with `pytest tests -q --cov` (both) or
+# `--cov=src` (src alone). Numbers recorded in .proj-docs/ before 2026-09-17
+# are the `src`-only ones.
 [tool.coverage.run]
-source = ["src"]
+source = ["src", "api"]
 
 [tool.ruff]
 line-length = 100

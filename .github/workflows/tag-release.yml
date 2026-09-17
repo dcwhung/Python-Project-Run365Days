@@ -3,6 +3,15 @@ name: Tag release
 # Manual release step: creates an annotated tag on a commit and, by default,
 # a GitHub Release whose notes are the matching section of docs/CHANGELOG.md.
 # Runs with the repository's GITHUB_TOKEN, so no secrets are needed.
+#
+# Two modes, picked by the `notes_only` input:
+#   notes_only: false (default) -- tag, then create the Release. Unchanged.
+#   notes_only: true            -- tag nothing; re-extract the notes and edit the
+#     already-published Release. This is the path for a CHANGELOG correction made
+#     after the tag was cut (CUI-0042, hit for real on v3.2.0), which previously
+#     had to be typed into the GitHub Release UI by hand, leaving no audit trail
+#     and letting the Release body drift from docs/CHANGELOG.md.
+#   `release` is ignored when notes_only is true: notes are the whole point of it.
 on:
   workflow_dispatch:
     inputs:
@@ -24,6 +33,11 @@ on:
         required: false
         default: true
         type: boolean
+      notes_only:
+        description: "Correct an already-published Release: re-extract its notes and edit it, tagging nothing"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -42,14 +56,36 @@ jobs:
           ref: ${{ inputs.ref }}
           fetch-depth: 0
 
+      # The two modes want opposite things from the same tag, so each one asserts
+      # its own direction and neither can be reached by accident:
+      #   notes_only: false -- the tag must NOT exist. Re-tagging a published
+      #     version is the mistake this has always blocked, and it still does.
+      #   notes_only: true  -- the tag MUST exist. Editing the notes of a release
+      #     that was never cut is the mirror-image mistake, and a typo'd tag name
+      #     lands here rather than silently doing nothing.
       - name: Validate tag name
+        env:
+          NOTES_ONLY: ${{ inputs.notes_only }}
         run: |
           [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Tag must look like v1.2.3, got '$TAG'"; exit 1; }
           if git ls-remote --tags origin "refs/tags/$TAG" | grep -q .; then
-            echo "Tag $TAG already exists on origin"; exit 1
+            exists=true
+          else
+            exists=false
+          fi
+          if [[ "$NOTES_ONLY" == "true" ]]; then
+            if [[ "$exists" != "true" ]]; then
+              echo "notes_only asked to correct $TAG, but no such tag exists on origin"; exit 1
+            fi
+            echo "notes_only: $TAG exists; the tag will not be touched"
+          elif [[ "$exists" == "true" ]]; then
+            echo "Tag $TAG already exists on origin"
+            echo "To correct an already-published Release's notes, re-run with notes_only: true"
+            exit 1
           fi
 
       - name: Create and push annotated tag
+        if: ${{ !inputs.notes_only }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -57,8 +93,10 @@ jobs:
           git push origin "refs/tags/$TAG"
           echo "Tagged $(git rev-parse --short HEAD) as $TAG"
 
+      # notes_only exists to re-derive these notes, so it needs this step whatever
+      # `release` says; `release` only governs the create path below.
       - name: Extract release notes from docs/CHANGELOG.md
-        if: inputs.release
+        if: ${{ inputs.release || inputs.notes_only }}
         env:
           # The changelog lives on the branch this workflow was dispatched from
           # (usually develop), not necessarily on the tagged ref (older release
@@ -78,5 +116,15 @@ jobs:
           echo "--- release notes ---"; cat release-notes.md
 
       - name: Create GitHub Release
-        if: inputs.release
+        if: ${{ inputs.release && !inputs.notes_only }}
         run: gh release create "$TAG" --title "$TAG" --notes-file release-notes.md --verify-tag
+
+      # The one path that writes to an existing Release. It is deliberately a
+      # separate step from `create` rather than a `create || edit` fallback: that
+      # fallback would turn "the tag already exists" from an error into a silent
+      # normal case, which is exactly the protection the validate step is for.
+      - name: Update the published Release notes
+        if: ${{ inputs.notes_only }}
+        run: |
+          gh release edit "$TAG" --notes-file release-notes.md
+          echo "Release $TAG now carries the docs/CHANGELOG.md section verbatim"
