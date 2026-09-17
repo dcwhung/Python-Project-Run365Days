@@ -1517,7 +1517,14 @@ def test_a_cheap_track_is_refused_once_the_points_budget_is_spent(year_client):
     data = body["data"]
 
     assert len(data["activities"]) == ACTIVITIES_THAT_FIT, "the spend itself must be served"
-    assert [n for n in range(CHEAP_ALIASES) if data[f"c{n}"] is not None] == []
+    # The refused thing is the `track` field, and since CUI-0018 (b) that is
+    # where the null stops: the aliased parent still arrives. Asserting the
+    # parents are gone was this test's original wording and is now exactly
+    # backwards -- a parent that vanished would mean the propagation came back.
+    assert [n for n in range(CHEAP_ALIASES) if data[f"c{n}"]["track"] is not None] == []
+    assert [n for n in range(CHEAP_ALIASES) if data[f"c{n}"] is None] == [], (
+        "a refused track must not take its own activity with it"
+    )
     messages = [e["message"] for e in body["errors"]]
     assert len(messages) == CHEAP_ALIASES
     # Named, not just counted: the field budget would refuse these too, and a
@@ -1542,7 +1549,9 @@ def test_a_field_that_overruns_the_points_budget_leaves_it_for_the_next_one(year
     data = body["data"]
 
     assert len(data["activities"]) == spend
-    assert data["over"] is None, f"{MAX_TRACK_POINTS} points must not fit in the {half} left"
+    assert data["over"]["track"] is None, (
+        f"{MAX_TRACK_POINTS} points must not fit in the {half} left"
+    )
     assert len(data["after"]["track"]) == half, "the refusal must not have spent the remainder"
 
 
@@ -1562,9 +1571,10 @@ def test_a_field_refused_on_points_leaves_the_field_budget_untouched_too(year_cl
     spend = (MAX_TRACK_POINTS_PER_REQUEST - half) // half
     slots_left = MAX_TRACK_FIELDS_PER_REQUEST - spend
     assert slots_left > 0, "the points spend must not exhaust the field budget by itself"
-    # `track` is non-null, so a refused child nulls its whole parent. Keeping
-    # the slots under one parent makes that all-or-nothing, and leaving the
-    # boundary probe a separate root field makes it null only itself.
+    # The slots are kept under one parent because that is the shape the field
+    # budget is interesting under -- many `track` fields, one activity. Since
+    # CUI-0018 (b) a refused one nulls only itself, so each slot is readable
+    # separately below rather than being folded into whether the parent lived.
     cheap_tracks = " ".join(f"t{n}: {CHEAP_TRACK}" for n in range(slots_left))
     fields = (
         _page_field(spend, _track_field(half)),
@@ -1576,9 +1586,13 @@ def test_a_field_refused_on_points_leaves_the_field_budget_untouched_too(year_cl
     data = body["data"]
 
     assert len(data["activities"]) == spend
-    assert data["over"] is None, f"{MAX_TRACK_POINTS} points must not fit in the {half} left"
+    assert data["over"]["track"] is None, (
+        f"{MAX_TRACK_POINTS} points must not fit in the {half} left"
+    )
     # The gate: had the refusal charged a field, the last of these would be
-    # refused and null its parent.
+    # refused and come back null. It is the list below that carries the
+    # assertion now -- before CUI-0018 (b) a single refused slot nulled `rest`
+    # itself, so the line above did the work and the list was a formality.
     assert data["rest"] is not None, f"the refusal must leave all {slots_left} field slots"
     assert [n for n in range(slots_left) if data["rest"][f"t{n}"] is None] == []
     messages = [e["message"] for e in body["errors"]]
@@ -1593,7 +1607,7 @@ def test_a_field_refused_on_points_leaves_the_field_budget_untouched_too(year_cl
         _document(*fields, f'past: activity(id: "{TRACKED_ACTIVITY_ID}") {{ {CHEAP_TRACK} }}'),
     )
     assert past["data"]["rest"] is not None, "the slots before the boundary are still served"
-    assert past["data"]["past"] is None
+    assert past["data"]["past"]["track"] is None
     assert str(MAX_TRACK_FIELDS_PER_REQUEST) in " ".join(e["message"] for e in past["errors"])
 
 
@@ -2120,6 +2134,289 @@ def test_a_refusal_and_a_fault_in_one_operation_are_logged_apart(year_client, ca
     assert not any("budget exhausted" in str(record.msg) for record in faults), (
         "the refusal went to the fault handler as well as to its own"
     )
+
+
+# ── CUI-0018 (a): a refusal a client can branch on without reading English ─
+LIST_ROW_BUDGET_CODE = "LIST_ROW_BUDGET_EXCEEDED"
+TRACK_POINTS_BUDGET_CODE = "TRACK_POINTS_BUDGET_EXCEEDED"
+TRACK_FIELD_BUDGET_CODE = "TRACK_FIELD_BUDGET_EXCEEDED"
+ARGUMENT_OUT_OF_RANGE_CODE = "ARGUMENT_OUT_OF_RANGE"
+"""The four codes as a client reads them off the wire.
+
+Spelled out here rather than imported from ``run365days.api.schema`` on
+purpose, and it is the one place in this file where that is the right way
+round. These strings *are* the contract: a client branches on the literal, so a
+test that imported the constant would follow a rename straight past the break
+it exists to catch and stay green while every deployed client stopped
+recognising the refusal. The SDL assertions below reach the same four strings
+by a second, independent path -- the field descriptions -- so a rename has to
+go wrong in two places at once to go unnoticed.
+"""
+
+CONTEXT_KEY_NAMES = ("track_points_remaining", "track_fields_remaining", "list_rows_remaining")
+"""The budget counters' context keys, which no refusal may name.
+
+W-013 decided the client is told what it asked for and not how the server
+counts it, and CUI-0018 explicitly does not reopen that: adding a machine-
+readable code is a way to stop clients parsing English, not a licence to
+publish the extension's internals under a new key.
+"""
+
+CODED_BUDGET_DOCUMENTS = (
+    pytest.param(
+        "{{ {} }}".format(
+            " ".join(f"{alias}: activities(limit: {MAX_PAGE_SIZE}) {{ id }}" for alias in "abcde")
+        ),
+        LIST_ROW_BUDGET_CODE,
+        id="list-rows",
+    ),
+    pytest.param(
+        _fan_out_query(YEAR_DAYS, MAX_TRACK_POINTS),
+        TRACK_POINTS_BUDGET_CODE,
+        id="track-points",
+    ),
+    pytest.param(
+        _cheap_tracks(MAX_TRACK_FIELDS_PER_REQUEST + 1),
+        TRACK_FIELD_BUDGET_CODE,
+        id="track-fields",
+    ),
+)
+"""One document per budget, and the code the client must be able to read off it.
+
+Three rather than the two in REFUSED_DOCUMENTS: that tuple exists to cover the
+two *raise sites*, and the track site raises for two different reasons that ask
+the client to turn two different dials. A code per raise site would have merged
+them and left a client that hit the points budget told only "too big".
+"""
+
+
+@pytest.mark.parametrize(("document", "code"), CODED_BUDGET_DOCUMENTS)
+def test_a_budget_refusal_carries_a_machine_readable_code(year_client, document, code):
+    # Before this, the only thing separating "your document is too greedy,
+    # shrink it and retry" from "the server broke, do not retry" was a
+    # substring of `message` -- and that message is an f-string over
+    # MAX_TRACK_POINTS_PER_REQUEST and friends, so tuning a budget silently
+    # broke every client matching on it.
+    body = year_client.post(GRAPHQL_PATH, json={"query": document}).get_json()
+
+    errors = body["errors"]
+    assert errors, "the document under test must actually be refused"
+    # Every error, not just the first: a fan-out is refused field by field, and
+    # a code attached at only one raise site would pass a `[0]` assertion.
+    assert [e.get("extensions", {}).get("code") for e in errors] == [code] * len(errors)
+
+
+@pytest.mark.parametrize(("document", "argument"), BOUNDS_REFUSED_DOCUMENTS)
+def test_a_bounds_refusal_carries_a_machine_readable_code(year_client, document, argument):
+    # One code for all three arguments and both ends of each range, because the
+    # remedy is the same every time: the value is outside what the SDL
+    # advertises, so retrying the same document never works and the client has
+    # to change the number. Which number is in `path` and `locations`, which
+    # CUI-0037 already made load-bearing.
+    body = year_client.post(GRAPHQL_PATH, json={"query": document}).get_json()
+
+    error = body["errors"][0]
+    assert error["extensions"]["code"] == ARGUMENT_OUT_OF_RANGE_CODE
+    # The two halves have to stay distinguishable: a client retries a budget
+    # refusal with a smaller ask and must not retry this one at all.
+    assert error["extensions"]["code"] != TRACK_POINTS_BUDGET_CODE
+
+
+@pytest.mark.parametrize(
+    "document",
+    [p.values[0] for p in CODED_BUDGET_DOCUMENTS] + [p.values[0] for p in BOUNDS_REFUSED_DOCUMENTS],
+)
+def test_a_coded_refusal_still_leaks_nothing_it_did_not_leak_before(year_client, document):
+    # The bound on the feature. `extensions` is a free-form map and the obvious
+    # next thing to put in it is "how much budget is left", which is exactly
+    # what W-013 kept out of the message. Measured as raw response text rather
+    # than by walking the parsed body, so a key added anywhere -- nested under
+    # a sub-object, or on an error this test did not think to look at -- is
+    # caught by the same line.
+    raw = year_client.post(GRAPHQL_PATH, json={"query": document}).get_data(as_text=True)
+
+    for key in CONTEXT_KEY_NAMES:
+        assert key not in raw, f"the refusal published the budget counter's own key `{key}`"
+    assert "Traceback" not in raw
+    assert "site-packages" not in raw
+    # The checkout's own path, which is what a rendered traceback would carry
+    # and the one absolute path this process can name without guessing.
+    assert str(Path(__file__).resolve().parents[1]) not in raw
+
+
+def test_a_server_fault_carries_no_client_refusal_code(year_client, monkeypatch):
+    # The other side of the line, and the mutant this kills is the tempting
+    # one: attaching the code in `process_errors`, or to `GraphQLError` itself,
+    # rather than at the four raise sites. Either makes a broken resolver look
+    # to the client exactly like a request it could fix by asking for less --
+    # which is the confusion the codes exist to end, reintroduced by the fix.
+    def explode(_session):
+        raise _ResolverFaultError("the database went away")
+
+    monkeypatch.setattr(service, "meta", explode)
+
+    body = year_client.post(GRAPHQL_PATH, json={"query": "{ meta { year } }"}).get_json()
+
+    code = body["errors"][0].get("extensions", {}).get("code")
+    assert code not in {
+        LIST_ROW_BUDGET_CODE,
+        TRACK_POINTS_BUDGET_CODE,
+        TRACK_FIELD_BUDGET_CODE,
+        ARGUMENT_OUT_OF_RANGE_CODE,
+    }, "a server fault must not be dressed as something the client asked for"
+
+
+def test_the_four_refusals_a_client_can_earn_carry_four_different_codes(year_client):
+    # Four codes are only worth having if a client can actually tell four
+    # things apart, so this counts what comes back off the wire rather than
+    # comparing the four literals above -- which would be a tautology, green
+    # against any schema at all, this file's own constants asserted against
+    # themselves. Measured instead: send one document per refusal and count the
+    # distinct codes the server chose.
+    documents = [p.values[0] for p in CODED_BUDGET_DOCUMENTS]
+    documents.append(BOUNDS_REFUSED_DOCUMENTS[0].values[0])
+
+    observed = set()
+    for document in documents:
+        body = year_client.post(GRAPHQL_PATH, json={"query": document}).get_json()
+        observed.update(e.get("extensions", {}).get("code") for e in body["errors"])
+
+    assert observed == {
+        LIST_ROW_BUDGET_CODE,
+        TRACK_POINTS_BUDGET_CODE,
+        TRACK_FIELD_BUDGET_CODE,
+        ARGUMENT_OUT_OF_RANGE_CODE,
+    }, "four remedies, and a client has to be able to tell which one it was told"
+
+
+TRACK_CODES = (TRACK_POINTS_BUDGET_CODE, TRACK_FIELD_BUDGET_CODE, ARGUMENT_OUT_OF_RANGE_CODE)
+"""Every code `Activity.track` can refuse with -- both budgets and its bounds check."""
+
+
+def test_the_sdl_names_every_code_track_can_refuse_with():
+    # S-012's pattern: the numbers a client needs are in the field description
+    # so it can be written against without sending a request first. A code is
+    # the same kind of fact, and a more useful one -- the numbers tell a client
+    # when it will be refused, the code tells it what to do about it.
+    #
+    # `run365-schema --check frontend/schema.graphql` is what keeps this honest
+    # once it passes: the description is regenerated into the SDL the front end
+    # builds against, so a code renamed here without regenerating reds CI.
+    description = build_schema_from_sdl(schema.as_str()).type_map["Activity"].fields["track"]
+    for code in TRACK_CODES:
+        assert code in (description.description or ""), (
+            f"`track` refuses with `{code}` and says so nowhere in the SDL"
+        )
+
+
+@pytest.mark.parametrize("field", LIST_FIELDS)
+def test_the_sdl_names_the_code_a_page_is_refused_with(field):
+    # The list fields spend a budget of their own and bounds-check their own
+    # window, so their readers need the same two facts `track`'s do. Held per
+    # field rather than on the shared note, so a note that stops being appended
+    # to one of the four is caught here.
+    description = _field_descriptions()[field]
+    assert LIST_ROW_BUDGET_CODE in description
+    assert ARGUMENT_OUT_OF_RANGE_CODE in description
+
+
+def test_the_year_description_names_the_budget_code_but_not_the_window_one():
+    # S-053 again: `year` pays the row budget without taking a window, so it
+    # carries the budget's code and must not carry a bounds code for arguments
+    # it does not have.
+    description = build_schema_from_sdl(schema.as_str()).query_type.fields["year"].description or ""
+    assert LIST_ROW_BUDGET_CODE in description
+    assert ARGUMENT_OUT_OF_RANGE_CODE not in description
+
+
+# ── CUI-0018 (b): a refused `track` costs that field and nothing else ──────
+SIBLING_SURVIVAL_DOCUMENT = (
+    "query { meta { year } "
+    f"activities(limit: {MAX_TRACK_FIELDS_PER_REQUEST + 1}, hasGps: true) "
+    "{ id distanceKm track(points: 1) { sec } } }"
+)
+"""The ticket's own document: one `track` too many, beside fields that cost nothing.
+
+`meta` is the point of it. It spends no budget, issues its own query and
+succeeds -- and until `track` became nullable the client got none of it,
+because the 65th `track`'s error climbed `[TrackPoint!]!` to `[Activity!]!` to
+the root and nulled `data` whole.
+"""
+
+
+def test_a_refused_track_does_not_take_its_siblings_with_it(year_client):
+    # Measured on the base commit (06ad4bd), this document answered
+    # `data: null` with one error: 64 tracks read and paid for, a `meta` that
+    # never touched a budget, and nothing returned. The budget is meant to
+    # refuse what the client over-asked for, not to throw away what it was
+    # already owed.
+    body = gql_partial(year_client, SIBLING_SURVIVAL_DOCUMENT)
+    data = body["data"]
+
+    assert data is not None, "one refused field must not null the whole response"
+    assert data["meta"]["year"] == 2021, "a field that spends no budget must still be served"
+
+    activities = data["activities"]
+    assert len(activities) == MAX_TRACK_FIELDS_PER_REQUEST + 1
+    # The refusal lands on exactly one field: the one past the cap, and only
+    # its `track`. Its `id` and `distanceKm` were resolved before it and are
+    # still there, which is the difference between nulling a field and nulling
+    # a response.
+    assert [n for n, a in enumerate(activities) if a["track"] is None] == [
+        MAX_TRACK_FIELDS_PER_REQUEST
+    ]
+    assert all(a["id"] and a["distanceKm"] is not None for a in activities)
+    # Served-but-empty and refused must stay distinguishable: only `r0` stores
+    # a track in this fixture, so the 63 activities behind it come back with
+    # `[]` rather than with null.
+    assert activities[1]["track"] == []
+
+    errors = body["errors"]
+    assert len(errors) == 1, "one field over the cap is one refusal"
+    assert errors[0]["extensions"]["code"] == TRACK_FIELD_BUDGET_CODE
+    assert errors[0]["path"] == ["activities", MAX_TRACK_FIELDS_PER_REQUEST, "track"]
+
+
+def test_the_sdl_leaves_the_track_list_nullable_and_its_samples_not():
+    # The schema change itself, read off the SDL rather than inferred from the
+    # behaviour above -- a resolver that happened to return `[]` instead of
+    # raising would satisfy that test without this one being true.
+    #
+    # Both halves, because only one of them moved. `[TrackPoint!]` is the
+    # target; `[TrackPoint]` would be the over-correction, asking every client
+    # to null-check samples that a served track never contains.
+    track = build_schema_from_sdl(schema.as_str()).type_map["Activity"].fields["track"]
+
+    assert not isinstance(track.type, GraphQLNonNull), (
+        "a non-null `track` makes every refusal fatal to the whole response"
+    )
+    assert isinstance(track.type, GraphQLList)
+    assert isinstance(track.type.of_type, GraphQLNonNull), (
+        "a served track holds no null samples, so its elements stay non-null"
+    )
+
+
+def test_the_sdl_says_a_refused_track_is_null_rather_than_fatal():
+    # The nullability is one character in the SDL and a client author reading
+    # the type alone has no reason to think the alternative was ever on the
+    # table. S-012's pattern again: the contract a client needs is in the
+    # description, under `run365-schema --check`.
+    description = build_schema_from_sdl(schema.as_str()).type_map["Activity"].fields["track"]
+
+    assert "nullable" in (description.description or "")
+
+
+def test_a_refused_page_still_takes_the_whole_response(year_client):
+    # The bound on (b), and the reason it is not "make refusals never fatal".
+    # `activities` is `[Activity!]!` and stays that way: a refused *page* has
+    # no field to be nulled into, so it propagates exactly as before. Pinned
+    # here so that (b) cannot be read as a promise it does not make, and so
+    # that widening the change to the list fields is a visible decision rather
+    # than a quiet one.
+    body = gql_partial(year_client, "{ meta { year } activities(limit: 0) { id } }")
+
+    assert body["data"] is None
+    assert body["errors"][0]["extensions"]["code"] == ARGUMENT_OUT_OF_RANGE_CODE
 
 
 # ── AU-050: one statement per batch of tracks, not two per track ───────────

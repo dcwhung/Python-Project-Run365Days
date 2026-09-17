@@ -161,6 +161,18 @@ export interface DataSource {
   year(): Promise<YearSummary>;
   activities(filter?: ActivityFilter): Promise<Activity[]>;
   activity(id: string): Promise<Activity | null>;
+  /**
+   * One run's sampled track, or a rejection.
+   *
+   * `TrackPoint[]` and not `TrackPoint[] | null`, in both modes, even though
+   * `Activity.track` became nullable in the SDL (CUI-0018 (b)). The schema's
+   * null means "this field was refused", and a refused field always arrives
+   * with an entry in `errors`, which `graphql-request` turns into a rejected
+   * promise under its default `errorPolicy`. Static mode reaches the same
+   * state by throwing from its own bounds check. So a caller writes one error
+   * path for both modes and never a null check: refused is a rejection here,
+   * and an empty array means a run that stored no track.
+   */
   track(id: string, points?: number): Promise<TrackPoint[]>;
   weight(range?: DateRange): Promise<WeightEntry[]>;
   weather(range?: DateRange): Promise<DailyWeather[]>;
