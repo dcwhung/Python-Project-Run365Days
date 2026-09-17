@@ -2454,9 +2454,16 @@ An allowlist rather than a denylist, which is the difference CUI-0050 made
 necessary. Before it, ``extensions={REFUSAL_CODE_KEY: code}`` was a literal, so
 "nothing but the code" held by construction and needed no gate. It is now a
 dict built up across two statements, so the invariant became one that can be
-lost -- measured: a third key added to it leaves all 573 tests green and still
-reaches the wire. ``CONTEXT_KEY_NAMES`` does not catch it, being three specific
-counter names; a key under any other spelling walks straight past.
+lost -- measured at ``99abfcc``, the commit before this gate: a third key added
+to it left all 573 tests green and still reached the wire. The same mutant now
+fails this test at every one of its parameters. ``CONTEXT_KEY_NAMES`` does not
+catch it, being three specific counter names; a key under any other spelling
+walks straight past.
+
+The 573 is the suite that commit collects, not a figure to re-derive from
+today's: a bare count here would have gone stale the moment this gate landed,
+which is the defect W-060 and W-017 are about and the one W-061 caught this
+docstring committing while fixing its own version of it.
 
 Spelled out rather than imported, for the reason the codes and
 :data:`REFUSAL_ARGUMENT_KEY` are: this is the wire contract, so a test that
