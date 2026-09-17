@@ -61,6 +61,11 @@ python -m venv .venv && .venv/bin/pip install -e ".[dev]"
 .venv/bin/ruff check src tests               # lint
 .venv/bin/ruff format --check src tests      # format check
 .venv/bin/run365-schema --check frontend/schema.graphql   # SDL 同 frontend 同步
+.venv/bin/pip install pip-audit -q && .venv/bin/pip-audit --progress-spinner=off
+# ↑ CI gate：審成個環境（10 個 runtime dep + [dev] extras + pip-audit 自己嘅 closure）。
+#   CI 個 step 會先 `python -m pip install --upgrade pip setuptools` 至 audit —— 唔 upgrade 就會見到
+#   14 條落喺 pip 24.0 / setuptools 79.0.1 嘅 advisory（全部有 fix version，所以 upgrade 係真修）。
+#   `run365days` 自己永遠被 skip（editable，唔喺 PyPI），所以唔用 `--strict`。
 
 # Frontend
 cd frontend

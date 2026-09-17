@@ -107,17 +107,32 @@ subpath Pages serves the site on. Vercel serves from the domain root and
 leaves it unset, where the config falls back to `/`. Both are shape facts
 rather than job steps, which is why they are written down here.
 
-One dependency-audit gate runs, on the frontend side only, and it is a hard
-gate: a failing audit stops the workflow like any other check. Its threshold
-today is the declared runtime `dependencies` closure rather than the whole
-tree, because the development tree carries pre-existing advisories that no
-single change could clear, and gating on those would park CI red on a backlog
-instead of on an exposure. Widening it to the full tree once those are cleared
-is the intended end state, not a regression. There is no Python-side audit
-gate: `pip-audit` has only ever been run by hand. Which threshold is in force
-is a policy fact rather than a job step, which is why it is written down here;
-the command itself, and the reasoning behind the current threshold, are in
-`pages.yml` beside the step.
+Two dependency-audit gates run, one per language side, and both are hard
+gates: a failing audit stops the workflow like any other check.
+
+The frontend gate audits the whole npm tree, devDependencies included. It
+carried `--omit=dev` until the development tree's advisories were cleared by
+a bump of the codegen and vitest roots, and widening it to the full tree was
+the stated end state of that narrower threshold rather than a regression.
+
+The Python gate upgrades `pip` and `setuptools` and then runs `pip-audit`
+over the environment the job installed: the declared dependencies, the
+`[dev]` extras and their transitives. That upgrade is a fix and not a
+suppression -- the advisories it removes all carry fix versions -- which is
+why an `--ignore-vuln` allowlist was rejected in its place; a list of
+exceptions drifts, and the gate then reports on the list rather than on the
+tree. It also means the runner's own `pip` version is in scope, so a future
+pip advisory published ahead of its fix would turn the gate red on something
+no pull request here can cause. That is deliberate. `pip-audit` always skips
+`run365days` itself, which is installed from the checkout and is not on PyPI,
+so the gate does not run with `--strict`.
+
+Both audits run last in their jobs. Either is expected to go red on an
+upstream advisory published since the last run rather than on anything a
+pull request did, and from the front of a job that buries the checks the
+author can act on. Which threshold is in force is a policy fact rather than a
+job step, which is why it is written down here; the commands themselves, and
+the reasoning behind each threshold, are in `pages.yml` beside the steps.
 
 The repository's `github-pages` environment must allow deployments from
 `develop` (Settings, Environments, Deployment branches). That rule lives
