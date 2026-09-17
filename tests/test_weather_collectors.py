@@ -40,6 +40,19 @@ def read_fixture(name: str) -> str:
     return (FIXTURE_DIR / name).read_text(encoding="utf-8")
 
 
+def one_row_history_page(cells: dict[int, str]) -> str:
+    """A daily-history page holding a single data row, cells given by column index.
+
+    Built here rather than added to ``freemeteo_day.html`` so the shared fixture
+    keeps saying one thing. Every cell freemeteo sends carries its unit, so a
+    unit-less cell cannot be expressed in that fixture without making it
+    unrepresentative of the page it stands for.
+    """
+    header = "".join("<th></th>" for _ in range(hourly._WEATHER_COL + 1))
+    row = "".join(f"<td>{cells.get(col, '')}</td>" for col in range(hourly._WEATHER_COL + 1))
+    return f'<table class="daily-history"><tr>{header}</tr><tr>{row}</tr></table>'
+
+
 @pytest.fixture(autouse=True)
 def block_real_sockets(monkeypatch):
     """Make any unfaked outbound connection fail loudly instead of scraping."""
@@ -305,6 +318,42 @@ class TestHourlyFetchDay:
         assert old_reading == "7"
         assert hourly._DESCRIPTION_MAP[old_reading] == "Rain"
         assert hourly._icon_code(script) is None
+
+    def test_a_wind_cell_without_its_unit_keeps_its_digits(self):
+        # hourly.py states in a comment that the units are "stripped by name so
+        # that a cell which arrives without its unit keeps its digits instead of
+        # losing its last few". Nothing held it: swapping `removesuffix` back
+        # for the old fixed-length `[:-5]` slice left all 525 tests green,
+        # because every wind cell in the fixtures carries " Km/h" and so never
+        # walks the path the sentence is about.
+        #
+        # Both cell shapes, since they reach the suffix by different routes --
+        # one splits on the bearing separator, the other strips a prefix.
+        assert hourly._wind_speed_kmh("Northeast 50° 24") == 24.0
+        assert hourly._wind_speed_kmh("Variable at 20") == 20.0
+        assert hourly._wind_speed_kmh("Northeast 50° 24 Km/h") == 24.0
+
+    def test_a_row_whose_cells_carry_no_units_is_read_at_full_precision(self, monkeypatch):
+        # The same claim for temperature and humidity, which are stripped inline
+        # in fetch_day rather than through a helper, so a pure-function test
+        # cannot reach them. Measured: `[:-2]` for °C and `[:-1]` for % each
+        # left all 525 tests green, turning 11 into None and 40 into 4 on a
+        # unit-less row -- a wrong number, not a missing one, for humidity.
+        page = one_row_history_page(
+            {
+                hourly._TIME_COL: "09:00",
+                hourly._TEMPERATURE_COL: "11",
+                hourly._WIND_COL: "Northeast 50° 24",
+                hourly._HUMIDITY_COL: "40",
+            }
+        )
+        install_fake_get(monkeypatch, hourly, {hourly._URL: page})
+
+        record = hourly.fetch_day("2021-01-01")[0]
+
+        assert record.temperature_c == 11.0
+        assert record.humidity_pct == 40.0
+        assert record.wind_kmh == 24.0
 
     def test_a_script_missing_the_call_prefix_is_not_read_as_a_code(self):
         # The mirror image of the test above, and the half of the guard nothing
