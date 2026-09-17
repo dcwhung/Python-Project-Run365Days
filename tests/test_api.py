@@ -2517,6 +2517,30 @@ def test_the_two_bounded_arguments_of_a_list_field_are_told_apart(year_client, f
     assert offset_error["extensions"][REFUSAL_ARGUMENT_KEY] == "offset"
 
 
+@pytest.mark.parametrize("field", LIST_FIELDS)
+def test_a_window_wrong_at_both_ends_names_the_argument_checked_first(year_client, field):
+    # `_page` is fail-fast: it checks `limit` and raises before it has looked
+    # at `offset`, so a client that got both wrong is told about `limit`,
+    # fixes it, and is refused a second time for `offset`. Every other test
+    # here sends exactly one argument out of range, so reordering the two
+    # checks -- to report the cheaper one first, say -- would pass all of them
+    # while silently costing that client a third round trip.
+    selection = LIST_WINDOW_SELECTION[field]
+    document = f"{{ {field}(limit: -5, offset: -1) {{ {selection} }} }}"
+
+    body = year_client.post(GRAPHQL_PATH, json={"query": document}).get_json()
+
+    errors = body["errors"]
+    # One refusal rather than one per bad argument: the client is told where
+    # to start, not handed a list, so "the first" is a fact about this wire
+    # shape and not just about which error happens to be at index 0.
+    assert len(errors) == 1
+    assert errors[0]["extensions"][REFUSAL_ARGUMENT_KEY] == "limit"
+    # Asserted against the SDL too, so the order is something a client can
+    # predict rather than discover on the second round trip.
+    assert "first of the two" in _field_descriptions()[field]
+
+
 @pytest.mark.parametrize(("document", "code"), CODED_BUDGET_DOCUMENTS)
 def test_a_budget_refusal_names_no_argument(year_client, document, code):
     # The bound on the new key, and the one a convenience default would have
