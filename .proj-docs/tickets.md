@@ -10,7 +10,7 @@
 
 ## 📋 CUI ticket census（權威總覽）
 
-**核實日期**：2026-09-17 ｜ **總數**：51 張（CUI-0001 … CUI-0051）
+**核實日期**：2026-09-17 ｜ **總數**：52 張（CUI-0001 … CUI-0052）
 
 > 量度方法（2026-09-17，base `6576e56`）：
 > `find .tickets -name 'CUI-*.md' | wc -l` → **42**；
@@ -26,8 +26,8 @@
 |---|---:|---|
 | ✅ completed | **45** | `.tickets/completed/0001-0200/` |
 | 🔄 in-progress | **0** | `.tickets/in-progress/0001-0200/`（空） |
-| ⏳ pending | **6** | `.tickets/pending/0001-0200/` |
-| **總計** | **51** | |
+| ⏳ pending | **7** | `.tickets/pending/0001-0200/` |
+| **總計** | **52** | |
 
 > ⚠️ **2026-09-17 後續（CUI-0049 / CUI-0044）**：兩張票狀態已轉 ✅ done，但**票檔冇搬**（依指示原地留喺
 > `pending/`）。所以上面「Bucket 數」仍然係**按檔案位置**數，completed **45** / pending **6** 未變 ——
@@ -41,6 +41,24 @@
 > 但**刻意冇搬去 `completed/`**，等 review / QA 過咗先由 main agent 統一搬。
 > 所以「檔案位置」同「狀態」而家**又唔一致**：`pending/` 嗰 6 張入面，3 張做咗、3 張未做。
 > Bucket 數係按檔案實際位置數嘅，所以照舊 completed 45 / pending 6，冇郁。
+>
+> ⚠️ **2026-09-17 review 後續（W-051）**：下面全表入面 **CUI-0048** 同 **CUI-0051** 兩行嘅描述欄
+> 係**開票時嘅讀法**，唔係落地結論。描述欄按 §7「完成嘅保留紀錄只改狀態」保持原文，所以結論記喺呢度 ——
+> 讀嗰兩行嘅時候要連埋呢段一齊讀：
+>
+> - **CUI-0048**：落地結論係「`-0.0` 當 `0`，行為不變、**唔係缺陷**」。`-0.0 == 0` 真、`-0.0 < 0` 假、
+>   `bool(-0.0)` 假 ⇒ guard（`points < 0`）同下面個 falsy 判斷對 `-0.0` 得出**同一個答案**，
+>   兩者一致本身就係契約，唔係契約入面一個窿。所以描述欄嗰句「漏咗 `-0.0` ⇒ 回成條 track」
+>   配住 ✅ done **唔係話「個窿補咗」**，而係「查清楚咗，本身冇窿」。行為由頭到尾冇改過。
+>   ⚠️ 張票 `CUI-0048.md` 個「建議」段原文仍然留住「Guard 改 `not (points > 0)`」——**唔好照做**。
+>   reviewer 同 cleanup lane 各自實測過：改完**紅 4 條**
+>   （`test_a_falsy_points_still_means_the_ceiling_rather_than_a_refusal` 嘅
+>   `[None]` / `[0]` / `[False]` / `[-0.0]` 四個 param），因為 `not (0 > 0)` 係 `True`，
+>   令合法值 `points=0` 即刻開始 raise。呢個係**開窿唔係補窿**。
+> - **CUI-0051**：描述欄寫「QA 用兩組 document 量到 102/332 同 161/239，兩組都唔等於」係 QA 嘅讀法。
+>   lane 同 reviewer 各自重量過，`103` / `341` bytes **一個字節不差** —— 個數從來冇錯，
+>   byte 數 100% 由 document 決定，QA 量到唔同數係因為換咗 document。
+>   真正嘅缺陷淨係「註釋冇講用邊個 document 量」，已經用方案 B（剷走個數、名咗 document）修咗。
 
 ### 編號完整性核實
 
@@ -105,6 +123,7 @@
 | **CUI-0049** | 🟡 Medium | `pages.yml` 註釋寫嗰 14 條 dev 樹 advisory「tracked separately in CUI-0036」，但 CUI-0036 已搬 `completed/` ⇒ 冇咗 owner。要 bump `@graphql-codegen/*` + `vitest` 再剷走 `--omit=dev` | ✅ **done 2026-09-17**（codegen cli 5→7 / client-preset 4→6 / vitest 3→5；全樹 `npm audit` 0 advisory；gate 剷走 `--omit=dev`）| `pending/`（**未搬**）|
 | **CUI-0050** | 🟢 Low | 四條 list field 嘅 `ARGUMENT_OUT_OF_RANGE` 分唔開 `limit` 定 `offset`（`path`/`locations`/`code` 三樣一樣，只有 message 唔同）⇒ client 照 SDL 講嘅「branch on the code」做唔到修正。W-035 方案 B 嘅承接票 | ✅ done | `pending/`（狀態已改，未搬）|
 | **CUI-0051** | 🟢 Low | CUI-0038 測試註釋引咗 `103`/`341` bytes 但冇講量邊個 document；QA 用兩組 document 量到 102/332 同 161/239，兩組都唔等於。同 S-068/S-069 同一種病 | ✅ done | `pending/`（狀態已改，未搬）|
+| **CUI-0052** | 🟢 Low | 兩個 supply-chain audit gate（`pip-audit` / `npm audit`）坐喺 `deploy` 上游（`build.needs = [lint-test, frontend]`、`deploy.needs = build`），而本 repo 每次 push `develop` 就 deploy ⇒ 一條同本 repo 完全無關嘅上游 advisory 可以停晒所有部署，包括 hotfix。兩份文件都認咗係刻意 trade，**唔當缺陷**；問題係要唔要解耦（標準做法：另開 `schedule:` audit workflow，**唔係** `continue-on-error`）。由 S-122 開出 | ⏸️ 待用戶決定 | `pending/` |
 
 ### ⚠️ 核實過程發現
 
@@ -1443,3 +1462,50 @@ Reviewer 亦補查咗 lane 冇講嘅一步：全前端**只得一個** document 
 Main agent 個重編 script 用咗 `f"S-0{n}"`，`n=100` 會砌出 `S-0100` 而唔係 `S-100`，
 所以最後一條冇被換 —— 正文變成 S-092…S-098 加一個孤兒 S-100，而 registry 嗰邊佢係 S-099。
 **由 CUI-0018 嗰輪 review 捉返**，已修正（正文全部 `S-100` → `S-099`，並喺報告頂部加咗補記）。
+
+---
+
+## 2026-09-17 Batch Review ×2 — CUI-0050 批次（86/100 ⚠️ warn）+ CUI-0047 批次（90/100 ✅ pass）
+
+**報告**：`.proj-docs/reviews/2026-09-17_review_CUI-0050_batch.md`（W-050、W-051、S-103…S-106）、
+`.proj-docs/reviews/2026-09-17_review_CUI-0047_batch.md`（W-060、S-120…S-124）
+**修復 branch**：`fix/review/W-050_batch-findings`（由 `99abfcc` 開），一個 review item 一個 commit。
+**Gate（修復後實測）**：pytest **586**（baseline 573，+13 全部係新 gate）、vitest **144 / 25 files**、
+ruff check + format 全綠、`run365-schema --check` up to date、`npm audit` 全樹 0、
+`pip-audit` upgrade 後 0、兩個 build mode 綠。
+
+### 🟡 Warning（3 條）
+
+| ID | 內容 | 狀態 |
+|---|---|---|
+| **W-050** | `ClientRefusalError.__init__` 起嘅 `extensions` dict 冇 allowlist gate，而 `REFUSAL_ARGUMENT_KEY` docstring 已經寫咗 `argument` 係「the second and **last** key this schema publishes」。CUI-0050 之前 `extensions={REFUSAL_CODE_KEY: code}` 係 literal，「只有 code」由構造保證；之後變成條件累加嘅 dict ⇒ 不變式變成**可以失去**但冇加返 gate。現有守衛 `test_a_coded_refusal_still_leaks_nothing_it_did_not_leak_before` 係 `CONTEXT_KEY_NAMES` 三個名嘅 **denylist**，改個名就過骨 | ✅ done（`70ca8d1`）—— 跟方案 A。**M6 mutant 由 cleanup lane 獨立重做兩次**：`published["retryAfter"] = "30"`，清 `__pycache__`，用一個唔經測試套件嘅獨立 oracle（自建 app + 讀 raw response text）確認 mutant 真係生效（`MUTANT_IN_LOADED_SOURCE=True`、wire body 見到 `"retryAfter":"30"`）。**修復前：573 passed 零紅**（一字不差重現 reviewer 嘅發現）；**修復後：同一個 mutant 紅 9 條**，正正係新測試嘅 9 個 param（3 個 budget document + 6 個 bounds document），其他一條都冇受影響。還原後 `src/api/schema.py` md5 對返 baseline `8001a616…`，`git status --porcelain` 空白 |
+| **W-051** | `.proj-docs/tickets.md` CUI-0048 嗰行描述寫「guard 漏咗 `-0.0` ⇒ 回成條 track」並標 ✅ done，但落地決定係「`-0.0` 當 `0`、行為不變、**唔係缺陷**」⇒ 配上 done 會被讀成「個窿補咗」，同事實相反。CUI-0051 嗰行亦仍然寫「兩組都唔等於」，冇記低 103 / 341 重現到一個字節不差 | ✅ done（`5c46e31`）—— 跟方案 A，改 registry 現有嘅「⚠️ 2026-09-17 後續」note block，**冇郁票檔**（CLAUDE.md §7「完成嘅保留紀錄只改狀態」）。順手獨立重驗咗 `CUI-0048.md` 個「建議」段嗰個 `not (points > 0)`：oracle 確認 mutant 載入後，**實測紅 4 條**（`test_a_falsy_points_still_means_the_ceiling_rather_than_a_refusal` 嘅 `[None]`/`[0]`/`[False]`/`[-0.0]`），同 reviewer 數目一致 —— 已經喺 note block 明文寫咗「唔好照做」 |
+| **W-060** | `CLAUDE.md` §6 寫「`frontend/src/gql/graphql.ts` 由 **345** 行縮到 **69** 行」，但 `wc -l` 量到 **351 → 75**（兩個都剛好細 6，即係冇計頭 6 行 preamble）。Delta（−276）本身啱。諷刺位：同一個 commit 先啱啱剷走 `graphql.ts:318` 呢個失效行號 | ✅ done（`f3e2bf5`）—— 跟方案 B 剷走絕對行數，**但冇照用 reviewer 建議嗰個「約 78%」**。cleanup lane 自己重量：`wc -l` = **75**（同 reviewer 一致，唔係 69），檔案零個 `Maybe`/`InputMaybe`/`Scalars`。而 78% 係 78.63% 嘅**截斷**（正確四捨五入係 79%）；更要緊嘅係**百分比本身都跟計法變**：276/351 = 78.63%，276/345 = 80.00%，只有 delta（−276）兩種計法一致 ⇒ 用第三個「跟計法變」嘅數換走兩個，等於用細啲嘅字重犯同一個病。最後寫「**縮減超過 3/4**」（兩種計法都成立），並喺同一 row 明文寫低點解唔寫絕對行數 |
+
+### 🟢 Suggestion（9 條）
+
+| ID | 內容 | 狀態 |
+|---|---|---|
+| **S-103** | 四條 list field 嘅 SDL 只講有 `extensions.argument`，冇講個值係 `"limit"` / `"offset"`；`track` 就寫到明 `argument: "points"` 而且測試連值都 assert。四條 SDL 測試亦只 assert `"argument"` 呢個字串存在 | ✅ done（`b430f2e`）—— 跟方案 A：`PAGE_WINDOW_NOTE` 補返兩個值，四條 SDL 測試由 assert key 升級成 assert 埋兩個值（用**帶引號**嘅 `"limit"` / `"offset"`，所以同一句入面 bare `limit` 滿足唔到）。⚠️ 改完跑咗 `run365-schema > frontend/schema.graphql`；規生成前 `--check` 實測 exit 1，證實個 gate 有牙 |
+| **S-104** | `limit` 同 `offset` 同時越界時只 name `limit`（`_page` fail-fast，先查 `limit`）。SDL 寫「naming which of the two was refused」讀落似只可能一個錯。唔係 regression，但**冇測試釘住次序** | ✅ done（`121d59a`）—— 跟方案 A：SDL 加半句講明係「the first of the two that is out of range」同埋 `limit` 行先，加一條跨四條 list field 嘅次序測試。**Mutation-proven**：把 `_page` 兩個 `raise` block 掉轉（oracle 讀返源碼確認次序真係換咗），修復前成套綠，新測試**紅 4 條**（四條 list field 各一）—— 證實舊狀態下呢個調轉真係靜靜雞過 |
+| **S-105** | `tests/test_api.py` CUI-0038 段寫「it reproduces the figures it quoted exactly」，但 CUI-0051 方案 B 已經把 103 / 341 剷走晒 ⇒ 呢句指住一啲 repo 入面唔存在嘅數，冇人 check 得到 | ✅ done（`5dc0f3d`）—— 跟方案 A，改成指去 CUI-0051。落之前核實過 `CUI-0051.md:18` **真係仲有** 103 同 341 兩個數，唔係再種一個死 reference |
+| **S-106** | `src/api/service.py` `tracks()` 標註 `points: int | None`，但 docstring 大篇幅講 `-0.0` 同 `2.5`（兩個都係 float，已經喺 annotation 以外）。內容全部正確，只係冇講明呢啲係 annotation 以外但 runtime 到得嘅值 | ✅ done（`082c481`）—— 跟方案 A，`Args:` 補半句，並明寫「唔係放寬接受嘅型別」。零行為改動 |
+| **S-120** | `CLAUDE.md` §3 嘅本地 pip-audit 指令同 CI 唔等價：CI 個 step 第一行係 `python -m pip install --upgrade pip setuptools`，文件冇 | ✅ done（`3d6fc2d`）—— upgrade 一行加返入指令本身。**兩邊都實測過**：本 worktree `.venv` 正正就係 pip **24.0** / setuptools **79.0.1**，未 upgrade 跑 `pip-audit` 見到 **14 條**（pip ×12、setuptools ×2，`run365days` 被 skip）；upgrade 到 pip **26.2.1** / setuptools **84.0.0** 之後 **No known vulnerabilities found，exit 0** —— 同 reviewer 報嘅數逐項吻合 |
+| **S-121** | `docs/deployment.md` 講 scope 時漏咗 pip-audit 自己個 closure（CacheControl、cyclonedx-python-lib、requests、rich …），而 `pages.yml` 誠實寫咗，仲寫埋「a red here can in principle come from a package only pip-audit needs」。`deployment.md` 自稱係 policy 嘅 SSoT | ✅ done（`01654ae`）—— 補返個 closure 同埋嗰句認低咗嘅成本 |
+| **S-122** | 兩個 audit gate 坐喺 `deploy` 上游（實測 `build.needs = [lint-test, frontend]`、`deploy.needs = build`、兩個 job 都 `if: github.ref == 'refs/heads/develop'`），而本 repo 每次 push `develop` 就 deploy ⇒ 一條無關嘅上游 advisory 可以停晒部署包括 hotfix。**兩份文件都冇出現「deploy」呢個字**。刻意 trade，**唔當缺陷** | ✅ done（`857fc94`）—— (a) `docs/deployment.md` 明寫咗呢個 trade，**冇郁 workflow**；(b) 開咗 **CUI-0052**（⏸️ 待用戶決定）記低「要唔要把 supply-chain audit 由部署路徑解耦」，並明寫 `continue-on-error` **唔係**答案（等於閹咗個 gate，同 CUI-0044 否決 `--ignore-vuln` 係同一個道理，先例 W-034 / S-095） |
+| **S-123** | Benchmark 讀數冇 assertion 釘住，同 oracle 讀數嘅待遇唔一致：`tests/test_common_geo.py` 個 `_unguarded_haversine` docstring 明寫讀數「stay bound to an assertion (W-017)」，但 `geo.py` 個 guard comment 講讀數「are in the ticket」⇒ benchmark 數淨係喺 ticket 度飄。即係 **W-017 只應用咗一半** | 📝 記錄（唔改 code）—— reviewer 自己重量過所有數都仲準，唔緊急。留喺度等下次掂 `geo.py` 嗰陣一併處理 |
+| **S-124** | Lane 向 main agent 報嘅「int literal 貴 **40%+**」撈埋咗兩個獨立效應。隔離之後：int-literal 效應係 **+27%**（float-chained → int-chained）或 **+47%**（`abs`+float → `abs`+int），視乎同邊個比；`abs()` vs chained 係另一個效應。**Code comment 本身冇寫呢個 40%**，純粹係 reporting 層嘅精度問題 | 📝 記錄（唔改 code）—— 代碼冇嘢要改 |
+
+### Cleanup lane 同 review 報告唔同意嘅地方（全部有實測）
+
+1. **W-060 個「約 78%」冇照用**。78% 係 78.63% 嘅截斷（正確係 79%），而且百分比**跟計法變**
+   （`wc -l` 78.63% vs 舊計法 80.00%），只有 delta −276 兩種計法一致。用一個新嘅「跟計法變」嘅數
+   換走兩個舊嘅，冇解決 W-060 嗰個病。改用「縮減超過 3/4」（兩種計法都成立）。
+2. **W-050 建議稿嘅 symbol 全部核實過先落**：`CODED_BUDGET_DOCUMENTS`（3 個）、
+   `BOUNDS_REFUSED_DOCUMENTS`（6 個）、`REFUSAL_ARGUMENT_KEY`、`p.values[0]` 呢個取值寫法
+   —— 四樣都真係存在，而且 `p.values[0]` 嘅組合式喺 `tests/test_api.py:2331` 已經有**一模一樣**嘅先例。
+   建議稿可以照落，**冇紅**。唯一要注意嘅係擺位：`REFUSAL_ARGUMENT_KEY` 定義喺 2437 行，
+   所以個 allowlist 常數要擺喺佢**之後**（報告講「接喺 `CONTEXT_KEY_NAMES` 同 `REFUSAL_ARGUMENT_KEY` 之後」
+   係啱嘅，但兩個 symbol 隔咗 170 行，照字面擺喺 `CONTEXT_KEY_NAMES` 後面會 `NameError`）。
+3. **S-103 / S-104 兩條都掂同一句 `PAGE_WINDOW_NOTE`**，分兩個 commit 落，順序 S-103 → S-104，
+   每個 commit 都各自重生咗一次 SDL。兩條都冇改 schema 結構（只係 description）。

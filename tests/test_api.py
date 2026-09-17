@@ -1825,10 +1825,13 @@ def test_a_budget_refusal_is_not_logged_as_a_server_fault(year_client, caplog, d
     # document's own text handed back, and the remainder is the refusal's
     # English -- which this schema's own field descriptions tell clients not to
     # depend on, since it quotes limits that move whenever a budget is tuned.
-    # Re-measured here on the two documents named above, it reproduces the
-    # figures it quoted exactly, so they were never wrong; what was missing was
-    # the sentence that let anyone check, which is the S-068 / S-069 defect and
-    # S-098's answer to it.
+    # Re-measured here on the two documents named above, it reproduced the
+    # figures that earlier version quoted exactly, so they were never wrong.
+    # Those figures are in CUI-0051, which is where to look for them: this
+    # comment no longer carries them, so "the figures it quoted" would
+    # otherwise point at nothing this repository still holds. What was missing
+    # was the sentence that let anyone check, which is the S-068 / S-069 defect
+    # and S-098's answer to it.
     #
     # The qualitative half is the half the mutation test actually needed, and
     # it is the half that has a gate rather than a comment:
@@ -2444,6 +2447,22 @@ reach it by a second path -- the field descriptions -- so a rename has to go
 wrong twice to go unnoticed.
 """
 
+PUBLISHED_EXTENSION_KEYS = frozenset({"code", REFUSAL_ARGUMENT_KEY})
+"""Every key a refusal's ``extensions`` may carry, as a client reads them.
+
+An allowlist rather than a denylist, which is the difference CUI-0050 made
+necessary. Before it, ``extensions={REFUSAL_CODE_KEY: code}`` was a literal, so
+"nothing but the code" held by construction and needed no gate. It is now a
+dict built up across two statements, so the invariant became one that can be
+lost -- measured: a third key added to it leaves all 573 tests green and still
+reaches the wire. ``CONTEXT_KEY_NAMES`` does not catch it, being three specific
+counter names; a key under any other spelling walks straight past.
+
+Spelled out rather than imported, for the reason the codes and
+:data:`REFUSAL_ARGUMENT_KEY` are: this is the wire contract, so a test that
+followed a rename would stay green while every deployed client broke.
+"""
+
 LIST_WINDOW_SELECTION = MappingProxyType(
     {"activities": "id", "weight": "date", "weather": "date", "warnings": "date"}
 )
@@ -2498,6 +2517,30 @@ def test_the_two_bounded_arguments_of_a_list_field_are_told_apart(year_client, f
     assert offset_error["extensions"][REFUSAL_ARGUMENT_KEY] == "offset"
 
 
+@pytest.mark.parametrize("field", LIST_FIELDS)
+def test_a_window_wrong_at_both_ends_names_the_argument_checked_first(year_client, field):
+    # `_page` is fail-fast: it checks `limit` and raises before it has looked
+    # at `offset`, so a client that got both wrong is told about `limit`,
+    # fixes it, and is refused a second time for `offset`. Every other test
+    # here sends exactly one argument out of range, so reordering the two
+    # checks -- to report the cheaper one first, say -- would pass all of them
+    # while silently costing that client a third round trip.
+    selection = LIST_WINDOW_SELECTION[field]
+    document = f"{{ {field}(limit: -5, offset: -1) {{ {selection} }} }}"
+
+    body = year_client.post(GRAPHQL_PATH, json={"query": document}).get_json()
+
+    errors = body["errors"]
+    # One refusal rather than one per bad argument: the client is told where
+    # to start, not handed a list, so "the first" is a fact about this wire
+    # shape and not just about which error happens to be at index 0.
+    assert len(errors) == 1
+    assert errors[0]["extensions"][REFUSAL_ARGUMENT_KEY] == "limit"
+    # Asserted against the SDL too, so the order is something a client can
+    # predict rather than discover on the second round trip.
+    assert "first of the two" in _field_descriptions()[field]
+
+
 @pytest.mark.parametrize(("document", "code"), CODED_BUDGET_DOCUMENTS)
 def test_a_budget_refusal_names_no_argument(year_client, document, code):
     # The bound on the new key, and the one a convenience default would have
@@ -2512,13 +2555,43 @@ def test_a_budget_refusal_names_no_argument(year_client, document, code):
         assert REFUSAL_ARGUMENT_KEY not in error["extensions"]
 
 
+@pytest.mark.parametrize(
+    "document",
+    [p.values[0] for p in CODED_BUDGET_DOCUMENTS] + [p.values[0] for p in BOUNDS_REFUSED_DOCUMENTS],
+)
+def test_a_refusal_publishes_no_extension_key_beyond_the_two(year_client, document):
+    # The gate under REFUSAL_ARGUMENT_KEY's own first sentence, which calls
+    # `argument` "the second and last key this schema publishes" -- a claim
+    # about the future that nothing held until this test. Held over the same
+    # list the codes and the arguments are held over, so a raise site added
+    # later is measured by all three lines at once.
+    #
+    # Read off the parsed body rather than the raw text on purpose: this is the
+    # complement of `test_a_coded_refusal_still_leaks_nothing_it_did_not_leak_before`,
+    # which reads raw text to catch a key *anywhere*. That one bans three names;
+    # this one admits two. A new key needs a decision in both places to land.
+    body = year_client.post(GRAPHQL_PATH, json={"query": document}).get_json()
+
+    for error in body["errors"]:
+        extra = set(error["extensions"]) - PUBLISHED_EXTENSION_KEYS
+        assert not extra, f"the refusal published an extension key nothing decided on: {extra}"
+
+
 @pytest.mark.parametrize("field", LIST_FIELDS)
 def test_the_sdl_names_the_key_that_says_which_argument_was_refused(field):
     # Same standard the codes are held to (S-012): a client writes against the
     # SDL, so a key it is expected to read has to be in the SDL rather than
     # discovered by triggering the error. `run365-schema --check` carries it
     # into `frontend/schema.graphql` from there.
-    assert REFUSAL_ARGUMENT_KEY in _field_descriptions()[field]
+    description = _field_descriptions()[field]
+    assert REFUSAL_ARGUMENT_KEY in description
+    # The values too, to the standard `track` was already held to: it spells
+    # out `argument: "points"` and asserts that value below, while these four
+    # named the key and left a client to guess whether it reads back `limit`
+    # or `Query.activities.limit`. Quoted here as they are quoted in the SDL,
+    # so the bare word `limit` elsewhere in the same sentence cannot pass this.
+    assert '"limit"' in description
+    assert '"offset"' in description
 
 
 def test_the_sdl_says_track_names_its_argument_too():

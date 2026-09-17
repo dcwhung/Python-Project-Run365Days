@@ -117,7 +117,12 @@ the stated end state of that narrower threshold rather than a regression.
 
 The Python gate upgrades `pip` and `setuptools` and then runs `pip-audit`
 over the environment the job installed: the declared dependencies, the
-`[dev]` extras and their transitives. That upgrade is a fix and not a
+`[dev]` extras and their transitives, and `pip-audit`'s own closure
+(CacheControl, cyclonedx-python-lib, requests, rich and the rest), which
+installing the auditor into that same environment pulls in. That last part is
+the price of auditing an environment rather than a lockfile, and it is worth
+stating in the policy: a red here can in principle come from a package only
+`pip-audit` itself needs. It has not so far. That upgrade is a fix and not a
 suppression -- the advisories it removes all carry fix versions -- which is
 why an `--ignore-vuln` allowlist was rejected in its place; a list of
 exceptions drifts, and the gate then reports on the list rather than on the
@@ -133,6 +138,17 @@ pull request did, and from the front of a job that buries the checks the
 author can act on. Which threshold is in force is a policy fact rather than a
 job step, which is why it is written down here; the commands themselves, and
 the reasoning behind each threshold, are in `pages.yml` beside the steps.
+
+Both gates sit upstream of deployment. They run in `lint-test` and `frontend`,
+`build` needs both, and `deploy` needs `build`, so on `develop` -- the only
+branch that deploys, and one that deploys on every push -- an advisory
+published upstream and unrelated to anything in this repository can hold every
+deployment, a hotfix included. That is the accepted price of hard gates rather
+than advisory ones, and it is stated here so the trade reads as a decision
+already taken rather than one discovered during an incident. Decoupling the
+audits from the deployment path is open as CUI-0052; `continue-on-error` is
+not the answer, since it would leave the gate on the page while removing its
+only effect.
 
 The repository's `github-pages` environment must allow deployments from
 `develop` (Settings, Environments, Deployment branches). That rule lives

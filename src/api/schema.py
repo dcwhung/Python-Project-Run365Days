@@ -1042,10 +1042,11 @@ PAGE_WINDOW_NOTE = (
     f" The window is `limit` (1-{MAX_PAGE_SIZE}) rows from `offset` (0 or more); "
     "either side of that range is refused rather than clamped -- with "
     f"`extensions.{REFUSAL_CODE_KEY}` `{ARGUMENT_OUT_OF_RANGE_CODE}`, which retrying "
-    f"unchanged never fixes, and with `extensions.{REFUSAL_ARGUMENT_KEY}` naming which "
-    "of the two was refused, since both sit at the same `path` and the same "
-    "`locations` -- and the budget above is charged on `limit` as asked for "
-    "rather than on the rows a page turns out to hold."
+    f"unchanged never fixes, and with `extensions.{REFUSAL_ARGUMENT_KEY}` naming the "
+    'first of the two that is out of range (`"limit"` or `"offset"`; `limit` is checked '
+    "first, so a request with both wrong names `limit` until `limit` is valid), since "
+    "both sit at the same `path` and the same `locations` -- and the budget above is "
+    "charged on `limit` as asked for rather than on the rows a page turns out to hold."
 )
 """Sentence appended to every field that takes a ``limit``/``offset`` page window.
 
