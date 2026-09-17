@@ -19,7 +19,13 @@ from bs4 import BeautifulSoup
 from run365days.cli.collect_weather import _write_jsonl
 from run365days.dashboard.builder import hourly_at, load_jsonl, warnings_by_date
 from run365days.export.records import daily_weather_record, warning_record
-from run365days.weather.collectors import WeatherPageStructureError, hko_daily, hourly, warnings
+from run365days.weather.collectors import (
+    WeatherPageStructureError,
+    _parsing,
+    hko_daily,
+    hourly,
+    warnings,
+)
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "weather"
 
@@ -410,6 +416,40 @@ def warning_routes(day_fixture: str = "hko_warning_day.html") -> dict:
     }
 
 
+class TestParsingFallbacks:
+    """The two defensive branches in `_parsing`, which line coverage cannot see.
+
+    `_parsing.py` reports 100% of its statements covered, and both guards below
+    could still be deleted with the whole suite green: the lines are executed
+    on every page, it is only the `else` side of each that no fixture reaches.
+    A worked example of what a line-coverage number does not promise (S-088).
+    """
+
+    def test_a_multi_valued_attribute_falls_back_instead_of_returning_a_list(self):
+        # bs4 answers with a list for attributes HTML defines as multi-valued.
+        # None of the attributes actually read here is one, so the isinstance
+        # check is what keeps a list from being handed to a caller annotated
+        # `str`. Measured: deleting it left all 527 tests green, because no
+        # fixture asks for such an attribute.
+        cell = BeautifulSoup('<td><img class="a b" src="x.png"/></td>', "html.parser").td
+
+        assert _parsing.child_attr(cell, "img", "class", "fallback") == "fallback"
+        assert _parsing.child_attr(cell, "img", "src", "fallback") == "x.png"
+
+    def test_a_child_holding_no_single_string_reads_as_absent(self):
+        # An empty <script> is the shape this hits in practice, and `.string`
+        # is None for it. Without the check, `str(child.string)` returns the
+        # four-character string "None" -- a value that reads as content.
+        # Measured: deleting it left all 527 tests green, because today
+        # `_icon_code` refuses "None" anyway. That is a guard leaning on
+        # another guard, and the one it leans on is itself only pinned as of
+        # W-031, so this says it directly rather than through the collector.
+        cell = BeautifulSoup("<td><script></script></td>", "html.parser").td
+
+        assert _parsing.child_string(cell, "script") is None
+        assert _parsing.child_string(cell, "img") is None
+
+
 class TestWarningSignalMetadata:
     def test_maps_each_icon_alt_to_its_index_and_warning_type(self, monkeypatch):
         install_fake_get(monkeypatch, warnings, warning_routes())
@@ -502,11 +542,10 @@ class TestWarningsFetchDay:
         # collection instead, which reds the file without saying which promise
         # was withdrawn.
         collectors = importlib.import_module("run365days.weather.collectors")
-        parsing = importlib.import_module("run365days.weather.collectors._parsing")
         published = getattr(collectors, "WeatherPageStructureError", None)
 
         assert published is not None, "the documented Raises: type left the public surface"
-        assert published is parsing.WeatherPageStructureError, (
+        assert published is _parsing.WeatherPageStructureError, (
             "the public name must be the class the collectors actually raise, not a copy"
         )
         assert "WeatherPageStructureError" in collectors.__all__
