@@ -1283,6 +1283,17 @@ Reviewer 打 15/15 嘅測試覆蓋維度係啱嘅（行覆蓋真係 100%），�
 三個 reviewer 並行，各自 review 一組 lane。⚠️ 三個都被派咗重疊嘅 ID 起點，**merge 時已統一重編**，
 下表用嘅係重編後嘅號；每份報告頂部都有原↔新對照表。
 
+> ⚠️ **`2026-09-17_review_CUI-0036_batch.md` 正文個重編冇做齊**（2026-09-17 修 batch 時發現）。
+> 佢頂部話「S-093…S-100 → S-092…S-099、正文其餘部分一字未動」，但正文實際有五個 heading
+> 已經係新號（S-092/093/094/095/096），另外三個仍然係舊號。**以本表為準**（CLAUDE.md §7：
+> tickets.md 係 ticket registry SSoT）。按內容對應如下：
+>
+> | 報告正文 heading | 本表（正確）| 內容 |
+> |---|---|---|
+> | `S-098` | **S-097** | audit step 擺喺 `Lint` 之前 |
+> | `S-100` | **S-098** | `pyproject.toml` coverage 絕對數 stale |
+> | `S-097` | **S-099** | 拆 `tests/test_api.py` |
+
 | 報告 | 範圍 | 分數 | Finding |
 |---|---|---|---|
 | [`2026-09-17_review_CUI-0037_batch.md`](reviews/2026-09-17_review_CUI-0037_batch.md) | CUI-0037 / 0038 / 0039 / 0040 / 0005 | **92 ✅ pass** | W-030、S-083…S-086 |
@@ -1293,32 +1304,32 @@ Reviewer 打 15/15 嘅測試覆蓋維度係啱嘅（行覆蓋真係 100%），�
 
 | ID | 內容 | 狀態 |
 |---|---|---|
-| **W-030** | `REFUSAL_LOG_LEVEL` 嘅斷言係**單邊**：`logging.DEBUG` mutant 喺 **492 條測試面前生還**。CUI-0038 成張票嘅主旨就係「一條單邊斷言放生咗一個 mutant」，而個修正**留低咗對面嗰邊** —— DEBUG 之下 operator 照文件把 level 降到 `INFO` 會**一條 refusal 都見唔到**，違反常數自己 docstring 許嘅承諾。Lane 報「四個 level 全殺」唔準確（WARNING/ERROR/CRITICAL 死，DEBUG 生還） | pending |
-| **W-031** | `_icon_code` 個 `start < 0` guard 可以刪咗而 **492 條測試全綠**。**唔係等價 mutant**：`'x26y'` 真實答 `Unknown`，mutant 答 `Snow`（`start==end==-1` 時 `end < start` 係 `False`，guard 放行 `t[1:-1]`）。正正係 lane 為另一半寫測試去防嘅嗰種情況；lane 報「5/5 killed」唔準確 | pending |
-| **W-032** | `WeatherPageStructureError` 係 `warnings.fetch_day` / `fetch_range` **public `Raises:`** 宣告嘅失敗模式，但住喺**私有** `_parsing.py`。`cli/collect_weather.py` 而家伸手入另一個 package 嘅私有 module 去接。契約同可達性自相矛盾 —— `_` 前綴本身就係話「呢度可以隨便改」 | pending |
-| **W-034** | `pages.yml` 個 audit step comment 寫 `--omit=dev` 審「**what actually ships to a browser**」。實測 `dist/` ：vite 個 `modulepreload-polyfill` 同成份 **21.64 kB** Tailwind CSS 都真係 ship 咗，而兩者都係 devDependency。準確講法係「declared `dependencies` closure」。**gate 行為啱，錯嘅係理由書** —— 而嗰句正正係將來決定「幾時放寬」時會讀嘅嗰句 | pending |
+| **W-030** | `REFUSAL_LOG_LEVEL` 嘅斷言係**單邊**：`logging.DEBUG` mutant 喺 **492 條測試面前生還**。CUI-0038 成張票嘅主旨就係「一條單邊斷言放生咗一個 mutant」，而個修正**留低咗對面嗰邊** —— DEBUG 之下 operator 照文件把 level 降到 `INFO` 會**一條 refusal 都見唔到**，違反常數自己 docstring 許嘅承諾。Lane 報「四個 level 全殺」唔準確（WARNING/ERROR/CRITICAL 死，DEBUG 生還） | ✅ done（`2d67fee`） |
+| **W-031** | `_icon_code` 個 `start < 0` guard 可以刪咗而 **492 條測試全綠**。**唔係等價 mutant**：`'x26y'` 真實答 `Unknown`，mutant 答 `Snow`（`start==end==-1` 時 `end < start` 係 `False`，guard 放行 `t[1:-1]`）。正正係 lane 為另一半寫測試去防嘅嗰種情況；lane 報「5/5 killed」唔準確 | ✅ done（`e4ee241`） |
+| **W-032** | `WeatherPageStructureError` 係 `warnings.fetch_day` / `fetch_range` **public `Raises:`** 宣告嘅失敗模式，但住喺**私有** `_parsing.py`。`cli/collect_weather.py` 而家伸手入另一個 package 嘅私有 module 去接。契約同可達性自相矛盾 —— `_` 前綴本身就係話「呢度可以隨便改」 | ✅ done（`5a92212`） |
+| **W-034** | `pages.yml` 個 audit step comment 寫 `--omit=dev` 審「**what actually ships to a browser**」。實測 `dist/` ：vite 個 `modulepreload-polyfill` 同成份 **21.64 kB** Tailwind CSS 都真係 ship 咗，而兩者都係 devDependency。準確講法係「declared `dependencies` closure」。**gate 行為啱，錯嘅係理由書** —— 而嗰句正正係將來決定「幾時放寬」時會讀嘅嗰句 | ✅ done（`52e9eb0`） |
 
 ### 🟢 Suggestion（17 條）
 
-| ID | 內容 |
-|---|---|
-| **S-083** | `tracks()` docstring「it would have to clamp *upward*」過度宣稱 —— 向下 clamp 同樣係 clamp。結論仍然啱，真正殺著係「向下 clamp 到 1 = 原封不動保留 CUI-0040 報嘅 bug」（修前 `-1`/`-5`/`-1000` 各自已經回 1 row） |
-| **S-084** | coercion 測試個 comment 列咗兩條「同時被殺」嘅測試，實測係 **4 個 test function**，其中兩條係**同一條 lane 後面兩個 commit 自己加嘅** ⇒ 喺同一條 lane 之內已經 stale。唔好再扮窮舉 |
-| **S-085** | CUI-0037 票標題「平 **140 倍**」冇量度支撐。實測 11 vs 57 token、33 vs 168 byte ⇒ **~5.2×**。140 係由票上錯咗嘅「7 token」同 CUI-0029 個 log **輸出**量（998 token）相除 —— **兩個唔同單位** |
-| **S-086** | `tracks()` 有約 20 行散文排喺 `Raises:` section 之後，違反本 repo 用緊嘅 Google convention |
-| **S-087** | 單位「按名剝離」source comment 有明文聲稱但**零測試釘死** —— mutant 改返舊 `[:-5]` 定長切片，492 全綠。五個 fixture wind cell 全部帶 ` Km/h`，冇一個行到「冇單位」嗰條路 |
-| **S-088** | `_parsing.py` 報 **100% line coverage**，但 `child_attr` 個 `isinstance(value, str)` 同 `child_string` 個 `.string is None` 兩個防禦分支嘅 mutant **都 survive** —— line coverage 盲點示範（嗰兩行係執行緊嘅，只係從未行去 `else`） |
-| **S-089** | CUI-0008 個 guard 喺**唯一一條真實「壞座標」路徑上射唔到**：TCX 用 `optional_float`，非有限值喺更早已經洗成 `None`，然後行返 CUI-0008 明文話唔可接受嗰條「壞段變 nan、nan 跌出 sum」嘅路。GPX/KML 用 `parse_finite_float` 擋得住。**pre-existing（W-005 定案），不 block** |
-| **S-090** | timeout 集中化**本身冇測試守住**：`assert_bounded_timeout` 只 assert 範圍，任何 collector 重新引入本地 `_REQUEST_TIMEOUT = (3, 20)` 七條測試照樣綠。建議用 `is` identity 比較 |
-| **S-091** | Commit 歷史冇 TDD Red 階段證據（四張票四個 commit，test + 實作一齊入）。⚠️ **Reviewer 自己裁決證據其實存在**，只係喺測試 comment 而唔係 commit 歷史（pre-fix 量度逐句實測屬實），而且呢種做法比一個 Red commit **更頂得住** CLAUDE.md §6 嗰條 TDD Red 陷阱 |
-| **S-092** | `tag-release.yml`：`notes_only: true` + `release: false` 一樣會寫 Release。係刻意（header comment 有寫）但 `release` 個 input description 冇講，dispatch UI 上睇唔到 |
-| **S-093** | `notes_only` 反向守衛驗嘅係 **tag 存在**，唔係 **Release 存在**。用 `release: false` 建過 tag 就會出現「tag 在、Release 唔在」，最後死喺 `gh release edit` 而唔係嗰個特登為佢寫嘅守衛 |
-| **S-094** | 票建議 (3) 有一半其實落得到 `docs/deployment.md` —— 該檔案拒絕嘅係「a prose copy of the **branch lists and job order**」，但同一 section 結尾自己寫「Both are **shape facts** rather than job steps, which is why they are written down here」，而「有一個 SCA gate、今日 threshold、bump 後放寬」正正係 shape fact |
-| **S-095** | `CLAUDE.md` §3 寫「dev 樹嘅 **12 high**」，實測 **14 條（12 high + 2 moderate）**。⚠️ 同一條 lane 喺 `pyproject.toml` comment 啱啱先論證完「hardcoded number 會 drift」（引 CUI-0024 / CUI-0031），轉個頭就 hardcode 咗一個會 drift 嘅數 |
-| **S-096** | Python 側依然冇 audit gate。票原本要求 `npm audit` **同 `pip-audit`** 兩樣，今次只做咗前端一半 —— 而 Python 側先係真正落 Vercel production runtime 嗰半（Flask / Strawberry 係 core dependency）。⚠️ **User 當時明確只揀咗 `npm audit --omit=dev`，lane 守範圍係啱**，但缺口要有飛 |
-| **S-097** | Audit step 擺喺 `Lint` 之前，一條 advisory 落地就會遮走其餘全部前端訊號（lint / typecheck / vitest / 兩個 build 都唔會行）。⚠️ Reviewer 明確**唔**當呢個係 flakiness 問題（上面個 `npm ci` 已經要 registry，audit step 冇新增網絡依賴） |
-| **S-098** | `pyproject.toml` comment 入面兩個 coverage 絕對數（1652/1696）**喺 merge 一刻已經 stale**（實際 1734/1778）。⚠️ 呢個 drift 唔係 lane 量錯，係並行 merge 造成，lane 冇可能預知 —— 但同一段 comment 上面三行啱啱先寫「a threshold is one more hardcoded number that drifts」 |
-| **S-099** | 5 條新測試放喺一個 **3,166 行 / 197 個測試**嘅 `tests/test_api.py`。**pre-existing**，reviewer 明確建議唔應該記喺呢條 lane 數上，另飛處理 |
+| ID | 內容 | 狀態 |
+|---|---|---|
+| **S-083** | `tracks()` docstring「it would have to clamp *upward*」過度宣稱 —— 向下 clamp 同樣係 clamp。結論仍然啱，真正殺著係「向下 clamp 到 1 = 原封不動保留 CUI-0040 報嘅 bug」（修前 `-1`/`-5`/`-1000` 各自已經回 1 row） | ✅ done（`850b4c5`） |
+| **S-084** | coercion 測試個 comment 列咗兩條「同時被殺」嘅測試，實測係 **4 個 test function**，其中兩條係**同一條 lane 後面兩個 commit 自己加嘅** ⇒ 喺同一條 lane 之內已經 stale。唔好再扮窮舉 | ✅ done（`27f0242`） |
+| **S-085** | CUI-0037 票標題「平 **140 倍**」冇量度支撐。實測 11 vs 57 token、33 vs 168 byte ⇒ **~5.2×**。140 係由票上錯咗嘅「7 token」同 CUI-0029 個 log **輸出**量（998 token）相除 —— **兩個唔同單位** | ✅ done（`852ddbe`） |
+| **S-086** | `tracks()` 有約 20 行散文排喺 `Raises:` section 之後，違反本 repo 用緊嘅 Google convention | ✅ done（`4037f89`） |
+| **S-087** | 單位「按名剝離」source comment 有明文聲稱但**零測試釘死** —— mutant 改返舊 `[:-5]` 定長切片，492 全綠。五個 fixture wind cell 全部帶 ` Km/h`，冇一個行到「冇單位」嗰條路 | ✅ done（`5fadfd4`） |
+| **S-088** | `_parsing.py` 報 **100% line coverage**，但 `child_attr` 個 `isinstance(value, str)` 同 `child_string` 個 `.string is None` 兩個防禦分支嘅 mutant **都 survive** —— line coverage 盲點示範（嗰兩行係執行緊嘅，只係從未行去 `else`） | ✅ done（`3af8d6f`） |
+| **S-089** | CUI-0008 個 guard 喺**唯一一條真實「壞座標」路徑上射唔到**：TCX 用 `optional_float`，非有限值喺更早已經洗成 `None`，然後行返 CUI-0008 明文話唔可接受嗰條「壞段變 nan、nan 跌出 sum」嘅路。GPX/KML 用 `parse_finite_float` 擋得住。**pre-existing（W-005 定案），不 block** | ⏭️ 另開飛（pre-existing，W-005 定案） |
+| **S-090** | timeout 集中化**本身冇測試守住**：`assert_bounded_timeout` 只 assert 範圍，任何 collector 重新引入本地 `_REQUEST_TIMEOUT = (3, 20)` 七條測試照樣綠。建議用 `is` identity 比較 | ✅ done（`7991103`） |
+| **S-091** | Commit 歷史冇 TDD Red 階段證據（四張票四個 commit，test + 實作一齊入）。⚠️ **Reviewer 自己裁決證據其實存在**，只係喺測試 comment 而唔係 commit 歷史（pre-fix 量度逐句實測屬實），而且呢種做法比一個 Red commit **更頂得住** CLAUDE.md §6 嗰條 TDD Red 陷阱 | ✅ 接受現狀（reviewer 裁決：證據質素高於形式） |
+| **S-092** | `tag-release.yml`：`notes_only: true` + `release: false` 一樣會寫 Release。係刻意（header comment 有寫）但 `release` 個 input description 冇講，dispatch UI 上睇唔到 | ✅ done（`feab4ab`） |
+| **S-093** | `notes_only` 反向守衛驗嘅係 **tag 存在**，唔係 **Release 存在**。用 `release: false` 建過 tag 就會出現「tag 在、Release 唔在」，最後死喺 `gh release edit` 而唔係嗰個特登為佢寫嘅守衛 | ✅ done（`a41b69a`） |
+| **S-094** | 票建議 (3) 有一半其實落得到 `docs/deployment.md` —— 該檔案拒絕嘅係「a prose copy of the **branch lists and job order**」，但同一 section 結尾自己寫「Both are **shape facts** rather than job steps, which is why they are written down here」，而「有一個 SCA gate、今日 threshold、bump 後放寬」正正係 shape fact | ✅ done（`6e86580`） |
+| **S-095** | `CLAUDE.md` §3 寫「dev 樹嘅 **12 high**」，實測 **14 條（12 high + 2 moderate）**。⚠️ 同一條 lane 喺 `pyproject.toml` comment 啱啱先論證完「hardcoded number 會 drift」（引 CUI-0024 / CUI-0031），轉個頭就 hardcode 咗一個會 drift 嘅數 | ✅ done（`0dfed19`） |
+| **S-096** | Python 側依然冇 audit gate。票原本要求 `npm audit` **同 `pip-audit`** 兩樣，今次只做咗前端一半 —— 而 Python 側先係真正落 Vercel production runtime 嗰半（Flask / Strawberry 係 core dependency）。⚠️ **User 當時明確只揀咗 `npm audit --omit=dev`，lane 守範圍係啱**，但缺口要有飛 | ⏭️ 另開飛（user 明確只揀 npm audit） |
+| **S-097** | Audit step 擺喺 `Lint` 之前，一條 advisory 落地就會遮走其餘全部前端訊號（lint / typecheck / vitest / 兩個 build 都唔會行）。⚠️ Reviewer 明確**唔**當呢個係 flakiness 問題（上面個 `npm ci` 已經要 registry，audit step 冇新增網絡依賴） | ✅ done（`2d54748`） |
+| **S-098** | `pyproject.toml` comment 入面兩個 coverage 絕對數（1652/1696）**喺 merge 一刻已經 stale**（實際 1734/1778）。⚠️ 呢個 drift 唔係 lane 量錯，係並行 merge 造成，lane 冇可能預知 —— 但同一段 comment 上面三行啱啱先寫「a threshold is one more hardcoded number that drifts」 | ✅ done（`2046b85`） |
+| **S-099** | 5 條新測試放喺一個 **3,166 行 / 197 個測試**嘅 `tests/test_api.py`。**pre-existing**，reviewer 明確建議唔應該記喺呢條 lane 數上，另飛處理 | ⏭️ 另開飛（pre-existing，唔記本 lane 數） |
 
 ### ⚠️ 一條被 main agent 核實為前提錯誤嘅 Warning
 

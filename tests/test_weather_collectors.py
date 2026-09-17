@@ -6,6 +6,7 @@ network: it severs ``socket.socket.connect`` for the whole module, so a test
 that forgot to install a fake would raise instead of quietly scraping HKO.
 """
 
+import importlib
 import json
 import logging
 import socket
@@ -16,10 +17,16 @@ import requests
 from bs4 import BeautifulSoup
 
 from run365days.cli.collect_weather import _write_jsonl
+from run365days.common import config
 from run365days.dashboard.builder import hourly_at, load_jsonl, warnings_by_date
 from run365days.export.records import daily_weather_record, warning_record
-from run365days.weather.collectors import hko_daily, hourly, warnings
-from run365days.weather.collectors._parsing import WeatherPageStructureError
+from run365days.weather.collectors import (
+    WeatherPageStructureError,
+    _parsing,
+    hko_daily,
+    hourly,
+    warnings,
+)
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "weather"
 
@@ -38,6 +45,19 @@ HKO_DAILY_LOGGER = "run365days.weather.collectors.hko_daily"
 
 def read_fixture(name: str) -> str:
     return (FIXTURE_DIR / name).read_text(encoding="utf-8")
+
+
+def one_row_history_page(cells: dict[int, str]) -> str:
+    """A daily-history page holding a single data row, cells given by column index.
+
+    Built here rather than added to ``freemeteo_day.html`` so the shared fixture
+    keeps saying one thing. Every cell freemeteo sends carries its unit, so a
+    unit-less cell cannot be expressed in that fixture without making it
+    unrepresentative of the page it stands for.
+    """
+    header = "".join("<th></th>" for _ in range(hourly._WEATHER_COL + 1))
+    row = "".join(f"<td>{cells.get(col, '')}</td>" for col in range(hourly._WEATHER_COL + 1))
+    return f'<table class="daily-history"><tr>{header}</tr><tr>{row}</tr></table>'
 
 
 @pytest.fixture(autouse=True)
@@ -75,8 +95,23 @@ class RequestRecorder:
 
 
 def assert_bounded_timeout(timeout) -> None:
-    """Assert *timeout* splits into a fast connect phase and a bounded read."""
+    """Assert *timeout* is the shared constant, and that it is bounded.
+
+    Identity, not equality (S-090). The range check alone says every request is
+    bounded, which was never the whole claim: ``config.py`` says the timeouts
+    live there "rather than once per collector so retiming them cannot leave
+    one behind (CUI-0013)". A collector that reintroduced a local
+    ``_REQUEST_TIMEOUT = (3, 20)`` would be bounded, would pass every range
+    assertion, and would be exactly the thing centralising them was meant to
+    prevent -- measured: all six timeout tests stayed green under that
+    mutant. ``is`` catches a value that is right but comes from the wrong
+    place, which is the property actually being bought here.
+    """
     assert timeout is not None, "requests.get was called without a timeout"
+    assert timeout is config.HTTP_REQUEST_TIMEOUT, (
+        "this request carries its own timeout rather than the shared one, so retiming "
+        "config.HTTP_REQUEST_TIMEOUT would leave it behind"
+    )
     connect, read = timeout
     assert 0 < connect <= MAX_ACCEPTABLE_CONNECT_SEC
     assert 0 < read <= MAX_ACCEPTABLE_READ_SEC
@@ -306,6 +341,63 @@ class TestHourlyFetchDay:
         assert hourly._DESCRIPTION_MAP[old_reading] == "Rain"
         assert hourly._icon_code(script) is None
 
+    def test_a_wind_cell_without_its_unit_keeps_its_digits(self):
+        # hourly.py states in a comment that the units are "stripped by name so
+        # that a cell which arrives without its unit keeps its digits instead of
+        # losing its last few". Nothing held it: swapping `removesuffix` back
+        # for the old fixed-length `[:-5]` slice left all 525 tests green,
+        # because every wind cell in the fixtures carries " Km/h" and so never
+        # walks the path the sentence is about.
+        #
+        # Both cell shapes, since they reach the suffix by different routes --
+        # one splits on the bearing separator, the other strips a prefix.
+        assert hourly._wind_speed_kmh("Northeast 50° 24") == 24.0
+        assert hourly._wind_speed_kmh("Variable at 20") == 20.0
+        assert hourly._wind_speed_kmh("Northeast 50° 24 Km/h") == 24.0
+
+    def test_a_row_whose_cells_carry_no_units_is_read_at_full_precision(self, monkeypatch):
+        # The same claim for temperature and humidity, which are stripped inline
+        # in fetch_day rather than through a helper, so a pure-function test
+        # cannot reach them. Measured: `[:-2]` for °C and `[:-1]` for % each
+        # left all 525 tests green, turning 11 into None and 40 into 4 on a
+        # unit-less row -- a wrong number, not a missing one, for humidity.
+        page = one_row_history_page(
+            {
+                hourly._TIME_COL: "09:00",
+                hourly._TEMPERATURE_COL: "11",
+                hourly._WIND_COL: "Northeast 50° 24",
+                hourly._HUMIDITY_COL: "40",
+            }
+        )
+        install_fake_get(monkeypatch, hourly, {hourly._URL: page})
+
+        record = hourly.fetch_day("2021-01-01")[0]
+
+        assert record.temperature_c == 11.0
+        assert record.humidity_pct == 40.0
+        assert record.wind_kmh == 24.0
+
+    def test_a_script_missing_the_call_prefix_is_not_read_as_a_code(self):
+        # The mirror image of the test above, and the half of the guard nothing
+        # held. There the *suffix* is missing; here the prefix is, so both
+        # find() calls return -1 -- and `end < start` is then `-1 < -1`, which
+        # is False. On its own it waves the slice through as s[1:-1], which on
+        # this string lands on "26" and calls a snowfall out of a script that
+        # never mentioned one.
+        #
+        # Measured: `start < 0` could be deleted and all 523 tests stayed green,
+        # with the mutant cut from the real source so the two arms differ by
+        # that clause alone and its answer read back as an oracle -- 'x26y'
+        # gives None here and "26" without it. Not an equivalent mutant: it is
+        # the same invented reading this class already refuses on the other
+        # side.
+        script = "x26y"
+        unguarded_reading = script[script.find("n(") + 2 : script.find(", 'CurrentWeather")]
+
+        assert unguarded_reading == "26"
+        assert hourly._DESCRIPTION_MAP[unguarded_reading] == "Snow"
+        assert hourly._icon_code(script) is None
+
 
 class TestHourlyFetchRange:
     def test_fetches_one_page_per_day_in_the_inclusive_range(self, monkeypatch):
@@ -338,6 +430,40 @@ def warning_routes(day_fixture: str = "hko_warning_day.html") -> dict:
         warnings._SIGNALS_URL: read_fixture("hko_warning_legend.html"),
         warnings._HISTORY_URL: read_fixture(day_fixture),
     }
+
+
+class TestParsingFallbacks:
+    """The two defensive branches in `_parsing`, which line coverage cannot see.
+
+    `_parsing.py` reports 100% of its statements covered, and both guards below
+    could still be deleted with the whole suite green: the lines are executed
+    on every page, it is only the `else` side of each that no fixture reaches.
+    A worked example of what a line-coverage number does not promise (S-088).
+    """
+
+    def test_a_multi_valued_attribute_falls_back_instead_of_returning_a_list(self):
+        # bs4 answers with a list for attributes HTML defines as multi-valued.
+        # None of the attributes actually read here is one, so the isinstance
+        # check is what keeps a list from being handed to a caller annotated
+        # `str`. Measured: deleting it left all 527 tests green, because no
+        # fixture asks for such an attribute.
+        cell = BeautifulSoup('<td><img class="a b" src="x.png"/></td>', "html.parser").td
+
+        assert _parsing.child_attr(cell, "img", "class", "fallback") == "fallback"
+        assert _parsing.child_attr(cell, "img", "src", "fallback") == "x.png"
+
+    def test_a_child_holding_no_single_string_reads_as_absent(self):
+        # An empty <script> is the shape this hits in practice, and `.string`
+        # is None for it. Without the check, `str(child.string)` returns the
+        # four-character string "None" -- a value that reads as content.
+        # Measured: deleting it left all 527 tests green, because today
+        # `_icon_code` refuses "None" anyway. That is a guard leaning on
+        # another guard, and the one it leans on is itself only pinned as of
+        # W-031, so this says it directly rather than through the collector.
+        cell = BeautifulSoup("<td><script></script></td>", "html.parser").td
+
+        assert _parsing.child_string(cell, "script") is None
+        assert _parsing.child_string(cell, "img") is None
 
 
 class TestWarningSignalMetadata:
@@ -418,6 +544,27 @@ class TestWarningsFetchDay:
 
         with pytest.raises(WeatherPageStructureError):
             warnings.fetch_day("2021-01-01", {})
+
+    def test_the_documented_failure_mode_is_reachable_without_a_private_import(self):
+        # `fetch_day` and `fetch_range` both name this class in their public
+        # `Raises:`, so writing it down is part of using them -- and until
+        # W-032 the only place to import it from was `_parsing`, whose leading
+        # underscore says the opposite: rename or split it at will. A caller
+        # forced to reach into a private module to honour a public contract is
+        # a caller the next refactor breaks silently.
+        #
+        # Imported by name here rather than at the top of this module so the
+        # failure reads as this assertion. A top-level import would break
+        # collection instead, which reds the file without saying which promise
+        # was withdrawn.
+        collectors = importlib.import_module("run365days.weather.collectors")
+        published = getattr(collectors, "WeatherPageStructureError", None)
+
+        assert published is not None, "the documented Raises: type left the public surface"
+        assert published is _parsing.WeatherPageStructureError, (
+            "the public name must be the class the collectors actually raise, not a copy"
+        )
+        assert "WeatherPageStructureError" in collectors.__all__
 
     def test_the_offset_a_missing_marker_used_to_yield_parses_the_wrong_table(self):
         # The trap the guard exists for, pinned so the guard cannot be removed

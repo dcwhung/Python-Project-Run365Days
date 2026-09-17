@@ -107,6 +107,18 @@ subpath Pages serves the site on. Vercel serves from the domain root and
 leaves it unset, where the config falls back to `/`. Both are shape facts
 rather than job steps, which is why they are written down here.
 
+One dependency-audit gate runs, on the frontend side only, and it is a hard
+gate: a failing audit stops the workflow like any other check. Its threshold
+today is the declared runtime `dependencies` closure rather than the whole
+tree, because the development tree carries pre-existing advisories that no
+single change could clear, and gating on those would park CI red on a backlog
+instead of on an exposure. Widening it to the full tree once those are cleared
+is the intended end state, not a regression. There is no Python-side audit
+gate: `pip-audit` has only ever been run by hand. Which threshold is in force
+is a policy fact rather than a job step, which is why it is written down here;
+the command itself, and the reasoning behind the current threshold, are in
+`pages.yml` beside the step.
+
 The repository's `github-pages` environment must allow deployments from
 `develop` (Settings, Environments, Deployment branches). That rule lives
 in the repository settings, not in the workflow file, so it has to be

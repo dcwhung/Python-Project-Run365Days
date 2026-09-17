@@ -75,10 +75,15 @@ testpaths = ["tests"]
 # `api/` is in the denominator because api/graphql.py is the Vercel entry point,
 # the only production deploy entry this repo has; with `src` alone it could not
 # appear in any report, and its start-up failure path sat at 48% unnoticed
-# (S-066, CUI-0035). Adding it moved TOTAL from 1652/81/95% to 1696/81/95%
-# -- reproduce either figure with `pytest tests -q --cov` (both) or
-# `--cov=src` (src alone). Numbers recorded in .proj-docs/ before 2026-09-17
-# are the `src`-only ones.
+# (S-066, CUI-0035). Adding it does not move the TOTAL percentage, because
+# api/graphql.py carries no missed statements of its own -- it grows the
+# denominator and the covered count by the same amount. Compare the two with
+# `pytest tests -q --cov` (both) against `--cov=src` (src alone) rather than
+# against a figure written down here: the absolute numbers this comment used to
+# quote were stale on the day they merged, because three sibling lanes landed
+# src code in the same batch, and they are one more hardcoded number of exactly
+# the kind the paragraph above declines to add (S-098). Numbers recorded in
+# .proj-docs/ before 2026-09-17 are the `src`-only ones.
 [tool.coverage.run]
 source = ["src", "api"]
 

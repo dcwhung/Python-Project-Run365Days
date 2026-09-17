@@ -16,8 +16,7 @@ import requests
 
 from run365days.cli import collect_weather
 from run365days.common import config
-from run365days.weather.collectors import hko_daily, hourly, warnings
-from run365days.weather.collectors._parsing import WeatherPageStructureError
+from run365days.weather.collectors import WeatherPageStructureError, hko_daily, hourly, warnings
 from run365days.weather.models import DailyWeather, HourlyWeather, WeatherWarning
 
 COLLECT_WEATHER_LOGGER = "run365days.cli.collect_weather"

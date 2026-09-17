@@ -80,23 +80,6 @@ jobs:
       - name: Install
         run: npm ci
 
-      # --omit=dev audits what actually ships to a browser: the eight runtime
-      # dependencies in package.json, 16 packages resolved. That is the scope
-      # this gate can hold green, so a red here is a real exposure rather than a
-      # backlog. (No dependency audit ran in CI before this step -- the Python
-      # side's pip-audit has only ever been run by hand, in CUI-0032.)
-      #
-      # The full tree is NOT clean and this step does not claim otherwise: as of
-      # 2026-09-17 `npm audit` (dev included) reports 14 advisories -- 12 high,
-      # 2 moderate, 0 critical -- every one of them reached only through
-      # devDependencies (@graphql-codegen/* -> lodash, vitest -> @vitest/mocker).
-      # Those are pre-existing, are build- and CI-time only, and are tracked
-      # separately in CUI-0036; gating on them would park CI red on a backlog
-      # nobody could clear in this change. Widen this step to the full tree once
-      # that bump lands -- dropping the flag is the point, not a regression.
-      - name: Audit runtime dependencies
-        run: npm audit --omit=dev
-
       - name: Lint
         run: npm run lint
 
@@ -111,6 +94,36 @@ jobs:
 
       - name: Build (static mode)
         run: npx cross-env VITE_DATA_MODE=static vite build --outDir dist-static
+
+      # --omit=dev audits the declared `dependencies` closure: the eight runtime
+      # dependencies in package.json, 16 packages resolved. That is the
+      # browser-facing surface minus the build tools that emit INTO the bundle --
+      # vite ships its modulepreload polyfill and tailwindcss generates the whole
+      # stylesheet, and both are devDependencies. So this is a good proxy for
+      # "what reaches a browser", not the same set; widening past it means
+      # auditing the full tree. It is the scope this gate can hold green, so a
+      # red here is a real exposure rather than a backlog. (No dependency audit
+      # ran in CI before this step -- the Python side's pip-audit has only ever
+      # been run by hand, in CUI-0032.)
+      #
+      # The full tree is NOT clean and this step does not claim otherwise: as of
+      # 2026-09-17 `npm audit` (dev included) reports 14 advisories -- 12 high,
+      # 2 moderate, 0 critical -- every one of them reached only through
+      # devDependencies (@graphql-codegen/* -> lodash, vitest -> @vitest/mocker).
+      # Those are pre-existing, are build- and CI-time only, and are tracked
+      # separately in CUI-0036; gating on them would park CI red on a backlog
+      # nobody could clear in this change. Widen this step to the full tree once
+      # that bump lands -- dropping the flag is the point, not a regression.
+      #
+      # Last in the job, not before Lint (S-097). This gate is expected to go
+      # red on an upstream advisory published since the last run rather than on
+      # anything the pull request did, and from the front of the job that
+      # buried every other frontend signal: lint, typecheck, unit tests and both
+      # builds never ran. It is still a hard gate -- it just reports after the
+      # checks the author can act on. It adds no network dependency either way;
+      # `npm ci` above already needs the registry.
+      - name: Audit runtime dependencies
+        run: npm audit --omit=dev
 
   build:
     name: Build dashboard (static mode)
