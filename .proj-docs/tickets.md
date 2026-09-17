@@ -4,6 +4,7 @@
 **2026-09-17 後續**：CUI-0049（前端 dev 樹 bump + `npm audit` 擴闊到全樹）同 CUI-0044（Python 側 `pip-audit` 入 CI）完成；531 pytest / 144 vitest（25 files）
 **2026-09-17 後續 ②**：v3.3.0 QA 嘅 9 條 finding（W-061、S-125…S-132）全部清完，見最後一節；588 pytest / 144 vitest（25 files）
 **2026-09-17 後續 ③（v3.3.0 release）**：六張票（CUI-0044 / 0047 / 0048 / 0049 / 0050 / 0051）全部搬入 `completed/`，「檔案位置」同「狀態」**重新一致**；`pending/` 淨返 CUI-0052 一張（⏸️ 待用戶決定）
+**2026-09-17 後續 ④（v3.2.0 changelog 更正）**：`docs/CHANGELOG.md` `[3.2.0]` §Known 寫嘅「seven tokens」同「140 times cheaper」兩個都錯，已更正做 11 tokens / 約 5×。CUI-0037 張票本身早就記低咗更正（`998 ÷ 7 = 142.6`，兩個唔同 document 相除），但個數已經抄咗入已發佈嘅 changelog。main agent 獨立用 `graphql-core` lexer 重量：`{ activities(offset: -1) { id } }` = **11 tokens / 33 bytes**、最平嘅 budget document（5 個 alias × `limit: 1000`）= **57 tokens / 173 bytes**，比例 token 5.18 / byte 5.24。Release notes 用 `tag-release.yml` 個 `notes_only: true` mode 重出（CUI-0042 起嗰個 path）
 
 > 由 `/audit`（AU-NNN）同 `/review`（C/W/S-NNN）產生嘅 ticket 集中登記處。
 > 編號全局唯一、永不重用。已完成嘅保留紀錄，只改狀態。
