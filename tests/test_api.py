@@ -245,6 +245,81 @@ def test_health(client):
     assert r.get_json()["status"] == "ok"
 
 
+# ── CUI-0005: the test client has to end a request the way a server does ──
+PAGING_QUERY = "query($o:Int!){activities(limit:1,offset:$o){id}}"
+"""One row at a time, so a run of these is a run of *requests* and not of rows."""
+
+REQUESTS_PAST_THE_POOL = 400
+"""Requests the run below makes, from the ticket's own reproduction.
+
+Far past the pool's capacity -- SQLAlchemy's default ``QueuePool`` is 5
+connections plus 10 of overflow -- but the number is the ticket's rather than
+that ceiling plus one, because where the failure lands is not stable. A session
+that is never closed still gives its connection back when the garbage collector
+reaches it, so the run survives well past 15: CUI-0005 recorded the first
+timeout at request 134 and the same script on this branch recorded it at 100.
+It is not idle -- it went red under all three regressions this fix was
+mutation-tested against -- but where it fails is a property of the collector,
+so the test above is the one that makes the guarantee.
+"""
+
+
+@pytest.fixture
+def request_sessions(monkeypatch):
+    """Record every session the app opens, and every one it closes.
+
+    References are kept, deliberately. An unclosed session hands its connection
+    back when it is collected, which is what makes the symptom wander; holding
+    the objects takes the garbage collector out of the measurement so that what
+    is left is the lifecycle itself.
+    """
+    opened, closed = [], []
+    real = db.Session
+
+    class Tracked(real):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            opened.append(self)
+
+        def close(self):
+            closed.append(self)
+            super().close()
+
+    monkeypatch.setattr(db, "Session", Tracked)
+    return opened, closed
+
+
+def test_a_request_through_the_test_client_closes_its_session(year_client, request_sessions):
+    # The mechanism, and the load-bearing assertion of the pair. `get_context`
+    # used to hand the session to `response.call_on_close`, which fires only
+    # when the WSGI iterable is closed: a real server closes it, and
+    # `app.test_client()` never does. Measured on this branch with the same
+    # tracking as here, 40 requests per transport: the real server opened 40
+    # sessions and closed 40, the test client opened 40 and closed none.
+    #
+    # Three requests are enough, because what is wrong is not a threshold.
+    opened, closed = request_sessions
+    for offset in range(3):
+        assert len(gql(year_client, PAGING_QUERY, {"o": offset})["activities"]) == 1
+
+    assert len(opened) == 3, "one session per request, which is what get_context promises"
+    assert closed == opened, "a request ended without returning its session to the pool"
+
+
+def test_a_long_run_of_requests_is_served_whole(year_client):
+    # The symptom, written the way the ticket reproduced it. Not the gate --
+    # see REQUESTS_PAST_THE_POOL for why the failure point wanders -- but it
+    # does pin the thing a developer would actually hit, and it checks the
+    # paging walked rather than only that nothing raised: a fix that returned
+    # sessions by breaking the request would pass a bare "no exception" run.
+    ids = []
+    for offset in range(REQUESTS_PAST_THE_POOL):
+        ids.extend(row["id"] for row in gql(year_client, PAGING_QUERY, {"o": offset})["activities"])
+
+    assert len(ids) == YEAR_DAYS, "the window walks the whole year and then runs out"
+    assert len(set(ids)) == YEAR_DAYS, "and never serves the same activity twice"
+
+
 def test_meta(client):
     d = gql(client, "{ meta { year generatedAt trackColumns } }")
     assert d["meta"]["year"] == 2021
