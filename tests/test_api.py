@@ -1941,6 +1941,68 @@ def test_a_fault_still_writes_where_no_logging_is_configured(year_client, capfd,
     assert "Traceback" in err, "and it must keep the traceback that is all an operator gets"
 
 
+# ── CUI-0039: the one shape that can tell `faults` from `errors` ──────────
+FAULTING_ACTIVITY_ID = "BOOM"
+"""An id no fixture stores, used to make one field of a document fail on purpose."""
+
+
+def _mixed_operation() -> str:
+    """One operation that earns a refusal at one field and a fault at another.
+
+    The refusal is driven by the points budget rather than by a bounds check,
+    because that one refuses *part-way through* a list of sibling fields: the
+    first ``MAX_TRACK_POINTS_PER_REQUEST // MAX_TRACK_POINTS`` of them are
+    served and only the next is refused, so the operation genuinely carries
+    both kinds of error at once rather than failing at its first field. The
+    field count is derived from the two constants for that reason and not
+    written out.
+    """
+    fields = MAX_TRACK_POINTS_PER_REQUEST // MAX_TRACK_POINTS + 1
+    tracks = " ".join(f"t{i}: track(points: {MAX_TRACK_POINTS}) {{ sec }}" for i in range(fields))
+    return (
+        f'{{ a1: activity(id: "{TRACKED_ACTIVITY_ID}") {{ {tracks} }} '
+        f'a2: activity(id: "{FAULTING_ACTIVITY_ID}") {{ id }} }}'
+    )
+
+
+def test_a_refusal_and_a_fault_in_one_operation_are_logged_apart(year_client, caplog, monkeypatch):
+    # The only shape that can tell `faults` from `errors` apart in
+    # `process_errors`. An operation whose errors are all refusals never
+    # reaches `super()` at all, and one whose errors are all faults hands over
+    # a list identical to the one it was given -- so the three logging tests
+    # that existed before this one all pass with the filtering removed.
+    # Measured on this branch: `super().process_errors(errors, ...)` in place of
+    # `faults` left the whole suite green, and the mixed operation below showed
+    # exactly what it cost -- 1 INFO + 1 ERROR became 1 INFO + 2 ERROR, the
+    # extra record being the refusal itself, logged a second time as a fault.
+    real = service.activity
+
+    def selective(session, activity_id):
+        if activity_id == FAULTING_ACTIVITY_ID:
+            raise _ResolverFaultError("the database went away")
+        return real(session, activity_id)
+
+    monkeypatch.setattr(service, "activity", selective)
+
+    with caplog.at_level(logging.DEBUG, logger="strawberry.execution"):
+        body = gql_partial(year_client, _mixed_operation())
+
+    assert len(body["errors"]) == 2, "the client must still be told both things"
+    records = _strawberry_records(caplog)
+    refusals = [record for record in records if record.levelno == REFUSAL_LOG_LEVEL]
+    faults = [record for record in records if record.levelno == logging.ERROR]
+    assert len(refusals) == 1 and refusals[0].exc_info is None
+    assert len(faults) == 1
+    assert issubclass(faults[0].exc_info[0], _ResolverFaultError)
+    # The assertion the mutant dies on, and it has to be this one: handing the
+    # unfiltered list to `super()` logs the refusal a second time at ERROR
+    # *without* exc_info, so a check that the faults all carried tracebacks
+    # would have walked straight past it. Counting them is what catches it.
+    assert not any("budget exhausted" in str(record.msg) for record in faults), (
+        "the refusal went to the fault handler as well as to its own"
+    )
+
+
 # ── AU-050: one statement per batch of tracks, not two per track ───────────
 @pytest.fixture
 def track_rows_loaded():
