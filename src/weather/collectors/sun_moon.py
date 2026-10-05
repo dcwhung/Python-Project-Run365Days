@@ -83,12 +83,21 @@ _MOON_TRAILING_CELLS = 4
 _MOON_MERGED_TRAILING_COLSPAN = _MOON_TRAILING_CELLS
 _FULL_MOON_ILLUMINATION_PCT = 100.0
 
-# A 24-hour clock time. The lookbehind stops a longer number ending in the
-# pattern from matching; "(?!:)" keeps it from taking the HH:MM off the front of
-# a daylength; and "(?!\s*[ap]m)" refuses a 12-hour clock outright, because
-# "7:05 pm" sliced to five characters reads as 07:05 -- a real time, twelve
-# hours out, with nothing to show it was ever wrong (CUI-0018).
-_TIME_RE = re.compile(r"(?<!\d)(?P<hour>\d{1,2}):(?P<minute>\d{2})(?!:)(?!\s*[ap]m)", re.IGNORECASE)
+# A 24-hour clock time. The two guards on its sides keep it from being cut out
+# of something longer: "(?<![\d:])" stops it starting mid-number or after a
+# colon, so the "47:58" tail of a "10:47:58" daylength is not a time; "(?!:)"
+# stops it taking the "10:47" off that daylength's front. "(?!\s*[ap]\.?m)"
+# refuses a 12-hour clock outright, dotted or not, because "7:05 pm" or
+# "7:05 p.m." read this way is 07:05 -- a real time, twelve hours out, with
+# nothing to show it was ever wrong (CUI-0018, W-064). The shape alone accepts
+# "25:99"; _time() range-checks what it matched.
+_TIME_RE = re.compile(
+    r"(?<![\d:])(?P<hour>\d{1,2}):(?P<minute>\d{2})(?!:)(?!\s*[ap]\.?m)", re.IGNORECASE
+)
+_HOURS_PER_DAY = 24
+"""One past the highest hour a 24-hour clock shows."""
+_MINUTES_PER_HOUR = 60
+"""One past the highest minute a clock shows."""
 _DAY_LENGTH_RE = re.compile(r"(?<!\d)(?P<value>\d{1,2}:\d{2}:\d{2})(?!\d)")
 _ILLUMINATION_RE = re.compile(r"(?P<value>\d+(?:\.\d+)?)\s*%")
 
@@ -181,6 +190,13 @@ def _time(cell: Tag, date_str: str, column: str) -> str:
     """
     text = cell.get_text().strip()
     match = _TIME_RE.search(text)
+    # Out of range is the same gap as no match: "25:99" is not a time that is
+    # merely late, and passing it on would publish a value no clock shows.
+    if match is not None and (
+        int(match.group("hour")) >= _HOURS_PER_DAY
+        or int(match.group("minute")) >= _MINUTES_PER_HOUR
+    ):
+        match = None
     if match is None:
         # The cell text goes in the message: the column name alone cannot say
         # whether the page changed clocks or dropped the reading, and those

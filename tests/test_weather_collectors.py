@@ -1062,6 +1062,39 @@ class TestSunMoonFetchMonth:
             sun_moon.fetch_month("2021", "01")
 
 
+def td(text: str):
+    return BeautifulSoup(f"<table><tr><td>{text}</td></tr></table>", "html.parser").td
+
+
+class TestSunMoonTimeCell:
+    """W-064: a cell that states no 24-hour HH:MM must read as a gap, not a time."""
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "10:47:58",  # a daylength: its tail "47:58" is not a time
+            # A daylength whose tail is a valid time, so only the lookbehind can
+            # refuse it -- "47:58" above is also out of range, which hides it.
+            "11:05:55",
+            "25:99",  # shaped like a time, but no clock reads it
+            "7:05 p.m.",  # a 12-hour clock, dotted: twelve hours out if read
+        ],
+    )
+    def test_a_cell_that_is_not_a_24_hour_time_is_a_logged_gap(self, caplog, text):
+        with caplog.at_level(logging.WARNING, logger=SUN_MOON_LOGGER):
+            read = sun_moon._time(td(text), "2021-01-01", "sunrise")
+
+        assert read == ""
+        assert text in caplog.text
+
+    @pytest.mark.parametrize(
+        ("text", "expected"),
+        [("07:02 &uarr; (114&deg;)", "07:02"), ("7:05", "07:05"), ("23:59", "23:59")],
+    )
+    def test_a_24_hour_time_still_reads(self, text, expected):
+        assert sun_moon._time(td(text), "2021-01-01", "sunrise") == expected
+
+
 class TestSunMoonFetchYear:
     def test_a_year_with_no_readable_table_raises_rather_than_returning_nothing(self, monkeypatch):
         # W-063: twelve months of "no table" used to come back as an empty
