@@ -528,6 +528,33 @@ class TestHourlyFetchRange:
         ]
         assert len(records) == 9
 
+    def test_a_range_with_no_readable_day_raises_rather_than_returning_nothing(self, monkeypatch):
+        # S-137: an empty list here was written by collect_weather over the
+        # existing hourly history -- a whole range of pages without the table
+        # is a page that changed shape, the same rule sun_moon follows (W-063).
+        install_fake_get(monkeypatch, {hourly._URL: read_fixture("freemeteo_no_table.html")})
+
+        with pytest.raises(WeatherPageStructureError, match="2021-01-01"):
+            hourly.fetch_range("2021-01-01", "2021-01-03")
+
+    def test_one_day_without_a_table_inside_a_readable_range_is_kept_quiet(self, monkeypatch):
+        # The zero-records rule is about the whole range: one empty day among
+        # readable ones is a gap, not a changed page, and must not cost the rest.
+        pages = {
+            "2021-01-01": read_fixture("freemeteo_day.html"),
+            "2021-01-02": read_fixture("freemeteo_no_table.html"),
+            "2021-01-03": read_fixture("freemeteo_day.html"),
+        }
+        monkeypatch.setattr(
+            requests,
+            "get",
+            lambda url, params=None, timeout=None: FakeResponse(pages[params["date"]]),
+        )
+
+        records = hourly.fetch_range("2021-01-01", "2021-01-03")
+
+        assert {r.date for r in records} == {"2021-01-01", "2021-01-03"}
+
     def test_every_request_in_the_range_carries_a_bounded_timeout(self, monkeypatch):
         recorder = install_fake_get(monkeypatch, {hourly._URL: read_fixture("freemeteo_day.html")})
 

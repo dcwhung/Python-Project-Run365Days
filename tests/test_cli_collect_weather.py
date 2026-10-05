@@ -27,6 +27,22 @@ from run365days.weather.models import DailyWeather, HourlyWeather, SunMoon, Weat
 
 COLLECT_WEATHER_LOGGER = "run365days.cli.collect_weather"
 
+# The real entry point, captured before any test replaces it, for the test that
+# drives the HKO collector end to end behind a faked requests.get.
+REAL_HKO_FETCH_YEAR = hko_daily.fetch_year
+
+
+class FakeResponse:
+    """The slice of ``requests.Response`` the collectors read."""
+
+    def __init__(self, text: str, status_code: int = 200):
+        self.text = text
+        self.status_code = status_code
+
+    def raise_for_status(self) -> None:
+        if self.status_code >= 400:
+            raise requests.HTTPError(f"{self.status_code} Client Error", response=self)
+
 
 @pytest.fixture(autouse=True)
 def block_real_sockets(monkeypatch):
@@ -283,6 +299,52 @@ class TestSunMoonOutage:
 
         assert failed == 1
         assert out_paths["sun-moon"].read_text() == history
+
+
+class TestRefusedOrEmptySource:
+    """S-137, driven through the real collectors behind a faked requests.get."""
+
+    def test_an_hourly_range_with_no_readable_day_leaves_the_history_in_place(
+        self, monkeypatch, out_paths
+    ):
+        # Measured before the fix: fetch_range returned [] and _write_jsonl
+        # replaced the file with an empty one while run() reported no failure.
+        history = '{"Date": "2021-01-01"}\n'
+        out_paths["hourly"].write_text(history)
+        monkeypatch.setattr(
+            requests,
+            "get",
+            lambda *args, **kwargs: FakeResponse("<html><body>no history here</body></html>"),
+        )
+
+        failed = collect_weather.run("hourly", "2021-01-01", "2021-01-02", 2021)
+
+        assert failed == 1
+        assert out_paths["hourly"].read_text() == history
+
+    def test_a_refused_hko_daily_extract_does_not_stop_the_sources_after_it(
+        self, monkeypatch, out_paths
+    ):
+        # Measured before the fix: the 403 body reached json.loads, the
+        # JSONDecodeError escaped _COLLECTION_FAILURES and run("all") crashed,
+        # so sun-moon -- queued after hko-daily -- was never collected.
+        install_fake_collectors(monkeypatch)
+        monkeypatch.setattr(hko_daily, "fetch_year", REAL_HKO_FETCH_YEAR)
+        monkeypatch.setattr(
+            requests,
+            "get",
+            lambda *args, **kwargs: FakeResponse(
+                "<html><body>403 Forbidden</body></html>", status_code=403
+            ),
+        )
+
+        failed = collect_weather.run("all", "2021-01-01", "2021-01-02", 2021)
+
+        assert failed == 1
+        assert not out_paths["hko-daily"].exists()
+        assert out_paths["sun-moon"].exists()
+        assert out_paths["hourly"].exists()
+        assert out_paths["warnings"].exists()
 
 
 class TestMain:
