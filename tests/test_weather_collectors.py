@@ -956,6 +956,18 @@ class TestSunMoonFetchMonth:
             },
         }
 
+    @pytest.mark.parametrize("header", ["Note", "0", "32", "1a"])
+    def test_skips_a_row_whose_header_is_not_a_day_of_the_month(self, monkeypatch, caplog, header):
+        # S-133: a lone <th> is how a day row is told apart, so a footnote row
+        # with one header used to be published as the date "2021-01-Note".
+        row = f"<td>19:51</td>{BEARING}<td>08:44</td>{BEARING}{EMPTY_SLOT}" + TRAILING_BLOCK
+
+        with caplog.at_level(logging.WARNING, logger=SUN_MOON_LOGGER):
+            days = moon_month_from(monkeypatch, {"1": row, header: row})
+
+        assert list(days) == ["2021-01-01"]
+        assert repr(header) in caplog.text
+
     def test_drops_a_row_too_short_to_read_by_position(self, monkeypatch, caplog):
         install_fake_monthly_get(monkeypatch, sun_moon_routes())
 

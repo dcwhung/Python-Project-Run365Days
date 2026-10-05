@@ -154,14 +154,26 @@ def _day_rows(table: Tag, year: str, month: str, minimum: int) -> list[tuple[str
 
     Returns:
         One entry per readable day row, in page order. A row shorter than
-        *minimum* is logged and left out.
+        *minimum*, or whose header is not a day of that month, is logged and
+        left out.
     """
+    days_in_month = calendar.monthrange(int(year), int(month))[1]
     rows = []
     for tr in table.find_all("tr"):
         headers = tr.find_all("th")
         if len(headers) != 1:
             continue
-        date_str = f"{year}-{month}-{headers[0].get_text().strip().zfill(2)}"
+        day = headers[0].get_text().strip()
+        # One <th> is the shape of a day row, not proof of one: a footnote or
+        # a "Note" row has it too, and would otherwise be published under the
+        # date "2021-01-Note" (S-133). isascii() keeps out digits int() would
+        # take but a day header never carries.
+        if not (day.isascii() and day.isdigit() and 1 <= int(day) <= days_in_month):
+            logger.warning(
+                "Skipping a %s-%s row: its header %r is not a day of that month", year, month, day
+            )
+            continue
+        date_str = f"{year}-{month}-{day.zfill(2)}"
         tds = cells(tr, minimum)
         if tds is None:
             logger.warning(
