@@ -119,7 +119,9 @@ def fetch_year(year: str) -> list[DailyWeather]:
 
     Raises:
         requests.RequestException: The HKO endpoint could not be reached, or
-            answered with an error status (``requests.HTTPError``).
+            answered with an error status (``requests.HTTPError``) -- except a
+            404 on a per-month request, which skips that month instead (W-066,
+            S-151). A 404 on the yearly request is still raised.
         WeatherPageStructureError: The yearly payload arrived but is not JSON,
             or is JSON without a ``stn.data`` list (S-149), so the endpoint no
             longer serves the format this reads. Also raised when not one day of
