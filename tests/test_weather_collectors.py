@@ -1107,6 +1107,10 @@ class TestSunMoonTimeCell:
             "11:05:55",
             "25:99",  # shaped like a time, but no clock reads it
             "7:05 p.m.",  # a 12-hour clock, dotted: twelve hours out if read
+            # S-138: a third minute digit. Without a digit guard on the right
+            # these read as 07:05 and 12:34, cut off the front of a longer number.
+            "07:051",
+            "12:345",
         ],
     )
     def test_a_cell_that_is_not_a_24_hour_time_is_a_logged_gap(self, caplog, text):

@@ -83,16 +83,18 @@ _MOON_TRAILING_CELLS = 4
 _MOON_MERGED_TRAILING_COLSPAN = _MOON_TRAILING_CELLS
 _FULL_MOON_ILLUMINATION_PCT = 100.0
 
-# A 24-hour clock time. The two guards on its sides keep it from being cut out
-# of something longer: "(?<![\d:])" stops it starting mid-number or after a
-# colon, so the "47:58" tail of a "10:47:58" daylength is not a time; "(?!:)"
-# stops it taking the "10:47" off that daylength's front. "(?!\s*[ap]\.?m)"
+# A 24-hour clock time. The guards on its two sides keep it from being cut out
+# of something longer. "(?<![\d:])" on the left stops it starting mid-number or
+# after a colon, so the "47:58" tail of a "10:47:58" daylength is not a time.
+# "(?![\d:])" on the right stops it ending mid-number or before a colon: the
+# colon half keeps it from taking the "10:47" off that daylength's front, the
+# digit half from taking "07:05" off "07:051" (S-138). "(?!\s*[ap]\.?m)"
 # refuses a 12-hour clock outright, dotted or not, because "7:05 pm" or
 # "7:05 p.m." read this way is 07:05 -- a real time, twelve hours out, with
 # nothing to show it was ever wrong (CUI-0018, W-064). The shape alone accepts
 # "25:99"; _time() range-checks what it matched.
 _TIME_RE = re.compile(
-    r"(?<![\d:])(?P<hour>\d{1,2}):(?P<minute>\d{2})(?!:)(?!\s*[ap]\.?m)", re.IGNORECASE
+    r"(?<![\d:])(?P<hour>\d{1,2}):(?P<minute>\d{2})(?![\d:])(?!\s*[ap]\.?m)", re.IGNORECASE
 )
 _HOURS_PER_DAY = 24
 """One past the highest hour a 24-hour clock shows."""
