@@ -52,7 +52,14 @@ the file writes ``"/"`` in that column. It is the file's own marker rather than
 an invention of this reader, so the pair maps it to ``None`` on the way in and
 writes it back on the way out: a day the moon skips has to survive a
 re-collection spelled the way it already is on disk.
-``TestTheCommittedSunMoonFile`` checks the whole committed file round-trips."""
+``TestTheCommittedSunMoonFile`` checks the whole committed file round-trips.
+
+``Illumination`` borrows the same marker for a missing *reading* when it is
+written back, so a ``None`` percentage still has a spelling. That case is the
+writer's, not the file's: the committed file never carries ``"/"`` in
+``Illumination`` (``TestTheCommittedSunMoonFile`` pins that too), and the
+collector produces it only when a page's illumination cell states no
+percentage."""
 
 _ILLUMINATION_SUFFIX: Final = "%"
 _ILLUMINATION_DECIMALS: Final = 1
@@ -383,7 +390,11 @@ def _illumination(value: object) -> float | None:
 
 
 def _illumination_text(value: float | None) -> str:
-    """Write ``Illumination`` back in the file's ``"97.2%"`` form."""
+    """Write ``Illumination`` back in the file's ``"97.2%"`` form.
+
+    A missing reading is written as :data:`_MOON_EVENT_ABSENT`, which the
+    reader maps back to ``None`` -- see that constant for why it is borrowed.
+    """
     if value is None:
         return _MOON_EVENT_ABSENT
     return f"{value:.{_ILLUMINATION_DECIMALS}f}{_ILLUMINATION_SUFFIX}"

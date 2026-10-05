@@ -304,7 +304,10 @@ class TestSunMoonRawRow:
     def test_round_trips_through_its_raw_row(self):
         assert SunMoon.from_raw_row(SUN_MOON.to_raw_row()) == SUN_MOON
 
-    def test_round_trips_a_day_the_moon_neither_rises_nor_sets(self):
+    def test_round_trips_a_synthetic_day_with_every_moon_field_absent(self):
+        # Model-level only: no committed day looks like this. The file never
+        # misses more than one moon event in a day, nor writes "/" for an
+        # illumination -- TestTheCommittedSunMoonFile pins both.
         absent = SunMoon(
             date="2021-01-28",
             sunrise="07:03",
@@ -409,6 +412,11 @@ class TestTheCommittedSunMoonFile:
 
         assert no_transit
         assert {row["Illumination"] for row in no_transit} == {"100.0%"}
+
+    def test_no_day_writes_the_absent_marker_for_its_illumination(self, committed):
+        # _illumination_text() writes "/" for a missing reading; this pins that
+        # the marker is borrowed by the writer and never came from the file.
+        assert all(row["Illumination"] != "/" for row in committed)
 
     def test_no_day_misses_more_than_one_moon_event(self, committed):
         events = ("Moonrise", "Moon Transit", "Moonset")
