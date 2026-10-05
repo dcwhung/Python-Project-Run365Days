@@ -9,6 +9,7 @@
 **2026-09-17 後續 ⑥（同一條 lane）**：開咗 **CUI-0053**（部署後嘅 Vercel API smoke test，由 `docs/roadmap.md` §Next 開出），同一條 lane 即刻實現埋並轉 ✅ done，搬入 `completed/`；`pending/` 由此清空（**0** 張）
 **2026-10-05 ②**：**AU-037** ✅ done —— `src/weather/collectors/sun_moon.py`（timeanddate.com，移植自 `legacy/03_GetSunMoonRiseSetHistory.py`，以 `stoic-ritchie` 嘅 `2d886f4` 為藍本按 `develop` 重寫）＋ `SunMoon` raw-row pair（加 `moon_transit`）＋ CLI `sun-moon` source。committed 檔案每一行都可以原封不動 round-trip。**Export 冇改**（用戶揀）：佢仍然由 HKO daily extract 嘅 joined 副本讀 sunrise/sunset，兩份資料喺好多日差 1 分鐘
 **2026-10-05 ③**：AU-037 review（81/100 ⚠️ warn）嘅 7 條 finding（W-062…W-064、S-133…S-136）全部 ✅ done，一個 finding 一個 commit；另開 **S-137**（pending，所有 collector 都冇 `raise_for_status`），見最後一節
+**2026-10-05 ④**：AU-037 re-review（90/100 ✅ pass）嘅跟進：W-065、S-138、S-141、S-142 ✅ done，一個 finding 一個 commit；S-139、S-140 記做 ⏳ pending。見 `## AU-037 review` 一節下嘅 `### Re-review（90/100 pass）`
 **2026-10-05**：開咗 **CUI-0054**（每日 `npm audit` 由 2026-09-30 起紅）。`brace-expansion` 用 `npm audit fix` 修咗；`braces`（GHSA-vfj7-8cjw-p6xm）上游冇 fix，用戶揀咗有期限嘅 allowlist（`scripts/npm_audit_gate.py`）。同一條 lane 實現埋並轉 ✅ done，直接放入 `completed/`
 
 > 由 `/audit`（AU-NNN）同 `/review`（C/W/S-NNN）產生嘅 ticket 集中登記處。
@@ -1638,3 +1639,30 @@ In-process plugin：`pytest_configure` 入面用 `setattr` 換入 mutant（重�
 | W-064 12 小時 guard 還原 `[ap]m` | `…_logged_gap[7:05 p.m.]` |
 | S-133 拆 header 檢查 | `test_skips_a_row_whose_header_is_not_a_day_of_the_month` 四個 param |
 
+### Re-review（90/100 pass）
+
+**來源**：re-review of `cec030a`，90/100 ✅ pass。**修復 branch**：同一條 `claude/nifty-sagan-avcfve`（由 `9b1d0be` 起），一個 finding 一個 commit，TDD。
+**Gate（喺 `ed2d64b` 量）**：pytest 687 passed、`ruff check` / `ruff format --check` 全綠。
+
+| ID | 內容 | 狀態 |
+|---|---|---|
+| **W-065** | `_trailing_block_fits` / `_moon_day`：(a) merged 檢查嘅 colspan 一半冇測試釘住（`return remaining == 1` 或 `== 1` → `>= 1` 兩個 mutant 都綠，前者重現 W-062）；(b) 尾段四格而最後一格 `colspan=4` 會過 width 檢查，再被 `_moon_day` 睇 `tds[-1]` 當 full moon，三格冇讀過 | ✅ done（`c983904`）—— 新 `_trailing_block_kind(tds, end)` 一處判定：剩一格而佢 span 成個 block ⇒ `"merged"`；剩 `_MOON_TRAILING_CELLS` 格而全部 `colspan == 1` ⇒ `"cells"`；其餘 ⇒ `None`（log 日期 + drop）。`_moon_day` 只按呢個答案分支，唔再睇 `tds[-1]`。新 param `merged-in-a-four-cell-tail`（修前 assertion 紅）同 `single-plain-cell-after-slots`（守 (a) mutant） |
+| **S-138** | `_TIME_RE` 右邊冇 digit guard：`07:051` 讀成 `07:05`、`12:345` 讀成 `12:34` | ✅ done（`ed2d64b`）—— `(?!:)` 改 `(?![\d:])`，regex 註釋逐個 guard 講清楚守邊邊、擋乜；兩個 param 修前 assertion 紅 |
+| **S-139** | 淨係「成年零筆」先 raise；一年入面只有部分月份讀到，照樣用較少 row 蓋過 committed 檔案而 exit 0 | ⏳ pending —— 方向：日數少過該年曆日就 raise，或者 CLI 拒絕將檔案縮細 |
+| **S-140** | 讀唔到嘅 meridian cell 經 `_time(...) or None` 寫成 `"/"`，同真正冇 transit 嘅日子分唔開；讀唔到嘅 moonrise / moonset 就寫 `""` —— gap 處理唔一致 | ⏳ pending |
+| **S-141** | `_day_rows` header 檢查嘅 `isascii()` 冇測試，註釋講反咗：`"²".isdigit()` 係 `True` 但 `int("²")` 掟 `ValueError`，唔喺 `_COLLECTION_FAILURES`，會令成個 `run()` 爆 | ✅ done（`2aeffc9`）—— 非 day header param 加 `"\u00b2"`，註釋改為講明 `isascii()` 擋嘅係 `isdigit()` 收但 `int()` 拒嘅字元。現有 guard 已啱，所以紅係喺拆 `isascii()` 嘅 mutant 下面證（`ValueError`） |
+| **S-142** | `docs/CHANGELOG.md` 寫「每個月多兩個 request」係冇 gate 嘅數字（§5）；`.proj-docs/index.md` 頂部仲係 663 pytest / 8 mutant | ✅ done（`7f87ea4`）—— CHANGELOG 改為「a sun page and a moon page for every month」（§5 (c)）；index 頂部加本輪，數字寫成「喺 `ed2d64b` 量到」，舊行移去 `_前一次更新_` |
+
+#### Mutant 驗證（CLAUDE.md §6 方法，喺 `ed2d64b` 量）
+
+In-process plugin：`pytest_configure` 讀 `sun_moon.py` source、做文字 mutation、`exec` 入 module 本身嘅 `__dict__`，再用獨立 oracle **assert mutant 真係生效**（直接叫 `_trailing_block_kind` / `_TIME_RE` 睇行為，或者驗 `__code__.co_names`），`python -B`。全套 suite 冇 mutant 時全綠。
+
+| Mutant | 紅嘅測試 |
+|---|---|
+| W-065 (a) merged 檢查淨數格數（拆 colspan 一半） | `…not_the_width_read_from_the_end[single-plain-cell-after-slots]` |
+| W-065 (a) `len(tail) == 1` → `>= 1` | `…not_the_width_read_from_the_end[merged-block-not-last]` |
+| 還原修前形狀（width-only 檢查 + `_moon_day` 睇 `tds[-1]` 分支） | `…not_the_width_read_from_the_end[merged-in-a-four-cell-tail]` |
+| 拆 `"cells"` 嘅「冇格 span」檢查 | `…not_the_width_read_from_the_end[merged-in-a-four-cell-tail]` |
+| **淨係**還原 `_moon_day` 嘅 `tds[-1]` 分支 | ⚠️ 全綠 —— **equivalent mutant**：`kind == "merged"` 嘅定義就係「剩一格（即 `tds[-1]`）而 colspan 等於 merged 寬度」，而 `"cells"` 要求全部 `colspan == 1`，所以去到分支嗰陣兩個條件永遠同值。冇測試可以分得開，係設計（一處判定）嘅預期結果 |
+| `(?![\d:])` 還原 `(?!:)` | `test_a_cell_that_is_not_a_24_hour_time_is_a_logged_gap[07:051]`、`[12:345]` |
+| 拆 `isascii()` | `test_skips_a_row_whose_header_is_not_a_day_of_the_month[\xb2]`（`ValueError`） |
