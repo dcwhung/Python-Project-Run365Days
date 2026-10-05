@@ -63,6 +63,15 @@ are named `release/vX` and tags `vX.Y.Z`.
   month skipped; any other error status, and a 404 on the yearly file, still
   fail the source. HKO's actual answer for an unpublished month has not been
   measured, so this is a defensive reading of 404 (W-066).
+- `run365-weather --source hko-daily` no longer crashes the whole run when
+  the yearly extract is valid JSON but lacks the `stn.data` list it reads.
+  That now fails the source and leaves the existing file in place, like a
+  yearly extract that is not JSON at all (S-149).
+- `run365-weather --source hko-daily` no longer writes an empty file over the
+  daily history when not one day of the year is readable, for example when
+  the yearly file leaves every month empty and each month's own extract
+  answers 404. That now fails the source, the rule the hourly and sun/moon
+  collectors already follow (S-150).
 
 ## [3.3.0] - 2026-09-17 - `develop`
 
