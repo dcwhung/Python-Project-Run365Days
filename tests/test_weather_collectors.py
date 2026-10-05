@@ -373,6 +373,41 @@ class TestHkoDailyFetchYear:
         with pytest.raises(requests.HTTPError):
             hko_daily.fetch_year("2021")
 
+    # S-149: a yearly payload that is valid JSON but not the shape this reads.
+    # Before the fix ``res["stn"]["data"]`` let a KeyError (or a TypeError)
+    # out, which collect_weather does not catch, so the whole run crashed and
+    # cost every source queued after this one -- the hole S-137 closed for a
+    # payload that is not JSON at all.
+    @pytest.mark.parametrize(
+        ("payload", "cause"),
+        [
+            pytest.param({"other": 1}, KeyError, id="no-stn"),
+            pytest.param({"stn": {}}, KeyError, id="no-stn-data"),
+            pytest.param({"stn": None}, TypeError, id="stn-not-an-object"),
+            pytest.param([], TypeError, id="top-level-not-an-object"),
+            pytest.param({"stn": {"data": {}}}, None, id="stn-data-an-object"),
+            pytest.param({"stn": {"data": "January"}}, None, id="stn-data-a-string"),
+            pytest.param({"stn": {"data": None}}, None, id="stn-data-null"),
+        ],
+    )
+    def test_a_yearly_payload_of_the_wrong_shape_is_a_structure_error(
+        self, monkeypatch, payload, cause
+    ):
+        routes = hko_routes()
+        routes[HKO_YEAR_URL] = json.dumps(payload)
+        install_fake_get(monkeypatch, routes)
+
+        with pytest.raises(WeatherPageStructureError) as excinfo:
+            hko_daily.fetch_year("2021")
+
+        message = str(excinfo.value)
+        assert "2021" in message
+        assert HKO_YEAR_URL in message
+        if cause is None:
+            assert excinfo.value.__cause__ is None
+        else:
+            assert isinstance(excinfo.value.__cause__, cause)
+
 
 class TestHourlyFetchDay:
     def test_parses_each_observation_row(self, monkeypatch):

@@ -346,6 +346,24 @@ class TestRefusedOrEmptySource:
         assert out_paths["hourly"].exists()
         assert out_paths["warnings"].exists()
 
+    def test_a_hko_daily_extract_of_the_wrong_shape_leaves_the_history_in_place(
+        self, monkeypatch, out_paths
+    ):
+        # S-149, measured before the fix: a yearly payload that is valid JSON
+        # but lacks "stn" let KeyError: 'stn' out of fetch_year, past
+        # _COLLECTION_FAILURES, and run() crashed instead of counting a failure.
+        history = '{"Date": "2021-01-01"}\n'
+        out_paths["hko-daily"].write_text(history)
+        monkeypatch.setattr(hko_daily, "fetch_year", REAL_HKO_FETCH_YEAR)
+        monkeypatch.setattr(
+            requests, "get", lambda *args, **kwargs: FakeResponse(json.dumps({"other": 1}))
+        )
+
+        failed = collect_weather.run("hko-daily", "2021-01-01", "2021-01-02", 2021)
+
+        assert failed == 1
+        assert out_paths["hko-daily"].read_text() == history
+
 
 class TestMain:
     def test_defaults_the_range_to_the_whole_year_from_january(
