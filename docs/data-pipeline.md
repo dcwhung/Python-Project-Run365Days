@@ -80,14 +80,21 @@ names produced by the original v1 scrapers. The collectors in
 | `hko_daily_weather_extract.json` | Hong Kong Observatory daily extract (`weather.gov.hk/cis/dailyExtract`) | 363 days | max / avg / min temperature, humidity, rainfall, wind, sunrise / sunset, moon times |
 | `weather_history.json` | freemeteo.hk hourly history for Hong Kong (station 10400) | 17,984 hours | temperature, wind, humidity, sky description |
 | `weather_warning_history.json` | HKO warning database (`warndb_ea.pl`) | 461 warnings | type, signal, start / end time, icon |
-| `sun_moon_rise_set_history.json` | HKO astronomical data | 365 days | sunrise, solar noon, sunset, day length, moonrise, moon transit, moonset, illumination |
+| `sun_moon_rise_set_history.json` | timeanddate.com monthly sun and moon tables for Hong Kong | 365 days | sunrise, solar noon, sunset, day length, moonrise, moon transit, moonset, illumination |
 
 **Joining weather to runs.** `dashboard.builder.hourly_at()` picks the
 hourly row on the same date whose time is closest to the run's start; there
 is no interpolation. Warnings are grouped per date, so a run is tagged with
 every signal that was in force at any point that day, not only during the
-run. The sun / moon file is currently unused because the HKO daily extract
-already carries sunrise and sunset.
+run.
+
+**Sun and moon times.** `run365-weather --source sun-moon` re-collects
+`sun_moon_rise_set_history.json` (AU-037). The export does not read that
+file: the sunrise and sunset it stores come from the copies the legacy
+pipeline joined into the HKO daily extract, which differ from the sun / moon
+file by up to a minute on many days. Re-collecting the daily extract drops
+those joined columns, so after a re-collection the exported sunrise and
+sunset are `null` until the export is changed to read the sun / moon file.
 
 **Known gaps.** The daily extract is missing two days at the end of
 December and the hourly history stops on 30 December; the builder tolerates

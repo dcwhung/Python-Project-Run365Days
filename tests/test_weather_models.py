@@ -22,10 +22,14 @@ from run365days.weather.models import (
     SUN_MOON_SUNSET_COLUMN,
     DailyWeather,
     HourlyWeather,
+    SunMoon,
     WeatherWarning,
 )
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "weather"
+COMMITTED_SUN_MOON = (
+    Path(__file__).parents[1] / "data" / "raw" / "weather" / "sun_moon_rise_set_history.json"
+)
 
 # The six sun/moon columns the legacy pipeline joined into the daily extract.
 # DailyWeather deliberately owns none of them -- see its to_raw_row() docstring.
@@ -55,6 +59,18 @@ HOURLY = HourlyWeather(
     wind_kmh=10.0,
     humidity_pct=65.0,
     description="Clear weather",
+)
+
+SUN_MOON = SunMoon(
+    date="2021-01-08",
+    sunrise="07:04",
+    sunset="17:57",
+    solar_noon="12:31",
+    day_length="10:52:41",
+    moonrise="02:19",
+    moon_transit="07:31",
+    moonset="12:44",
+    moon_illumination_pct=24.3,
 )
 
 WARNING = WeatherWarning(
@@ -274,3 +290,135 @@ class TestMissingStringColumnsReadAsEmptyText:
         # equalities. The annotation is what is being defended, so check it.
         text_fields = (record.warning_type, record.start_time, record.end_time, record.icon_url)
         assert all(isinstance(value, str) for value in text_fields), text_fields
+
+
+class TestSunMoonRawRow:
+    """``SunMoon`` gets the raw-row pair the other three sources have (AU-037).
+
+    Every expectation here is a row out of ``sun_moon_rise_set_history.json``,
+    copied verbatim into ``raw_sun_moon_sample.json``, not a shape invented
+    alongside the reader: round-trips alone only show the pair agrees with
+    itself, which is what let CUI-0011 through.
+    """
+
+    def test_round_trips_through_its_raw_row(self):
+        assert SunMoon.from_raw_row(SUN_MOON.to_raw_row()) == SUN_MOON
+
+    def test_round_trips_a_synthetic_day_with_every_moon_field_absent(self):
+        # Model-level only: no committed day looks like this. The file never
+        # misses more than one moon event in a day, nor writes "/" for an
+        # illumination -- TestTheCommittedSunMoonFile pins both.
+        absent = SunMoon(
+            date="2021-01-28",
+            sunrise="07:03",
+            sunset="18:09",
+            solar_noon="12:36",
+            day_length="11:05:55",
+            moonrise=None,
+            moon_transit=None,
+            moonset=None,
+            moon_illumination_pct=None,
+        )
+        assert SunMoon.from_raw_row(absent.to_raw_row()) == absent
+
+    def test_reads_every_column_of_a_committed_row(self):
+        row = read_rows("raw_sun_moon_sample.json")[0]
+
+        assert SunMoon.from_raw_row(row) == SunMoon(
+            date="2021-01-01",
+            sunrise="07:02",
+            sunset="17:50",
+            solar_noon="12:26",
+            day_length="10:47:58",
+            moonrise="19:51",
+            moon_transit="01:50",
+            moonset="08:44",
+            moon_illumination_pct=97.2,
+        )
+
+    @pytest.mark.parametrize(
+        ("index", "field"),
+        [(1, "moonrise"), (2, "moonset"), (3, "moon_transit")],
+        ids=["no moonrise", "no moonset", "no meridian passing"],
+    )
+    def test_reads_the_committed_absent_marker_as_none(self, index, field):
+        row = read_rows("raw_sun_moon_sample.json")[index]
+
+        assert getattr(SunMoon.from_raw_row(row), field) is None
+
+    def test_reads_a_committed_illumination_as_a_number(self):
+        rows = read_rows("raw_sun_moon_sample.json")
+
+        assert [SunMoon.from_raw_row(r).moon_illumination_pct for r in rows] == [
+            97.2,
+            55.6,
+            45.8,
+            100.0,
+        ]
+
+    def test_writes_the_column_names_the_committed_file_uses(self):
+        assert set(SUN_MOON.to_raw_row()) == set(read_rows("raw_sun_moon_sample.json")[0])
+
+    @pytest.mark.parametrize("index", [0, 1, 2, 3])
+    def test_rewrites_a_committed_row_unchanged(self, index):
+        row = read_rows("raw_sun_moon_sample.json")[index]
+
+        assert SunMoon.from_raw_row(row).to_raw_row() == row
+
+    def test_reads_every_missing_sun_column_as_empty_text(self):
+        record = SunMoon.from_raw_row({RAW_DATE_COLUMN: "2021-01-08"})
+
+        sun_fields = (record.sunrise, record.sunset, record.solar_noon, record.day_length)
+        assert sun_fields == ("", "", "", "")
+        assert all(isinstance(value, str) for value in sun_fields), sun_fields
+
+    def test_reads_every_missing_moon_column_as_none(self):
+        record = SunMoon.from_raw_row({RAW_DATE_COLUMN: "2021-01-08"})
+
+        assert record.moonrise is None
+        assert record.moon_transit is None
+        assert record.moonset is None
+        assert record.moon_illumination_pct is None
+
+    def test_a_missing_date_raises_rather_than_keying_the_row_on_empty_text(self):
+        with pytest.raises(KeyError):
+            SunMoon.from_raw_row({"Sunrise": "07:02"})
+
+
+@pytest.fixture(scope="module")
+def committed() -> list[dict]:
+    """Every row of the committed sun/moon file, read once for the class below."""
+    text = COMMITTED_SUN_MOON.read_text(encoding="utf-8")
+    return [json.loads(line) for line in text.splitlines() if line.strip()]
+
+
+class TestTheCommittedSunMoonFile:
+    """The whole committed file, not a sample of it, through the same pair.
+
+    These pin the facts the collector's docstrings lean on, so that they are
+    measured here rather than quoted as numbers there (CLAUDE.md section 5).
+    """
+
+    def test_every_committed_row_rewrites_unchanged(self, committed):
+        rewritten = [SunMoon.from_raw_row(row).to_raw_row() for row in committed]
+
+        assert rewritten == committed
+
+    def test_every_day_without_a_meridian_passing_is_a_full_moon(self, committed):
+        # The collector answers a flat 100.0% when the moon table merges its
+        # meridian block into one cell. That rests on this: in the file the
+        # legacy scraper produced, every such day carries exactly that figure.
+        no_transit = [row for row in committed if row["Moon Transit"] == "/"]
+
+        assert no_transit
+        assert {row["Illumination"] for row in no_transit} == {"100.0%"}
+
+    def test_no_day_writes_the_absent_marker_for_its_illumination(self, committed):
+        # _illumination_text() writes "/" for a missing reading; this pins that
+        # the marker is borrowed by the writer and never came from the file.
+        assert all(row["Illumination"] != "/" for row in committed)
+
+    def test_no_day_misses_more_than_one_moon_event(self, committed):
+        events = ("Moonrise", "Moon Transit", "Moonset")
+
+        assert all(sum(row[e] == "/" for e in events) <= 1 for row in committed)

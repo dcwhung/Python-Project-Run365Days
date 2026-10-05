@@ -5,6 +5,7 @@ Usage
     run365-weather --source hourly
     run365-weather --source warnings
     run365-weather --source hko-daily --year 2021
+    run365-weather --source sun-moon --year 2021
     run365-weather --source all
 
 or, without installing the package::
@@ -24,13 +25,19 @@ from pathlib import Path
 import requests
 
 from run365days.common import config
-from run365days.weather.collectors import WeatherPageStructureError, hko_daily, hourly, warnings
+from run365days.weather.collectors import (
+    WeatherPageStructureError,
+    hko_daily,
+    hourly,
+    sun_moon,
+    warnings,
+)
 
 logger = logging.getLogger(__name__)
 
-_SOURCES = ("hourly", "warnings", "hko-daily")
+_SOURCES = ("hourly", "warnings", "hko-daily", "sun-moon")
 
-# The two ways one source can die while the other two are in no trouble at all:
+# The two ways one source can die while the others are in no trouble at all:
 # a host that cannot be reached, and a page that no longer carries the landmark
 # it is parsed by. Caught per source so a dead freemeteo does not also cost the
 # run its HKO warnings, and reported through the exit code so that "collected
@@ -87,7 +94,7 @@ def run(source: str, start: str, end: str, year: int) -> int:
         source: One of ``_SOURCES``, or ``"all"`` for every source.
         start: First day for the ranged sources, ``YYYY-MM-DD``.
         end: Last day for the ranged sources, ``YYYY-MM-DD``.
-        year: Year to request from the HKO daily extract.
+        year: Year to request from the HKO daily extract and the sun/moon history.
 
     Returns:
         How many of the selected sources could not be collected; zero means
@@ -111,6 +118,12 @@ def run(source: str, start: str, end: str, year: int) -> int:
             "HKO daily weather extract",
             lambda: hko_daily.fetch_year(str(year)),
             config.HKO_DAILY_JSON,
+        ),
+        (
+            "sun-moon",
+            "sun and moon rise/set history",
+            lambda: sun_moon.fetch_year(str(year)),
+            config.SUN_MOON_JSON,
         ),
     )
     selected = [job for job in jobs if source in (job[0], "all")]
