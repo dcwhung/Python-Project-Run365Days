@@ -178,9 +178,35 @@ jobs:
       # full tree now reports 0 advisories, so the flag is gone -- that was the
       # point of the ticket, not a regression.
       #
-      # This is the full tree and the gate holds it at zero, so it is stricter
-      # than an allowlist and needs no list to maintain. If an upstream advisory
-      # with no fix available ever lands here, the answer is a ticket and a
-      # decision, not an `--audit-level` or an exclusion added in passing.
+      # The full tree is still held at zero, with one deliberate exception
+      # mechanism (CUI-0054). On 2026-09-30 GHSA-vfj7-8cjw-p6xm landed against
+      # `braces`, with an affected range that includes the latest release -- no
+      # fix exists to take -- and the only route to it is @graphql-codegen/cli.
+      # That is the case the comment here used to reserve for "a ticket and a
+      # decision", and the decision was a bounded allowlist rather than an
+      # `--audit-level`, which would wave through every future advisory at the
+      # same severity.
+      #
+      # So `npm audit` now only produces the report, and
+      # scripts/npm_audit_gate.py judges it against frontend/npm-audit-allowlist.json.
+      # An entry passes only while it is unexpired (and dated no further out than
+      # the script's MAX_ALLOWLIST_DAYS), still reported, still without a
+      # non-breaking fix, and reached by exactly the packages it lists -- so a fix
+      # landing, a new route to the advisory, or the date passing each turns this
+      # step red again. Anything not on the list fails exactly as `npm audit`
+      # did. Accepted advisories are printed as warning annotations, so a green
+      # run still shows what it let through. See the script's docstring for the
+      # rules and why each exists.
+      #
+      # `|| true` is safe only because the gate refuses anything that is not a
+      # version-2 audit report: if npm fails to reach the registry it writes an
+      # error document instead, and the gate exits 2 on it rather than reading
+      # it as clean.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
       - name: Audit npm dependencies (whole tree, dev included)
-        run: npm audit
+        run: |
+          npm audit --json > "$RUNNER_TEMP/npm-audit.json" || true
+          python ../scripts/npm_audit_gate.py "$RUNNER_TEMP/npm-audit.json" npm-audit-allowlist.json
