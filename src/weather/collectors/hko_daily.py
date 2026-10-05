@@ -3,6 +3,7 @@
 import json
 import logging
 from http import HTTPStatus
+from typing import Any
 
 import requests
 
@@ -64,6 +65,41 @@ def _fetch_month_text(year: str, month: str) -> str | None:
         return None
 
 
+def _yearly_months(res: Any, year: str, url: str) -> list:
+    """Return the per-month entries of a decoded yearly payload.
+
+    The yearly payload is JSON shaped ``{"stn": {"data": [<month>, ...]}}``.
+    Like a payload that is not JSON at all (S-137), one that decodes but lacks
+    that shape has no fallback: there is no year to read. Indexing it directly
+    let a ``KeyError`` or ``TypeError`` out, which collect_weather does not
+    catch, so the whole run crashed (S-149).
+
+    Args:
+        res: The decoded yearly payload.
+        year: Four-digit year as a string, for the error message.
+        url: The yearly endpoint, for the error message.
+
+    Returns:
+        The ``stn.data`` list, one entry per month.
+
+    Raises:
+        WeatherPageStructureError: The payload has no ``stn.data``, or it is
+            not a list.
+    """
+    try:
+        months = res["stn"]["data"]
+    except (KeyError, TypeError) as exc:
+        raise WeatherPageStructureError(
+            f"HKO daily extract for {year} has no stn.data ({url}): {type(exc).__name__}: {exc}"
+        ) from exc
+    if not isinstance(months, list):
+        raise WeatherPageStructureError(
+            f"HKO daily extract for {year} has a stn.data that is a "
+            f"{type(months).__name__}, not a list ({url})"
+        )
+    return months
+
+
 def fetch_year(year: str) -> list[DailyWeather]:
     """Fetch the HKO daily extract for a whole year.
 
@@ -79,13 +115,20 @@ def fetch_year(year: str) -> list[DailyWeather]:
         year: Four-digit year as a string, e.g. ``"2021"``.
 
     Returns:
-        One record per day, in calendar order.
+        One record per readable day, in calendar order.
 
     Raises:
         requests.RequestException: The HKO endpoint could not be reached, or
-            answered with an error status (``requests.HTTPError``).
+            answered with an error status (``requests.HTTPError``) -- except a
+            404 on a per-month request, which skips that month instead (W-066,
+            S-151). A 404 on the yearly request is still raised.
         WeatherPageStructureError: The yearly payload arrived but is not JSON,
-            so the endpoint no longer serves the format this reads.
+            or is JSON without a ``stn.data`` list (S-149), so the endpoint no
+            longer serves the format this reads. Also raised when not one day of
+            the year was readable: the caller writes what this returns over the
+            committed history, and since a per-month 404 is a gap (W-066) a year
+            of empty months would otherwise overwrite it with nothing -- the
+            rule hourly and sun_moon follow (S-150).
     """
     records: list[DailyWeather] = []
     url = f"{_BASE_URL}{year}.xml"
@@ -101,7 +144,7 @@ def fetch_year(year: str) -> list[DailyWeather]:
             f"HKO daily extract for {year} is not JSON ({url}): {exc}"
         ) from exc
 
-    for month_data in res["stn"]["data"]:
+    for month_data in _yearly_months(res, year, url):
         month = str(month_data["month"]).zfill(2)
         day_data = month_data["dayData"]
 
@@ -144,4 +187,9 @@ def fetch_year(year: str) -> list[DailyWeather]:
                     mean_wind_kmh=to_float(data[_MEAN_WIND_COL]),
                 )
             )
+    if not records:
+        raise WeatherPageStructureError(
+            f"no HKO daily day of {year} was readable ({url}): every month the yearly "
+            "file left empty was absent or unusable at the per-month endpoint too"
+        )
     return records

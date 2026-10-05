@@ -216,6 +216,22 @@ def hko_routes(*, feb=None, mar=None) -> dict:
     }
 
 
+def hko_empty_year_routes(*, readable: dict | None = None) -> dict:
+    """Routes for a year whose yearly file left every month empty.
+
+    Every per-month request is answered 404 unless *readable* maps that
+    month's two-digit number to a body to serve instead.
+    """
+    readable = readable or {}
+    months = [{"month": m, "dayData": []} for m in range(1, 13)]
+    routes = {HKO_YEAR_URL: json.dumps({"stn": {"data": months}})}
+    for m in range(1, 13):
+        month = f"{m:02d}"
+        url = HKO_YEAR_URL.replace("_2021.xml", f"_2021{month}.xml")
+        routes[url] = readable.get(month, error_page(404))
+    return routes
+
+
 class TestHkoDailyFetchYear:
     def test_parses_every_numeric_row_of_the_yearly_payload(self, monkeypatch):
         install_fake_get(monkeypatch, hko_routes())
@@ -372,6 +388,63 @@ class TestHkoDailyFetchYear:
 
         with pytest.raises(requests.HTTPError):
             hko_daily.fetch_year("2021")
+
+    # S-149: a yearly payload that is valid JSON but not the shape this reads.
+    # Before the fix ``res["stn"]["data"]`` let a KeyError (or a TypeError)
+    # out, which collect_weather does not catch, so the whole run crashed and
+    # cost every source queued after this one -- the hole S-137 closed for a
+    # payload that is not JSON at all.
+    @pytest.mark.parametrize(
+        ("payload", "cause"),
+        [
+            pytest.param({"other": 1}, KeyError, id="no-stn"),
+            pytest.param({"stn": {}}, KeyError, id="no-stn-data"),
+            pytest.param({"stn": None}, TypeError, id="stn-not-an-object"),
+            pytest.param([], TypeError, id="top-level-not-an-object"),
+            pytest.param({"stn": {"data": {}}}, None, id="stn-data-an-object"),
+            pytest.param({"stn": {"data": "January"}}, None, id="stn-data-a-string"),
+            pytest.param({"stn": {"data": None}}, None, id="stn-data-null"),
+        ],
+    )
+    def test_a_yearly_payload_of_the_wrong_shape_is_a_structure_error(
+        self, monkeypatch, payload, cause
+    ):
+        routes = hko_routes()
+        routes[HKO_YEAR_URL] = json.dumps(payload)
+        install_fake_get(monkeypatch, routes)
+
+        with pytest.raises(WeatherPageStructureError) as excinfo:
+            hko_daily.fetch_year("2021")
+
+        message = str(excinfo.value)
+        assert "2021" in message
+        assert HKO_YEAR_URL in message
+        if cause is None:
+            assert excinfo.value.__cause__ is None
+        else:
+            assert isinstance(excinfo.value.__cause__, cause)
+
+    def test_a_year_with_no_readable_month_is_a_structure_error(self, monkeypatch):
+        # S-150: the caller writes what fetch_year returns over the committed
+        # history. Since W-066 a per-month 404 is a gap rather than a fault, so
+        # a yearly file of empty months answered by twelve 404s returned [] and
+        # the history was overwritten with nothing while the run reported no
+        # failure. Same rule as hourly.fetch_range and sun_moon.fetch_year.
+        install_fake_get(monkeypatch, hko_empty_year_routes())
+
+        with pytest.raises(WeatherPageStructureError, match="2021"):
+            hko_daily.fetch_year("2021")
+
+    def test_a_year_with_one_readable_month_still_returns_its_records(self, monkeypatch):
+        install_fake_get(
+            monkeypatch,
+            hko_empty_year_routes(readable={"02": read_fixture("hko_daily_month_02.json")}),
+        )
+
+        records = hko_daily.fetch_year("2021")
+
+        assert records
+        assert all(r.date.startswith("2021-02") for r in records)
 
 
 class TestHourlyFetchDay:
