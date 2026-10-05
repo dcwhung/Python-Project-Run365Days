@@ -364,6 +364,32 @@ class TestRefusedOrEmptySource:
         assert failed == 1
         assert out_paths["hko-daily"].read_text() == history
 
+    def test_a_hko_daily_year_with_no_readable_month_leaves_the_history_in_place(
+        self, monkeypatch, out_paths
+    ):
+        # S-150, measured before the fix: a yearly file of empty months whose
+        # per-month requests all answered 404 (a gap since W-066) made
+        # fetch_year return [], and the history was overwritten with an empty
+        # file while run() reported no failure.
+        history = '{"Date": "2021-01-01"}\n'
+        out_paths["hko-daily"].write_text(history)
+        monkeypatch.setattr(hko_daily, "fetch_year", REAL_HKO_FETCH_YEAR)
+        empty_year = json.dumps(
+            {"stn": {"data": [{"month": m, "dayData": []} for m in range(1, 13)]}}
+        )
+
+        def answer(url, *args, **kwargs):
+            if url.endswith("_2021.xml"):
+                return FakeResponse(empty_year)
+            return FakeResponse("<html><body>404 Not Found</body></html>", status_code=404)
+
+        monkeypatch.setattr(requests, "get", answer)
+
+        failed = collect_weather.run("hko-daily", "2021-01-01", "2021-01-02", 2021)
+
+        assert failed == 1
+        assert out_paths["hko-daily"].read_text() == history
+
 
 class TestMain:
     def test_defaults_the_range_to_the_whole_year_from_january(

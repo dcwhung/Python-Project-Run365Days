@@ -216,6 +216,22 @@ def hko_routes(*, feb=None, mar=None) -> dict:
     }
 
 
+def hko_empty_year_routes(*, readable: dict | None = None) -> dict:
+    """Routes for a year whose yearly file left every month empty.
+
+    Every per-month request is answered 404 unless *readable* maps that
+    month's two-digit number to a body to serve instead.
+    """
+    readable = readable or {}
+    months = [{"month": m, "dayData": []} for m in range(1, 13)]
+    routes = {HKO_YEAR_URL: json.dumps({"stn": {"data": months}})}
+    for m in range(1, 13):
+        month = f"{m:02d}"
+        url = HKO_YEAR_URL.replace("_2021.xml", f"_2021{month}.xml")
+        routes[url] = readable.get(month, error_page(404))
+    return routes
+
+
 class TestHkoDailyFetchYear:
     def test_parses_every_numeric_row_of_the_yearly_payload(self, monkeypatch):
         install_fake_get(monkeypatch, hko_routes())
@@ -407,6 +423,28 @@ class TestHkoDailyFetchYear:
             assert excinfo.value.__cause__ is None
         else:
             assert isinstance(excinfo.value.__cause__, cause)
+
+    def test_a_year_with_no_readable_month_is_a_structure_error(self, monkeypatch):
+        # S-150: the caller writes what fetch_year returns over the committed
+        # history. Since W-066 a per-month 404 is a gap rather than a fault, so
+        # a yearly file of empty months answered by twelve 404s returned [] and
+        # the history was overwritten with nothing while the run reported no
+        # failure. Same rule as hourly.fetch_range and sun_moon.fetch_year.
+        install_fake_get(monkeypatch, hko_empty_year_routes())
+
+        with pytest.raises(WeatherPageStructureError, match="2021"):
+            hko_daily.fetch_year("2021")
+
+    def test_a_year_with_one_readable_month_still_returns_its_records(self, monkeypatch):
+        install_fake_get(
+            monkeypatch,
+            hko_empty_year_routes(readable={"02": read_fixture("hko_daily_month_02.json")}),
+        )
+
+        records = hko_daily.fetch_year("2021")
+
+        assert records
+        assert all(r.date.startswith("2021-02") for r in records)
 
 
 class TestHourlyFetchDay:
