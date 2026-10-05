@@ -83,16 +83,18 @@ _MOON_TRAILING_CELLS = 4
 _MOON_MERGED_TRAILING_COLSPAN = _MOON_TRAILING_CELLS
 _FULL_MOON_ILLUMINATION_PCT = 100.0
 
-# A 24-hour clock time. The two guards on its sides keep it from being cut out
-# of something longer: "(?<![\d:])" stops it starting mid-number or after a
-# colon, so the "47:58" tail of a "10:47:58" daylength is not a time; "(?!:)"
-# stops it taking the "10:47" off that daylength's front. "(?!\s*[ap]\.?m)"
+# A 24-hour clock time. The guards on its two sides keep it from being cut out
+# of something longer. "(?<![\d:])" on the left stops it starting mid-number or
+# after a colon, so the "47:58" tail of a "10:47:58" daylength is not a time.
+# "(?![\d:])" on the right stops it ending mid-number or before a colon: the
+# colon half keeps it from taking the "10:47" off that daylength's front, the
+# digit half from taking "07:05" off "07:051" (S-138). "(?!\s*[ap]\.?m)"
 # refuses a 12-hour clock outright, dotted or not, because "7:05 pm" or
 # "7:05 p.m." read this way is 07:05 -- a real time, twelve hours out, with
 # nothing to show it was ever wrong (CUI-0018, W-064). The shape alone accepts
 # "25:99"; _time() range-checks what it matched.
 _TIME_RE = re.compile(
-    r"(?<![\d:])(?P<hour>\d{1,2}):(?P<minute>\d{2})(?!:)(?!\s*[ap]\.?m)", re.IGNORECASE
+    r"(?<![\d:])(?P<hour>\d{1,2}):(?P<minute>\d{2})(?![\d:])(?!\s*[ap]\.?m)", re.IGNORECASE
 )
 _HOURS_PER_DAY = 24
 """One past the highest hour a 24-hour clock shows."""
@@ -171,8 +173,11 @@ def _day_rows(table: Tag, year: str, month: str, minimum: int) -> list[tuple[str
         day = headers[0].get_text().strip()
         # One <th> is the shape of a day row, not proof of one: a footnote or
         # a "Note" row has it too, and would otherwise be published under the
-        # date "2021-01-Note" (S-133). isascii() keeps out digits int() would
-        # take but a day header never carries.
+        # date "2021-01-Note" (S-133). isascii() keeps out characters that
+        # isdigit() accepts but int() refuses: "\u00b2" (superscript two) is a
+        # digit to isdigit(), and int() raises ValueError on it, which nothing
+        # between here and run() catches -- one such header would end the whole
+        # collection rather than skip one row (S-141).
         if not (day.isascii() and day.isdigit() and 1 <= int(day) <= days_in_month):
             logger.warning(
                 "Skipping a %s-%s row: its header %r is not a day of that month", year, month, day
@@ -287,28 +292,45 @@ def _moon_events(tds: list[Tag], date_str: str) -> tuple[str | None, str | None,
     return moonrise, moonset, index
 
 
-def _trailing_block_fits(tds: list[Tag], end: int) -> bool:
-    """Say whether the cells after the slot walk are the block read from the end.
+_TRAILING_MERGED = "merged"
+"""Tail kind: the one merged full-moon cell (see :func:`_trailing_block_kind`)."""
+_TRAILING_CELLS = "cells"
+"""Tail kind: the four separate trailing cells (see :func:`_trailing_block_kind`)."""
 
-    The trailing fields are read by negative index, which only lands on them
-    when the walk stopped exactly that many cells short of the end -- or one
-    short, on the merged full-moon cell. Any other remainder means the slots and
-    the trailing block overlap or have something between them, and a read from
-    the end would take a moonset or a stray column for the meridian passing
-    (W-062).
+
+def _trailing_block_kind(tds: list[Tag], end: int) -> str | None:
+    """Say which trailing block follows the slot walk, if either.
+
+    The tail is decided here and only here, from every cell after the walk: the
+    caller branches on the answer and never looks at ``tds[-1]`` itself. Judging
+    width and kind in two places is what let a four-cell tail ending in a merged
+    cell read as a full moon with three cells never looked at (W-065).
+
+    Args:
+        tds: The row's cells.
+        end: Index of the first cell after the rise/set slots.
+
+    Returns:
+        :data:`_TRAILING_MERGED` when exactly one cell remains and it spans the
+        whole block; :data:`_TRAILING_CELLS` when exactly the block's width of
+        cells remains and none of them spans more than one column; ``None`` for
+        any other tail, where a read from the end would take a moonset or a
+        stray column for the meridian passing (W-062).
     """
-    remaining = len(tds) - end
-    if remaining == _MOON_TRAILING_CELLS:
-        return True
-    return remaining == 1 and colspan(tds[-1]) == _MOON_MERGED_TRAILING_COLSPAN
+    tail = tds[end:]
+    if len(tail) == 1 and colspan(tail[0]) == _MOON_MERGED_TRAILING_COLSPAN:
+        return _TRAILING_MERGED
+    if len(tail) == _MOON_TRAILING_CELLS and all(colspan(cell) == 1 for cell in tail):
+        return _TRAILING_CELLS
+    return None
 
 
 def _moon_day(tds: list[Tag], date_str: str) -> dict | None:
     """Read the four moon columns off one row of the monthly moon table.
 
     Returns:
-        The columns, or ``None`` when the slot walk ran off the end or did not
-        stop where the trailing block begins -- the caller then drops that day
+        The columns, or ``None`` when the slot walk ran off the end or the cells
+        after it are neither trailing block -- the caller then drops that day
         rather than publishing it with the moon half quietly blank or read from
         the wrong cells.
     """
@@ -316,17 +338,18 @@ def _moon_day(tds: list[Tag], date_str: str) -> dict | None:
     if events is None:
         return None
     moonrise, moonset, end = events
-    if not _trailing_block_fits(tds, end):
+    kind = _trailing_block_kind(tds, end)
+    if kind is None:
         logger.warning(
-            "Skipping %s: the moon row has %d cells after its rise/set slots, not the %d "
-            "(or one merged cell) its trailing block is read from",
+            "Skipping %s: the moon row ends in %d cells after its rise/set slots, not the %d "
+            "single-column cells (or the one merged cell) its trailing block is read from",
             date_str,
             len(tds) - end,
             _MOON_TRAILING_CELLS,
         )
         return None
 
-    if colspan(tds[_MOON_COL_ILLUMINATION]) == _MOON_MERGED_TRAILING_COLSPAN:
+    if kind == _TRAILING_MERGED:
         return {
             "moonrise": moonrise,
             "moonset": moonset,

@@ -916,8 +916,23 @@ class TestSunMoonFetchMonth:
             # A merged trailing cell that is not the last cell of the row.
             f"<td>01:00</td>{BEARING}<td>13:00</td>{BEARING}{EMPTY_SLOT}"
             '<td colspan="4">-</td><td>x</td>',
+            # W-065 (b): four cells remain, so the width alone fits, but the
+            # last of them is the merged full-moon cell -- read as a full moon,
+            # the three cells in front of it would never be looked at.
+            f"<td>01:00</td>{BEARING}{EMPTY_SLOT}{EMPTY_SLOT}<td>x</td><td>y</td><td>z</td>"
+            '<td colspan="4">-</td>',
+            # W-065 (a): one cell remains, but it spans one column, not the
+            # merged block's four. A guard that checks only the count reads the
+            # 13:00 moonset as the meridian passing again (W-062).
+            f"<td>01:00</td>{BEARING}<td>13:00</td>{BEARING}{EMPTY_SLOT}<td>x</td>",
         ],
-        ids=["nothing-after-the-slots", "one-cell-too-many", "merged-block-not-last"],
+        ids=[
+            "nothing-after-the-slots",
+            "one-cell-too-many",
+            "merged-block-not-last",
+            "merged-in-a-four-cell-tail",
+            "single-plain-cell-after-slots",
+        ],
     )
     def test_drops_a_day_whose_trailing_block_is_not_the_width_read_from_the_end(
         self, monkeypatch, caplog, tds
@@ -956,7 +971,9 @@ class TestSunMoonFetchMonth:
             },
         }
 
-    @pytest.mark.parametrize("header", ["Note", "0", "32", "1a"])
+    # "\u00b2" (superscript two) is a str.isdigit() digit that int() refuses
+    # with a ValueError, which no collection-failure handler catches (S-141).
+    @pytest.mark.parametrize("header", ["Note", "0", "32", "1a", "\u00b2"])
     def test_skips_a_row_whose_header_is_not_a_day_of_the_month(self, monkeypatch, caplog, header):
         # S-133: a lone <th> is how a day row is told apart, so a footnote row
         # with one header used to be published as the date "2021-01-Note".
@@ -1090,6 +1107,10 @@ class TestSunMoonTimeCell:
             "11:05:55",
             "25:99",  # shaped like a time, but no clock reads it
             "7:05 p.m.",  # a 12-hour clock, dotted: twelve hours out if read
+            # S-138: a third minute digit. Without a digit guard on the right
+            # these read as 07:05 and 12:34, cut off the front of a longer number.
+            "07:051",
+            "12:345",
         ],
     )
     def test_a_cell_that_is_not_a_24_hour_time_is_a_logged_gap(self, caplog, text):
