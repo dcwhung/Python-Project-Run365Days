@@ -3,10 +3,8 @@
 import json
 import logging
 
-import requests
-
-from run365days.common.config import HTTP_REQUEST_TIMEOUT
 from run365days.common.numeric import to_float
+from run365days.weather.collectors._parsing import fetch_text
 from run365days.weather.models import DailyWeather
 
 logger = logging.getLogger(__name__)
@@ -30,8 +28,9 @@ def fetch_year(year: str) -> list[DailyWeather]:
 
     Months missing from the yearly endpoint are fetched one by one from the
     per-month endpoint. A month whose per-month payload carries no usable data
-    is logged and skipped; a transport failure is raised, because an endpoint
-    that cannot be reached at all says nothing about that one month.
+    is logged and skipped; a transport failure or an error status is raised,
+    because an endpoint that cannot be reached or refuses the request says
+    nothing about that one month.
 
     Args:
         year: Four-digit year as a string, e.g. ``"2021"``.
@@ -40,10 +39,11 @@ def fetch_year(year: str) -> list[DailyWeather]:
         One record per day, in calendar order.
 
     Raises:
-        requests.RequestException: The HKO endpoint could not be reached.
+        requests.RequestException: The HKO endpoint could not be reached, or
+            answered with an error status (``requests.HTTPError``).
     """
     records: list[DailyWeather] = []
-    content = requests.get(f"{_BASE_URL}{year}.xml", timeout=HTTP_REQUEST_TIMEOUT).text
+    content = fetch_text(f"{_BASE_URL}{year}.xml")
     res = json.loads(content)
 
     for month_data in res["stn"]["data"]:
@@ -53,14 +53,13 @@ def fetch_year(year: str) -> list[DailyWeather]:
         if not day_data:
             # Fallback to per-month endpoint
             try:
-                content2 = requests.get(
-                    f"{_BASE_URL}{year}{month}.xml", timeout=HTTP_REQUEST_TIMEOUT
-                ).text
+                content2 = fetch_text(f"{_BASE_URL}{year}{month}.xml")
                 res2 = json.loads(content2)
                 day_data = res2["stn"]["data"][0]["dayData"]
             # Only a payload that arrived and turned out unusable is a data gap.
-            # Transport errors stay uncaught: swallowing them would turn one
-            # unreachable host into twelve silently empty months (AU-013).
+            # Transport errors and error statuses stay uncaught: swallowing them
+            # would turn one unreachable or refusing host into twelve silently
+            # empty months (AU-013, S-137).
             except (json.JSONDecodeError, KeyError, IndexError) as exc:
                 logger.warning(
                     "Skipping %s-%s: per-month HKO extract carries no usable data (%s: %s)",

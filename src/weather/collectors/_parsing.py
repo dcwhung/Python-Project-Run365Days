@@ -9,9 +9,16 @@ written against (CUI-0012).
 
 The same split the activity parsers settled on in ``parsers.base`` (AU-002),
 rebuilt on the BeautifulSoup API rather than copied from the ElementTree one.
+
+Every page is also fetched through :func:`fetch_text`, so the one check that
+tells an outage from a page -- the HTTP status -- is made in one place rather
+than remembered per collector (S-137).
 """
 
+import requests
 from bs4 import Tag
+
+from run365days.common.config import HTTP_REQUEST_TIMEOUT
 
 
 class WeatherPageStructureError(RuntimeError):
@@ -23,6 +30,29 @@ class WeatherPageStructureError(RuntimeError):
     one unreadable cell must not also swallow the news that the whole page
     changed shape.
     """
+
+
+def fetch_text(url: str, params: dict | None = None) -> str:
+    """Fetch *url* and return its body, refusing an error status.
+
+    Args:
+        url: Page or endpoint to fetch.
+        params: Query-string parameters, or ``None`` for none.
+
+    Returns:
+        The response body as text.
+
+    Raises:
+        requests.RequestException: The host could not be reached, or answered
+            with an error status (``requests.HTTPError``). The status check is
+            the point of this helper: a refusing host still serves a body, and
+            that body parses -- as a page with no table, a page without its
+            landmark, or a payload that is not JSON -- so without it an outage
+            read as an empty day, a changed layout or a crash (S-137, W-063).
+    """
+    response = requests.get(url, params=params, timeout=HTTP_REQUEST_TIMEOUT)
+    response.raise_for_status()
+    return response.text
 
 
 def section_after(html: str, marker: str) -> str:

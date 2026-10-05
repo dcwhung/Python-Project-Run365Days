@@ -1,12 +1,10 @@
 """Fetch hourly weather history from freemeteo.hk."""
 
 import pandas as pd
-import requests
 from bs4 import BeautifulSoup
 
-from run365days.common.config import HTTP_REQUEST_TIMEOUT
 from run365days.common.numeric import to_float
-from run365days.weather.collectors._parsing import child_string
+from run365days.weather.collectors._parsing import child_string, fetch_text
 from run365days.weather.models import HourlyWeather
 
 _DESCRIPTION_MAP = {
@@ -107,10 +105,13 @@ def fetch_day(date_str: str) -> list[HourlyWeather]:
         Hourly records in time order, or an empty list if the page has no
         history table. A row whose weather cell is unreadable still yields a
         record, with the description reading "Unknown".
+
+    Raises:
+        requests.RequestException: freemeteo could not be reached, or answered
+            with an error status (``requests.HTTPError``) -- whose page has no
+            history table either, so it must not read as a day without data.
     """
-    html = requests.get(
-        _URL, params={**_PARAMS_BASE, "date": date_str}, timeout=HTTP_REQUEST_TIMEOUT
-    ).text
+    html = fetch_text(_URL, params={**_PARAMS_BASE, "date": date_str})
     soup = BeautifulSoup(html, "html.parser")
     tables = soup.find_all("table", {"class": "daily-history"})
     if not tables:

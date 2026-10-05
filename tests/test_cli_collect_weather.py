@@ -277,9 +277,7 @@ class TestSunMoonOutage:
     def test_a_refused_year_leaves_the_committed_history_in_place(self, monkeypatch, out_paths):
         history = '{"Date": "2021-01-01"}\n'
         out_paths["sun-moon"].write_text(history)
-        monkeypatch.setattr(
-            sun_moon.requests, "get", lambda *args, **kwargs: self.ForbiddenResponse()
-        )
+        monkeypatch.setattr(requests, "get", lambda *args, **kwargs: self.ForbiddenResponse())
 
         failed = collect_weather.run("sun-moon", "2021-01-01", "2021-01-02", 2021)
 

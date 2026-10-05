@@ -31,11 +31,14 @@ import calendar
 import logging
 import re
 
-import requests
 from bs4 import BeautifulSoup, Tag
 
-from run365days.common.config import HTTP_REQUEST_TIMEOUT
-from run365days.weather.collectors._parsing import WeatherPageStructureError, cells, colspan
+from run365days.weather.collectors._parsing import (
+    WeatherPageStructureError,
+    cells,
+    colspan,
+    fetch_text,
+)
 from run365days.weather.models import SunMoon
 
 logger = logging.getLogger(__name__)
@@ -133,13 +136,11 @@ def _table(url: str, year: str, month: str, table_id: str) -> Tag | None:
             uncaught on purpose: swallowing it would turn one unreachable host
             into a year of silently empty months (AU-013).
     """
-    response = requests.get(
-        url, params={"year": year, "month": month}, timeout=HTTP_REQUEST_TIMEOUT
-    )
-    # An error page carries no table either, so without this a refusal (a 403,
-    # a 429) reads exactly like a month timeanddate has no data for (W-063).
-    response.raise_for_status()
-    table = BeautifulSoup(response.text, "html.parser").find("table", {"id": table_id})
+    # fetch_text refuses an error status: an error page carries no table
+    # either, so without that a refusal (a 403, a 429) reads exactly like a
+    # month timeanddate has no data for (W-063).
+    html = fetch_text(url, params={"year": year, "month": month})
+    table = BeautifulSoup(html, "html.parser").find("table", {"id": table_id})
     if not isinstance(table, Tag):
         logger.warning("Skipping %s-%s: %s carries no table with id %r", year, month, url, table_id)
         return None
