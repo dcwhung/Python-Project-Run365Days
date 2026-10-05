@@ -4,6 +4,26 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Release branches
 are named `release/vX` and tags `vX.Y.Z`.
 
+## [Unreleased]
+
+### Security
+- `npm audit fix` takes `brace-expansion` past three denial-of-service
+  advisories (GHSA-q2hr-2g5m-vwhr, GHSA-qhr7-859c-m2p7, GHSA-6j4f-fj2g-mc7p).
+  Lockfile only: every change is a patch release of a development dependency,
+  and `package.json` is untouched (CUI-0054).
+
+### Changed
+- The npm audit gate is no longer `npm audit` alone. From 2026-09-30,
+  GHSA-vfj7-8cjw-p6xm against `braces` turned the daily audit red with no
+  fixed version to move to: its affected range includes the latest release,
+  and the route to it is `@graphql-codegen/cli`, where `npm audit fix --force`
+  offers only a downgrade that would undo CUI-0049. `scripts/npm_audit_gate.py`
+  now judges the report against `frontend/npm-audit-allowlist.json`. An entry
+  passes only while it is unexpired, still reported, without a non-breaking
+  fix, and reached by exactly the packages it lists. Anything not on the list
+  fails as before, and accepted advisories still show as warning annotations
+  on a green run (CUI-0054).
+
 ## [3.3.0] - 2026-09-17 - `develop`
 
 Six tickets and twenty-one review items, in three batches. One change is

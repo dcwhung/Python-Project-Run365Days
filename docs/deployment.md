@@ -161,6 +161,17 @@ carried `--omit=dev` until the development tree's advisories were cleared by
 a bump of the codegen and vitest roots, and widening it to the full tree was
 the stated end state of that narrower threshold rather than a regression.
 
+The tree is held at zero advisories with one exception mechanism (CUI-0054):
+`npm audit --json` writes the report, and `scripts/npm_audit_gate.py` judges
+it against `frontend/npm-audit-allowlist.json`. The mechanism exists for an
+advisory that no release fixes yet. Each entry names one advisory, the package
+it is in, a ticket, a reason, an expiry date and the exact set of packages
+that reach it. It fails as soon as the date passes, npm stops reporting it, a
+non-breaking fix appears, or the set of routes changes. To add an entry, open a
+ticket first. When one expires, renew it under a new ticket; do not just move
+the date. If npm cannot produce a report (for example, it cannot reach the
+registry), the gate exits 2 rather than reading that as a clean tree.
+
 The Python gate upgrades `pip` and `setuptools` and then runs `pip-audit`
 over the environment the job installed: the declared dependencies, the
 `[dev]` extras and their transitives, and `pip-audit`'s own closure

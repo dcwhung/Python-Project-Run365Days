@@ -73,7 +73,9 @@ python -m venv .venv && .venv/bin/pip install -e ".[dev]"
 # Frontend
 cd frontend
 npm ci
-npm audit                  # CI gate（同樣喺 `audit.yml`）：全樹（dev 都審）。CUI-0049 bump 完 dev 樹後剷走 --omit=dev，exit 0 = 零 advisory
+npm audit --json > /tmp/npm-audit.json; python ../scripts/npm_audit_gate.py /tmp/npm-audit.json npm-audit-allowlist.json
+                           # CI gate（同樣喺 `audit.yml`）：全樹（dev 都審），零 advisory，唯一例外係 allowlist 入面有 ticket、
+                           # 有到期日、路徑完全吻合嘅 entry（CUI-0054）。淨行 `npm audit` 會見到 allowlist 收咗嘅 advisory 而紅，呢個係預期
 npm run lint
 npm run typecheck          # 會先跑 codegen
 npx vitest run

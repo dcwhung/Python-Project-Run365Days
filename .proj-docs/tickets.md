@@ -7,6 +7,7 @@
 **2026-09-17 後續 ④（v3.2.0 changelog 更正）**：`docs/CHANGELOG.md` `[3.2.0]` §Known 寫嘅「seven tokens」同「140 times cheaper」兩個都錯，已更正做 11 tokens / 約 5×。CUI-0037 張票本身早就記低咗更正（`998 ÷ 7 = 142.6`，兩個唔同 document 相除），但個數已經抄咗入已發佈嘅 changelog。main agent 獨立用 `graphql-core` lexer 重量：`{ activities(offset: -1) { id } }` = **11 tokens / 33 bytes**、最平嘅 budget document（5 個 alias × `limit: 1000`）= **57 tokens / 173 bytes**，比例 token 5.18 / byte 5.24。Release notes 用 `tag-release.yml` 個 `notes_only: true` mode 重出（CUI-0042 起嗰個 path）
 **2026-09-17 後續 ⑤（DevOps lane）**：CUI-0052 由 ⏸️ 轉 ✅ done —— 兩個 supply-chain audit 搬去新 workflow `.github/workflows/audit.yml`，冇任何 job `needs` 佢哋，另加每日 `schedule:`
 **2026-09-17 後續 ⑥（同一條 lane）**：開咗 **CUI-0053**（部署後嘅 Vercel API smoke test，由 `docs/roadmap.md` §Next 開出），同一條 lane 即刻實現埋並轉 ✅ done，搬入 `completed/`；`pending/` 由此清空（**0** 張）
+**2026-10-05**：開咗 **CUI-0054**（每日 `npm audit` 由 2026-09-30 起紅）。`brace-expansion` 用 `npm audit fix` 修咗；`braces`（GHSA-vfj7-8cjw-p6xm）上游冇 fix，用戶揀咗有期限嘅 allowlist（`scripts/npm_audit_gate.py`）。同一條 lane 實現埋並轉 ✅ done，直接放入 `completed/`
 
 > 由 `/audit`（AU-NNN）同 `/review`（C/W/S-NNN）產生嘅 ticket 集中登記處。
 > 編號全局唯一、永不重用。已完成嘅保留紀錄，只改狀態。
@@ -15,11 +16,11 @@
 
 ## 📋 CUI ticket census（權威總覽）
 
-**核實日期**：2026-09-17 ｜ **總數**：53 張（CUI-0001 … CUI-0053）
+**核實日期**：2026-10-05 ｜ **總數**：54 張（CUI-0001 … CUI-0054）
 
-> 量度方法（2026-09-17 喺 CUI-0052 / CUI-0053 lane 重量，同下面 Bucket 表係**同一次**點算）：
-> `find .tickets -name 'CUI-*.md' | wc -l` → **53**；
-> `ls .tickets/<bucket>/0001-0200/CUI-*.md | wc -l` → pending **0** / in-progress **0** / completed **53**。
+> 量度方法（2026-10-05 喺 CUI-0054 lane、以 `8554b3f` 為基礎重量，同下面 Bucket 表係**同一次**點算）：
+> `find .tickets -name 'CUI-*.md' | wc -l` → **54**；
+> `ls .tickets/<bucket>/0001-0200/CUI-*.md | wc -l` → pending **0** / in-progress **0** / completed **54**。
 >
 > ⚠️ 呢個 block 之前留住 `6576e56` 嗰陣嘅讀數（**42**；pending 13 / 0 / completed 29），同三行之下嘅
 > Bucket 表（52；45 / 0 / 7）並存，兩套數仲掛住**同一個核實日期**，而本 section 自稱「權威快照」——
@@ -34,10 +35,10 @@
 
 | Bucket | 數量 | 檔案位置 |
 |---|---:|---|
-| ✅ completed | **53** | `.tickets/completed/0001-0200/` |
+| ✅ completed | **54** | `.tickets/completed/0001-0200/` |
 | 🔄 in-progress | **0** | `.tickets/in-progress/0001-0200/`（空） |
-| ⏳ pending | **0** | `.tickets/pending/0001-0200/`（空：CUI-0052 同 CUI-0053 都已搬入 `completed/`） |
-| **總計** | **53** | |
+| ⏳ pending | **0** | `.tickets/pending/0001-0200/`（空：CUI-0052、CUI-0053 已搬入 `completed/`，CUI-0054 開票同日完成，直接放入 `completed/`） |
+| **總計** | **54** | |
 
 > ⚠️ **2026-09-17 後續（CUI-0049 / CUI-0044）**：兩張票狀態已轉 ✅ done，但**票檔冇搬**（依指示原地留喺
 > `pending/`）。所以上面「Bucket 數」仍然係**按檔案位置**數，completed **45** / pending **6** 未變 ——
@@ -77,11 +78,11 @@
 
 ### 編號完整性核實
 
-逐一列舉 `.tickets/` 下全部 `CUI-*.md` 檔名並同 `0001…0052` 對比
-（2026-09-17 喺 v3.3.0 release branch 用 `find .tickets -name 'CUI-*.md'` 點算，同上面 Bucket 表係同一次點算）：
+逐一列舉 `.tickets/` 下全部 `CUI-*.md` 檔名並同 `0001…0054` 對比
+（2026-10-05 喺 CUI-0054 lane 用 `find .tickets -name 'CUI-*.md'` 點算，同上面 Bucket 表係同一次點算）：
 
-- **編號連續**：✅ 是 —— `0001` 到 `0052` 一個不缺
-- **無跳號**：✅ 是 —— 應有 52 張，實有 52 張
+- **編號連續**：✅ 是 —— `0001` 到 `0054` 一個不缺
+- **無跳號**：✅ 是 —— 應有 54 張，實有 54 張
 - **無撞號**：✅ 是 —— 每個編號只有一個檔案，冇一個編號出現兩次
 
 > ⚠️ **開新票就要一齊改呢段。** 上面三句結論喺開票之後**照舊成立**，會漂嘅淨係範圍同張數 ——
@@ -145,6 +146,7 @@
 | **CUI-0051** | 🟢 Low | CUI-0038 測試註釋引咗 `103`/`341` bytes 但冇講量邊個 document；QA 用兩組 document 量到 102/332 同 161/239，兩組都唔等於。同 S-068/S-069 同一種病 | ✅ done | `completed/` |
 | **CUI-0052** | 🟢 Low | 兩個 supply-chain audit gate（`pip-audit` / `npm audit`）坐喺 `deploy` 上游（`build.needs = [lint-test, frontend]`、`deploy.needs = build`），而本 repo 每次 push `develop` 就 deploy ⇒ 一條同本 repo 完全無關嘅上游 advisory 可以停晒所有部署，包括 hotfix。兩份文件都認咗係刻意 trade，**唔當缺陷**；問題係要唔要解耦（標準做法：另開 `schedule:` audit workflow，**唔係** `continue-on-error`）。由 S-122 開出 | ✅ done | `completed/` |
 | **CUI-0053** | 🟡 Medium | Vercel 唔經 GitHub Actions 部署，所以部署完之後**冇任何自動檢查**：function 起唔起到、bundle 入面個 DB 有冇行，全部靠人手睇 Vercel Logs（`docs/deployment.md` 記住六次，兩次正正係呢種）。⚠️ 兩個陷阱：(a) `/api/health` **分得開** fallback（fallback 答 500 唔係 200），但**分唔開空 DB** —— 實測 populated 同 empty DB 都係 65536 bytes ⇒ 一定要夾一條真 query 驗行數；(b) `deployment_status` / `schedule` 兩個 trigger 都**只認 default branch** 上面嗰份 workflow file，而本 repo default branch 係 `master` 唔係部署源頭 `develop` ⇒ 寫成嗰樣會靜英英一次都唔行。由 `docs/roadmap.md` §Next 開出 | ✅ done | `completed/` |
+| **CUI-0054** | 🟡 Medium | 每日 `npm audit` 由 2026-09-30 起紅：`brace-expansion`（`npm audit fix` 修咗）同 `braces` GHSA-vfj7-8cjw-p6xm（受影響範圍包埋最新版，上游冇 fix，淨係經 `@graphql-codegen/cli` 入嚟）。用戶揀咗有期限嘅 allowlist：`scripts/npm_audit_gate.py` ＋ `frontend/npm-audit-allowlist.json`，過期、stale、有 non-breaking fix、路徑改變都會紅 | ✅ done | `completed/` |
 
 ### ⚠️ 核實過程發現
 
