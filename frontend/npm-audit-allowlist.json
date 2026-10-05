@@ -1,0 +1,22 @@
+{
+  "advisories": [
+    {
+      "id": "GHSA-vfj7-8cjw-p6xm",
+      "package": "braces",
+      "ticket": "CUI-0054",
+      "expires": "2027-01-03",
+      "reason": "No fixed braces release exists (the affected range includes the latest). Reached only through @graphql-codegen/cli, a devDependency that runs at build time on this repository's own codegen.ts globs and never ships in the bundle.",
+      "dependents": [
+        "@graphql-codegen/cli",
+        "@graphql-tools/code-file-loader",
+        "@graphql-tools/git-loader",
+        "@graphql-tools/graphql-file-loader",
+        "@graphql-tools/json-file-loader",
+        "fast-glob",
+        "globby",
+        "graphql-config",
+        "micromatch"
+      ]
+    }
+  ]
+}
