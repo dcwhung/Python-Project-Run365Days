@@ -35,7 +35,7 @@ import requests
 from bs4 import BeautifulSoup, Tag
 
 from run365days.common.config import HTTP_REQUEST_TIMEOUT
-from run365days.weather.collectors._parsing import cells, colspan
+from run365days.weather.collectors._parsing import WeatherPageStructureError, cells, colspan
 from run365days.weather.models import SunMoon
 
 logger = logging.getLogger(__name__)
@@ -112,14 +112,18 @@ def _table(url: str, year: str, month: str, table_id: str) -> Tag | None:
         month with no data, which the caller skips while keeping the others.
 
     Raises:
-        requests.RequestException: The page could not be reached. Left uncaught
-            on purpose: swallowing it would turn one unreachable host into a
-            year of silently empty months (AU-013).
+        requests.RequestException: The page could not be reached, or was
+            answered with an error status (``requests.HTTPError``). Left
+            uncaught on purpose: swallowing it would turn one unreachable host
+            into a year of silently empty months (AU-013).
     """
-    html = requests.get(
+    response = requests.get(
         url, params={"year": year, "month": month}, timeout=HTTP_REQUEST_TIMEOUT
-    ).text
-    table = BeautifulSoup(html, "html.parser").find("table", {"id": table_id})
+    )
+    # An error page carries no table either, so without this a refusal (a 403,
+    # a 429) reads exactly like a month timeanddate has no data for (W-063).
+    response.raise_for_status()
+    table = BeautifulSoup(response.text, "html.parser").find("table", {"id": table_id})
     if not isinstance(table, Tag):
         logger.warning("Skipping %s-%s: %s carries no table with id %r", year, month, url, table_id)
         return None
@@ -355,7 +359,8 @@ def fetch_month(year: str, month: str) -> list[SunMoon]:
         One record per readable day, in date order.
 
     Raises:
-        requests.RequestException: Either page could not be reached.
+        requests.RequestException: Either page could not be reached, or was
+            answered with an error status.
     """
     sun = _sun_month(year, month)
     moon = _moon_month(year, month)
@@ -379,9 +384,19 @@ def fetch_year(year: str) -> list[SunMoon]:
         One record per readable day, in date order.
 
     Raises:
-        requests.RequestException: A page could not be reached.
+        requests.RequestException: A page could not be reached, or was answered
+            with an error status.
+        WeatherPageStructureError: Not one day of the year was readable. The
+            caller writes what this returns over the only copy of these columns,
+            so a year of empty months is a page that changed shape, not a year
+            with no sunrise (W-063).
     """
     records: list[SunMoon] = []
     for month in range(1, len(calendar.month_name)):
         records.extend(fetch_month(year, f"{month:02d}"))
+    if not records:
+        raise WeatherPageStructureError(
+            f"no sun/moon day of {year} was readable: every month's pages lacked "
+            f"the {_SUN_TABLE_ID!r} or {_MOON_TABLE_ID!r} table, or no day was in both"
+        )
     return records

@@ -125,8 +125,20 @@ def block_real_sockets(monkeypatch):
 
 
 class FakeResponse:
-    def __init__(self, text: str):
+    """The slice of ``requests.Response`` the collectors use.
+
+    ``status_code`` defaults to 200 so every route written as a bare body keeps
+    meaning "served"; a route that is a ``FakeResponse`` itself can say
+    otherwise, which is how a test serves an error page.
+    """
+
+    def __init__(self, text: str, status_code: int = 200):
         self.text = text
+        self.status_code = status_code
+
+    def raise_for_status(self) -> None:
+        if self.status_code >= 400:
+            raise requests.HTTPError(f"{self.status_code} Client Error", response=self)
 
 
 class RequestRecorder:
@@ -793,7 +805,7 @@ class MonthlyRequestRecorder(RequestRecorder):
         answer = self.routes[(url, params["month"])]
         if isinstance(answer, Exception):
             raise answer
-        return FakeResponse(answer)
+        return answer if isinstance(answer, FakeResponse) else FakeResponse(answer)
 
 
 def install_fake_monthly_get(monkeypatch, routes: dict) -> MonthlyRequestRecorder:
@@ -1027,6 +1039,18 @@ class TestSunMoonFetchMonth:
         for timeout in recorder.timeouts:
             assert_bounded_timeout(timeout)
 
+    def test_an_error_status_is_raised_rather_than_read_as_an_empty_month(self, monkeypatch):
+        # W-063: a 403 page carries no table, so without the status check it
+        # read exactly like a month timeanddate had no data for.
+        routes = sun_moon_routes()
+        routes[(sun_moon._SUN_URL, "01")] = FakeResponse(
+            read_fixture("timeanddate_no_table.html"), status_code=403
+        )
+        install_fake_monthly_get(monkeypatch, routes)
+
+        with pytest.raises(requests.HTTPError):
+            sun_moon.fetch_month("2021", "01")
+
     def test_an_unreachable_page_is_raised_rather_than_read_as_an_empty_month(self, monkeypatch):
         # A host that cannot be reached says nothing about that month, so
         # swallowing it would turn one outage into an empty month (AU-013).
@@ -1039,6 +1063,17 @@ class TestSunMoonFetchMonth:
 
 
 class TestSunMoonFetchYear:
+    def test_a_year_with_no_readable_table_raises_rather_than_returning_nothing(self, monkeypatch):
+        # W-063: twelve months of "no table" used to come back as an empty
+        # list, which collect_weather then wrote over the committed history.
+        install_fake_monthly_get(
+            monkeypatch,
+            sun_moon_routes(sun="timeanddate_no_table.html", moon="timeanddate_no_table.html"),
+        )
+
+        with pytest.raises(WeatherPageStructureError, match="2021"):
+            sun_moon.fetch_year("2021")
+
     def test_walks_every_month_in_date_order(self, monkeypatch):
         recorder = install_fake_monthly_get(monkeypatch, sun_moon_routes())
 

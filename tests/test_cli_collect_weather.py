@@ -264,6 +264,29 @@ class TestRun:
         assert "Wrote 1 records" in printed
 
 
+class TestSunMoonOutage:
+    """W-063, driven through the real collector rather than a faked fetch_year."""
+
+    class ForbiddenResponse:
+        status_code = 403
+        text = "<html><body><p>Forbidden</p></body></html>"
+
+        def raise_for_status(self) -> None:
+            raise requests.HTTPError("403 Client Error: Forbidden", response=self)
+
+    def test_a_refused_year_leaves_the_committed_history_in_place(self, monkeypatch, out_paths):
+        history = '{"Date": "2021-01-01"}\n'
+        out_paths["sun-moon"].write_text(history)
+        monkeypatch.setattr(
+            sun_moon.requests, "get", lambda *args, **kwargs: self.ForbiddenResponse()
+        )
+
+        failed = collect_weather.run("sun-moon", "2021-01-01", "2021-01-02", 2021)
+
+        assert failed == 1
+        assert out_paths["sun-moon"].read_text() == history
+
+
 class TestMain:
     def test_defaults_the_range_to_the_whole_year_from_january(
         self, monkeypatch, out_paths, capsys
