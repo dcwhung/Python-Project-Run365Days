@@ -32,7 +32,39 @@ SUN_MOON_SUNRISE_COLUMN: Final = "Sunrise"
 SUN_MOON_SUNSET_COLUMN: Final = "Sunset"
 """Two of the six sun/moon columns the legacy pipeline joined into the HKO daily
 extract. They belong to :class:`SunMoon`, not to :class:`DailyWeather` -- see
-:meth:`DailyWeather.to_raw_row`."""
+:meth:`DailyWeather.to_raw_row`. Public because ``export.records`` still reads
+them off the joined daily rows; the sun/moon columns below have no reader
+outside this module."""
+
+_SUN_MOON_SOLAR_NOON_COLUMN: Final = "Solar Noon"
+_SUN_MOON_DAY_LENGTH_COLUMN: Final = "Daylength"
+_SUN_MOON_MOONRISE_COLUMN: Final = "Moonrise"
+_SUN_MOON_MOON_TRANSIT_COLUMN: Final = "Moon Transit"
+_SUN_MOON_MOONSET_COLUMN: Final = "Moonset"
+_SUN_MOON_ILLUMINATION_COLUMN: Final = "Illumination"
+
+_MOON_EVENT_ABSENT: Final = "/"
+"""How ``sun_moon_rise_set_history.json`` spells a moon event that never happens.
+
+The moon rises about fifty minutes later each day, so roughly once a lunar
+month a calendar day holds no moonrise, no moonset or no meridian passing, and
+the file writes ``"/"`` in that column. It is the file's own marker rather than
+an invention of this reader, so the pair maps it to ``None`` on the way in and
+writes it back on the way out: a day the moon skips has to survive a
+re-collection spelled the way it already is on disk.
+``TestTheCommittedSunMoonFile`` checks the whole committed file round-trips.
+
+``Illumination`` borrows the same marker for a missing *reading* when it is
+written back, so a ``None`` percentage still has a spelling. That case is the
+writer's, not the file's: the committed file never carries ``"/"`` in
+``Illumination`` (``TestTheCommittedSunMoonFile`` pins that too), and the
+collector produces it only when a page's illumination cell states no
+percentage."""
+
+_ILLUMINATION_SUFFIX: Final = "%"
+_ILLUMINATION_DECIMALS: Final = 1
+"""Decimals ``Illumination`` is written to, so a row read from the committed file
+(``"97.2%"``, ``"100.0%"``) is written back character for character."""
 
 _HOURLY_TEMPERATURE_COLUMN: Final = "Temperature (°C)"
 _HOURLY_WIND_COLUMN: Final = "Wind (Km/h)"
@@ -218,11 +250,20 @@ class DailyWeather:
         daily extract says ``Sunrise`` ``07:03`` while
         ``sun_moon_rise_set_history.json`` says ``07:02``. :class:`SunMoon`
         already declares them, so restating them on :class:`DailyWeather` would
-        recreate the two-owners-one-field problem CUI-0011 exists to end -- and
+        recreate the two-owners-one-field problem CUI-0011 exists to end, and
         :mod:`run365days.weather.collectors.hko_daily` could not fill them
-        anyway, the ``SunMoon`` collector having never been ported (AU-037).
-        A re-collection therefore drops those six columns rather than
+        anyway. A re-collection therefore drops those six columns rather than
         overwriting good history with nulls.
+
+        Since AU-037 they have a writer of their own,
+        :mod:`run365days.weather.collectors.sun_moon`, so re-collecting no longer
+        loses them from ``sun_moon_rise_set_history.json``. That does not make
+        the export safe: ``export.records.daily_weather_record`` still reads
+        ``sunrise`` and ``sunset`` off *this* row, so re-collect the daily
+        extract and both still degrade to ``None``. Reading them from the
+        sun/moon file instead would also change the exported values, the two
+        copies disagreeing by a minute on many days, and was left out of AU-037
+        as a decision about the export rather than about this pair.
         """
         return {
             RAW_DATE_COLUMN: self.date,
@@ -270,6 +311,7 @@ class SunMoon:
         solar_noon: Local solar noon ``HH:MM``.
         day_length: Day length ``HH:MM:SS``.
         moonrise: Local moonrise time, if the moon rises that day.
+        moon_transit: Local meridian passing, if the moon transits that day.
         moonset: Local moonset time, if the moon sets that day.
         moon_illumination_pct: Illuminated fraction of the moon in percent.
     """
@@ -280,5 +322,79 @@ class SunMoon:
     solar_noon: str
     day_length: str
     moonrise: str | None = None
+    moon_transit: str | None = None
     moonset: str | None = None
     moon_illumination_pct: float | None = None
+
+    def to_raw_row(self) -> dict:
+        """Return this day as a ``sun_moon_rise_set_history.json`` row.
+
+        All nine committed columns, ``Moon Transit`` included. The field was
+        added to this dataclass to write it: the collector exists so that a
+        re-collection stops losing history, and a writer that dropped a column
+        the file already carries would do exactly that (AU-037).
+        """
+        return {
+            RAW_DATE_COLUMN: self.date,
+            SUN_MOON_SUNRISE_COLUMN: self.sunrise,
+            _SUN_MOON_SOLAR_NOON_COLUMN: self.solar_noon,
+            SUN_MOON_SUNSET_COLUMN: self.sunset,
+            _SUN_MOON_DAY_LENGTH_COLUMN: self.day_length,
+            _SUN_MOON_MOONRISE_COLUMN: _moon_event_text(self.moonrise),
+            _SUN_MOON_MOON_TRANSIT_COLUMN: _moon_event_text(self.moon_transit),
+            _SUN_MOON_MOONSET_COLUMN: _moon_event_text(self.moonset),
+            _SUN_MOON_ILLUMINATION_COLUMN: _illumination_text(self.moon_illumination_pct),
+        }
+
+    @classmethod
+    def from_raw_row(cls, row: dict) -> "SunMoon":
+        """Build a day from a ``sun_moon_rise_set_history.json`` row.
+
+        The four sun columns are plain text and read as :data:`_MISSING_TEXT`
+        when absent, like every other string column here (CUI-0014). The moon
+        columns answer ``None`` instead, both for a column the row does not
+        carry and for the :data:`_MOON_EVENT_ABSENT` marker -- those are the
+        same fact, so they read the same way. ``Date`` fails fast on ``[...]``
+        as on the other classes -- see :meth:`HourlyWeather.from_raw_row`.
+        """
+        return cls(
+            date=row[RAW_DATE_COLUMN],
+            sunrise=row.get(SUN_MOON_SUNRISE_COLUMN, _MISSING_TEXT),
+            sunset=row.get(SUN_MOON_SUNSET_COLUMN, _MISSING_TEXT),
+            solar_noon=row.get(_SUN_MOON_SOLAR_NOON_COLUMN, _MISSING_TEXT),
+            day_length=row.get(_SUN_MOON_DAY_LENGTH_COLUMN, _MISSING_TEXT),
+            moonrise=_moon_event(row.get(_SUN_MOON_MOONRISE_COLUMN)),
+            moon_transit=_moon_event(row.get(_SUN_MOON_MOON_TRANSIT_COLUMN)),
+            moonset=_moon_event(row.get(_SUN_MOON_MOONSET_COLUMN)),
+            moon_illumination_pct=_illumination(row.get(_SUN_MOON_ILLUMINATION_COLUMN)),
+        )
+
+
+def _moon_event(value: object) -> str | None:
+    """Read one moon-event cell, mapping the file's absent marker to ``None``."""
+    if value is None or value == _MOON_EVENT_ABSENT:
+        return None
+    return str(value)
+
+
+def _moon_event_text(value: str | None) -> str:
+    """Write one moon-event cell, spelling ``None`` the way the file does."""
+    return _MOON_EVENT_ABSENT if value is None else value
+
+
+def _illumination(value: object) -> float | None:
+    """Read ``Illumination`` as a number, dropping the percent sign it carries."""
+    if isinstance(value, str):
+        return to_float(value.removesuffix(_ILLUMINATION_SUFFIX))
+    return to_float(value)
+
+
+def _illumination_text(value: float | None) -> str:
+    """Write ``Illumination`` back in the file's ``"97.2%"`` form.
+
+    A missing reading is written as :data:`_MOON_EVENT_ABSENT`, which the
+    reader maps back to ``None`` -- see that constant for why it is borrowed.
+    """
+    if value is None:
+        return _MOON_EVENT_ABSENT
+    return f"{value:.{_ILLUMINATION_DECIMALS}f}{_ILLUMINATION_SUFFIX}"
