@@ -171,8 +171,11 @@ def _day_rows(table: Tag, year: str, month: str, minimum: int) -> list[tuple[str
         day = headers[0].get_text().strip()
         # One <th> is the shape of a day row, not proof of one: a footnote or
         # a "Note" row has it too, and would otherwise be published under the
-        # date "2021-01-Note" (S-133). isascii() keeps out digits int() would
-        # take but a day header never carries.
+        # date "2021-01-Note" (S-133). isascii() keeps out characters that
+        # isdigit() accepts but int() refuses: "\u00b2" (superscript two) is a
+        # digit to isdigit(), and int() raises ValueError on it, which nothing
+        # between here and run() catches -- one such header would end the whole
+        # collection rather than skip one row (S-141).
         if not (day.isascii() and day.isdigit() and 1 <= int(day) <= days_in_month):
             logger.warning(
                 "Skipping a %s-%s row: its header %r is not a day of that month", year, month, day

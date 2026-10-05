@@ -971,7 +971,9 @@ class TestSunMoonFetchMonth:
             },
         }
 
-    @pytest.mark.parametrize("header", ["Note", "0", "32", "1a"])
+    # "\u00b2" (superscript two) is a str.isdigit() digit that int() refuses
+    # with a ValueError, which no collection-failure handler catches (S-141).
+    @pytest.mark.parametrize("header", ["Note", "0", "32", "1a", "\u00b2"])
     def test_skips_a_row_whose_header_is_not_a_day_of_the_month(self, monkeypatch, caplog, header):
         # S-133: a lone <th> is how a day row is told apart, so a footnote row
         # with one header used to be published as the date "2021-01-Note".
