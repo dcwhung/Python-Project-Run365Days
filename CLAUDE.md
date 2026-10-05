@@ -28,7 +28,7 @@
 ```
 src/                    Python package，imported as `run365days`
   activities/           Activity / TrackPoint models、parsers/（tcx, gpx, kml）、metrics
-  weather/              weather models、collectors/（hko_daily, hourly, warnings）
+  weather/              weather models、collectors/（hko_daily, hourly, sun_moon, warnings）
   weight/               體重解析同 summary
   dashboard/            builder（共用計算）、stats（年度 aggregate）
   common/               config（所有 path 同常數）、geo、time、numeric

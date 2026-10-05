@@ -20,7 +20,7 @@ models, its readers and its derived metrics:
 |---|---|---|
 | `run365days.common` | `config` (all paths and constants), `geo` (haversine), `time` (timestamp parsing, pace formatting) | nothing inside the project |
 | `run365days.activities` | `Activity` / `TrackPoint` dataclasses, `parsers/` for TCX, GPX and KML, `metrics` (MET and kcal) | `common` |
-| `run365days.weather` | `HourlyWeather`, `WeatherWarning`, `DailyWeather`, `SunMoon` dataclasses and `collectors/` that scrape HKO and freemeteo | `common` |
+| `run365days.weather` | `HourlyWeather`, `WeatherWarning`, `DailyWeather`, `SunMoon` dataclasses and `collectors/` that scrape HKO, freemeteo and timeanddate | `common` |
 | `run365days.weight` | `WeightRecord` and the year table / summaries built from the text log | `common` |
 | `run365days.dashboard` | `builder` (pure per-run calculations shared by export and API) and `stats` (year aggregates) | `activities`, `weight` |
 | `run365days.export` | `records` (one intermediate structure), `models` (SQLAlchemy), `sqlite` and `static_json` writers | `dashboard.builder`, `activities`, `weight` |

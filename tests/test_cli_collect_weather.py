@@ -16,8 +16,14 @@ import requests
 
 from run365days.cli import collect_weather
 from run365days.common import config
-from run365days.weather.collectors import WeatherPageStructureError, hko_daily, hourly, warnings
-from run365days.weather.models import DailyWeather, HourlyWeather, WeatherWarning
+from run365days.weather.collectors import (
+    WeatherPageStructureError,
+    hko_daily,
+    hourly,
+    sun_moon,
+    warnings,
+)
+from run365days.weather.models import DailyWeather, HourlyWeather, SunMoon, WeatherWarning
 
 COLLECT_WEATHER_LOGGER = "run365days.cli.collect_weather"
 
@@ -34,15 +40,17 @@ def block_real_sockets(monkeypatch):
 
 @pytest.fixture
 def out_paths(monkeypatch, tmp_path):
-    """Point the three output files at a temporary directory."""
+    """Point every output file at a temporary directory."""
     paths = {
         "hourly": tmp_path / "weather_history.json",
         "warnings": tmp_path / "weather_warning_history.json",
         "hko-daily": tmp_path / "hko_daily_weather_extract.json",
+        "sun-moon": tmp_path / "sun_moon_rise_set_history.json",
     }
     monkeypatch.setattr(config, "WEATHER_HISTORY_JSON", paths["hourly"])
     monkeypatch.setattr(config, "WEATHER_WARNING_JSON", paths["warnings"])
     monkeypatch.setattr(config, "HKO_DAILY_JSON", paths["hko-daily"])
+    monkeypatch.setattr(config, "SUN_MOON_JSON", paths["sun-moon"])
     return paths
 
 
@@ -80,7 +88,23 @@ def a_daily_record() -> DailyWeather:
     )
 
 
-def install_fake_collectors(monkeypatch, *, hourly_answer=None, warnings_answer=None, hko=None):
+def a_sun_moon_record() -> SunMoon:
+    return SunMoon(
+        date="2021-01-01",
+        sunrise="07:02",
+        sunset="17:50",
+        solar_noon="12:26",
+        day_length="10:47:58",
+        moonrise="19:51",
+        moon_transit="01:50",
+        moonset="08:44",
+        moon_illumination_pct=97.2,
+    )
+
+
+def install_fake_collectors(
+    monkeypatch, *, hourly_answer=None, warnings_answer=None, hko=None, sun_moon_answer=None
+):
     """Replace each collector's fetch entry point with a canned answer.
 
     An answer that is an exception is raised instead of returned, which is how
@@ -107,6 +131,11 @@ def install_fake_collectors(monkeypatch, *, hourly_answer=None, warnings_answer=
     )
     monkeypatch.setattr(
         hko_daily, "fetch_year", answer_with([a_daily_record()] if hko is None else hko)
+    )
+    monkeypatch.setattr(
+        sun_moon,
+        "fetch_year",
+        answer_with([a_sun_moon_record()] if sun_moon_answer is None else sun_moon_answer),
     )
 
 
@@ -141,6 +170,7 @@ class TestRun:
         monkeypatch.setattr(hourly, "fetch_range", lambda s, e: seen.append((s, e)) or [])
         monkeypatch.setattr(warnings, "fetch_range", lambda s, e: seen.append((s, e)) or [])
         monkeypatch.setattr(hko_daily, "fetch_year", lambda y: [])
+        monkeypatch.setattr(sun_moon, "fetch_year", lambda y: [])
 
         collect_weather.run("all", "2021-03-01", "2021-03-09", 2021)
 
@@ -153,6 +183,25 @@ class TestRun:
         collect_weather.run("hko-daily", "2021-01-01", "2021-01-02", 2019)
 
         assert seen == ["2019"]
+
+    def test_passes_the_requested_year_to_the_sun_moon_history(self, monkeypatch, out_paths):
+        seen = []
+        monkeypatch.setattr(sun_moon, "fetch_year", lambda y: seen.append(y) or [])
+
+        collect_weather.run("sun-moon", "2021-01-01", "2021-01-02", 2019)
+
+        assert seen == ["2019"]
+
+    def test_writes_the_sun_moon_history_where_config_points(self, monkeypatch, out_paths):
+        # AU-037: SunMoon had no writer, so config.SUN_MOON_JSON named a file
+        # nothing in the package could produce.
+        install_fake_collectors(monkeypatch)
+
+        collect_weather.run("sun-moon", "2021-01-01", "2021-01-02", 2021)
+
+        rows = [json.loads(line) for line in out_paths["sun-moon"].read_text().splitlines()]
+        assert rows == [a_sun_moon_record().to_raw_row()]
+        assert not out_paths["hko-daily"].exists()
 
     def test_an_unreachable_source_does_not_stop_the_others(self, monkeypatch, out_paths):
         install_fake_collectors(
@@ -183,9 +232,10 @@ class TestRun:
             hourly_answer=requests.Timeout("read timed out"),
             warnings_answer=WeatherPageStructureError("page landmark not found"),
             hko=requests.ConnectionError("unreachable"),
+            sun_moon_answer=requests.ConnectionError("unreachable"),
         )
 
-        assert collect_weather.run("all", "2021-01-01", "2021-01-02", 2021) == 3
+        assert collect_weather.run("all", "2021-01-01", "2021-01-02", 2021) == 4
 
     def test_logs_the_source_that_failed_rather_than_printing_it(
         self, monkeypatch, out_paths, caplog, capsys
@@ -259,6 +309,17 @@ class TestMain:
             collect_weather.main()
 
         assert exit_info.value.code != 0
+
+    def test_accepts_sun_moon_as_a_source(self, monkeypatch, out_paths, capsys):
+        seen = []
+        monkeypatch.setattr(sun_moon, "fetch_year", lambda y: seen.append(y) or [])
+        monkeypatch.setattr(
+            sys, "argv", ["run365-weather", "--source", "sun-moon", "--year", "2020"]
+        )
+
+        collect_weather.main()
+
+        assert seen == ["2020"]
 
     def test_exits_zero_when_every_source_was_collected(self, monkeypatch, out_paths, capsys):
         install_fake_collectors(monkeypatch)

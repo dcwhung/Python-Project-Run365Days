@@ -74,7 +74,7 @@ pages.
 pyproject.toml                 package metadata, console scripts, ruff and pytest config
 src/                           Python package, imported as `run365days`, one sub-package per feature
   activities/                  Activity / TrackPoint models, parsers/ (tcx, gpx, kml), metrics (MET)
-  weather/                     weather models, collectors/ (hko_daily, hourly, warnings)
+  weather/                     weather models, collectors/ (hko_daily, hourly, sun_moon, warnings)
   weight/                      daily weight parsing, year table, summaries
   dashboard/                   builder (shared run calculations), stats (year aggregates)
   common/                      config (all paths and constants), geo, time
@@ -140,7 +140,7 @@ can also be run as `python -m run365days.cli.<module>`.
 | Command | What it does | Reads | Writes |
 |---|---|---|---|
 | `run365-activities --format all --year 2021` | Parse every activity file into normalised records | `data/raw/garmin/{tcx,gpx,kml}/` | `data/processed/activities_<fmt>.jsonl` |
-| `run365-weather --source all --year 2021` | Scrape hourly weather, HKO warnings and the HKO daily extract | the web | `data/raw/weather/*.json` |
+| `run365-weather --source all --year 2021` | Scrape hourly weather, HKO warnings, the HKO daily extract and sun / moon times | the web | `data/raw/weather/*.json` |
 | `run365-export [--points 600] [--skip-db] [--skip-static] [--static-dir DIR]` | Parse everything once and write the processed data set for the API and the static build | `data/raw/**` | `data/processed/run365.db` and `data/processed/static/*.json` |
 | `run365-schema [--check FILE]` | Print the GraphQL SDL, or verify a file matches it | the Strawberry schema | stdout |
 

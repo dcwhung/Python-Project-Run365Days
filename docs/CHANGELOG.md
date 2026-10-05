@@ -6,6 +6,18 @@ are named `release/vX` and tags `vX.Y.Z`.
 
 ## [Unreleased]
 
+### Added
+- `run365-weather --source sun-moon` collects
+  `sun_moon_rise_set_history.json` from timeanddate.com, ported from
+  `legacy/03_GetSunMoonRiseSetHistory.py`. `SunMoon` gains the raw-row pair
+  the other weather sources have, plus the `moon_transit` field the
+  committed file already carries, and every committed row round-trips
+  through it unchanged. Every positional read of the page is guarded: a
+  12-hour time, a short row or an unreadable cell becomes a logged gap or a
+  dropped day rather than a value from the wrong column. The export is
+  unchanged and still takes sunrise and sunset from the HKO daily extract
+  (AU-037).
+
 ### Security
 - `npm audit fix` takes `brace-expansion` past three denial-of-service
   advisories (GHSA-q2hr-2g5m-vwhr, GHSA-qhr7-859c-m2p7, GHSA-6j4f-fj2g-mc7p).

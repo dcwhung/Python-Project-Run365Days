@@ -86,3 +86,39 @@ def child_string(cell: Tag | None, name: str) -> str | None:
     if not isinstance(child, Tag) or child.string is None:
         return None
     return str(child.string)
+
+
+def cells(parent: Tag, minimum: int) -> list[Tag] | None:
+    """Return *parent*'s ``<td>`` cells when it carries at least *minimum* of them.
+
+    Args:
+        parent: Element whose cells to read, typically a table row.
+        minimum: Fewest cells the caller can read by position.
+
+    Returns:
+        The cells, or ``None`` when there are fewer than *minimum* -- so a short
+        row becomes a decision the caller makes rather than an ``IndexError`` it
+        inherits from a header, a spacer or a page that shed a column.
+    """
+    found = parent.find_all("td")
+    if len(found) < minimum:
+        return None
+    return found
+
+
+def colspan(cell: Tag, default: int = 1) -> int:
+    """Return how many columns *cell* spans, or *default* when that is unreadable.
+
+    Args:
+        cell: The table cell.
+        default: Returned when the attribute is absent or not a whole number.
+
+    Returns:
+        The span. A malformed ``colspan`` reads as *default* rather than raising
+        ``ValueError`` out of the whole page, because a single odd attribute says
+        nothing about the cells around it.
+    """
+    try:
+        return int(cell.get("colspan", default))
+    except (TypeError, ValueError):
+        return default

@@ -7,6 +7,7 @@
 **2026-09-17 後續 ④（v3.2.0 changelog 更正）**：`docs/CHANGELOG.md` `[3.2.0]` §Known 寫嘅「seven tokens」同「140 times cheaper」兩個都錯，已更正做 11 tokens / 約 5×。CUI-0037 張票本身早就記低咗更正（`998 ÷ 7 = 142.6`，兩個唔同 document 相除），但個數已經抄咗入已發佈嘅 changelog。main agent 獨立用 `graphql-core` lexer 重量：`{ activities(offset: -1) { id } }` = **11 tokens / 33 bytes**、最平嘅 budget document（5 個 alias × `limit: 1000`）= **57 tokens / 173 bytes**，比例 token 5.18 / byte 5.24。Release notes 用 `tag-release.yml` 個 `notes_only: true` mode 重出（CUI-0042 起嗰個 path）
 **2026-09-17 後續 ⑤（DevOps lane）**：CUI-0052 由 ⏸️ 轉 ✅ done —— 兩個 supply-chain audit 搬去新 workflow `.github/workflows/audit.yml`，冇任何 job `needs` 佢哋，另加每日 `schedule:`
 **2026-09-17 後續 ⑥（同一條 lane）**：開咗 **CUI-0053**（部署後嘅 Vercel API smoke test，由 `docs/roadmap.md` §Next 開出），同一條 lane 即刻實現埋並轉 ✅ done，搬入 `completed/`；`pending/` 由此清空（**0** 張）
+**2026-10-05 ②**：**AU-037** ✅ done —— `src/weather/collectors/sun_moon.py`（timeanddate.com，移植自 `legacy/03_GetSunMoonRiseSetHistory.py`，以 `stoic-ritchie` 嘅 `2d886f4` 為藍本按 `develop` 重寫）＋ `SunMoon` raw-row pair（加 `moon_transit`）＋ CLI `sun-moon` source。committed 檔案每一行都可以原封不動 round-trip。**Export 冇改**（用戶揀）：佢仍然由 HKO daily extract 嘅 joined 副本讀 sunrise/sunset，兩份資料喺好多日差 1 分鐘
 **2026-10-05**：開咗 **CUI-0054**（每日 `npm audit` 由 2026-09-30 起紅）。`brace-expansion` 用 `npm audit fix` 修咗；`braces`（GHSA-vfj7-8cjw-p6xm）上游冇 fix，用戶揀咗有期限嘅 allowlist（`scripts/npm_audit_gate.py`）。同一條 lane 實現埋並轉 ✅ done，直接放入 `completed/`
 
 > 由 `/audit`（AU-NNN）同 `/review`（C/W/S-NNN）產生嘅 ticket 集中登記處。
@@ -600,7 +601,7 @@ Developer 冇求其揀一邊，佢揾到決定性證據：
 
 | ID | 級別 | 標題 | 狀態 |
 |---|---|---|---|
-| **AU-037** | 🟡 **升級** | `SunMoon` 冇 collector —— 而家變成 load-bearing | pending |
+| **AU-037** | 🟡 **升級** | `SunMoon` 冇 collector —— 而家變成 load-bearing | ✅ done（2026-10-05）—— collector 已移植（`run365-weather --source sun-moon`）；用戶決定 export **唔郁**，所以重新採集 daily extract 之後 sunrise/sunset 仍然會變 `None`，見頂部 2026-10-05 ② |
 | **CUI-0014** | 🟢 Low | `from_raw_row()` 對缺失 STRING 欄位預設 `""` 而舊 code 出 `None` | ✅ **completed 2026-09-16**（QA wave 1 pass） |
 
 **AU-037 升級理由**：排除 sunrise/sunset 之後，一次重新採集會寫出一個冇 sun/moon 欄位嘅 `hko_daily_weather_extract.json`，令 export 出嘅 sunrise/sunset 變 `None`。資料唔會損壞、export 亦唔會爆，但 dashboard 會失去呢兩個欄位，直到 `SunMoon` collector 移植好為止。**呢個係排除決定嘅誠實代價，唔係新引入嘅 regression** —— collector 從來都冇呢啲值。

@@ -36,6 +36,7 @@ views once the API exists:
 
 - Read `sun_moon_rise_set_history.json` to tag runs as pre-dawn, daylight
   or after dark.
-- Port the v1 sun / moon scraper into `run365days.weather.collectors` and
-  then delete `legacy/`.
+- Delete `legacy/` once nothing in it is still needed for reference. The
+  v1 sun / moon scraper is ported to `run365days.weather.collectors.sun_moon`
+  (AU-037).
 - Type checking with mypy in CI.
