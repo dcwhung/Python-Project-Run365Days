@@ -55,6 +55,14 @@ are named `release/vX` and tags `vX.Y.Z`.
   page was reported as a layout change. A daily extract that arrives but is
   not JSON, and an hourly range in which no day is readable, now fail that
   source the same way (S-137).
+- `run365-weather --source hko-daily` no longer fails the whole year when
+  HKO answers 404 for one month's own extract. That request is only made for
+  months the yearly file leaves empty, which are the most recent ones, so if
+  HKO answers 404 for a month it has not published yet, collecting the
+  current year failed every time. A per-month 404 is now logged and the
+  month skipped; any other error status, and a 404 on the yearly file, still
+  fail the source. HKO's actual answer for an unpublished month has not been
+  measured, so this is a defensive reading of 404 (W-066).
 
 ## [3.3.0] - 2026-09-17 - `develop`
 

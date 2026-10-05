@@ -327,10 +327,48 @@ class TestHkoDailyFetchYear:
         assert "JSON" in str(raised.value)
         assert isinstance(raised.value.__cause__, json.JSONDecodeError)
 
-    def test_an_error_status_on_the_per_month_endpoint_is_not_a_missing_month(self, monkeypatch):
+    @pytest.mark.parametrize("status_code", [403, 500])
+    def test_an_error_status_on_the_per_month_endpoint_is_not_a_missing_month(
+        self, monkeypatch, status_code
+    ):
         # S-137: a refused per-month request is an outage, not a month the
-        # extract has no data for, so it must not be logged and skipped.
-        install_fake_get(monkeypatch, hko_routes(feb=error_page()))
+        # extract has no data for, so it must not be logged and skipped. W-066
+        # carves 404 out of this; a refusal or a server fault stays a fault.
+        install_fake_get(monkeypatch, hko_routes(feb=error_page(status_code)))
+
+        with pytest.raises(requests.HTTPError):
+            hko_daily.fetch_year("2021")
+
+    def test_a_per_month_404_skips_that_month_and_keeps_the_rest(self, monkeypatch, caplog):
+        # W-066: the per-month endpoint is only asked for months the yearly file
+        # left empty, i.e. recent ones. If HKO answers 404 for a month it has
+        # not published yet, raising here failed the whole source every time
+        # the current year was collected.
+        install_fake_get(monkeypatch, hko_routes(feb=error_page(404)))
+
+        with caplog.at_level(logging.WARNING, logger=HKO_DAILY_LOGGER):
+            records = hko_daily.fetch_year("2021")
+
+        assert not [r for r in records if r.date.startswith("2021-02")]
+        assert [r.date for r in records if r.date.startswith("2021-01")]
+        february = [r.getMessage() for r in caplog.records if "2021-02" in r.getMessage()]
+        assert len(february) == 1
+        assert "404" in february[0]
+
+    def test_a_per_month_http_error_without_a_response_is_not_a_missing_month(self, monkeypatch):
+        # W-066: only a response that says 404 is read as "no extract"; an
+        # HTTPError that carries no response says nothing about the month.
+        install_fake_get(monkeypatch, hko_routes(feb=requests.HTTPError("no response")))
+
+        with pytest.raises(requests.HTTPError):
+            hko_daily.fetch_year("2021")
+
+    def test_a_yearly_404_still_raises(self, monkeypatch):
+        # W-066 carves 404 out of the per-month fallback only: without the
+        # yearly file there is no year to read, so its 404 is a fault.
+        routes = hko_routes()
+        routes[HKO_YEAR_URL] = error_page(404)
+        install_fake_get(monkeypatch, routes)
 
         with pytest.raises(requests.HTTPError):
             hko_daily.fetch_year("2021")
