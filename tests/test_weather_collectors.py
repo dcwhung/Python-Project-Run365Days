@@ -916,8 +916,23 @@ class TestSunMoonFetchMonth:
             # A merged trailing cell that is not the last cell of the row.
             f"<td>01:00</td>{BEARING}<td>13:00</td>{BEARING}{EMPTY_SLOT}"
             '<td colspan="4">-</td><td>x</td>',
+            # W-065 (b): four cells remain, so the width alone fits, but the
+            # last of them is the merged full-moon cell -- read as a full moon,
+            # the three cells in front of it would never be looked at.
+            f"<td>01:00</td>{BEARING}{EMPTY_SLOT}{EMPTY_SLOT}<td>x</td><td>y</td><td>z</td>"
+            '<td colspan="4">-</td>',
+            # W-065 (a): one cell remains, but it spans one column, not the
+            # merged block's four. A guard that checks only the count reads the
+            # 13:00 moonset as the meridian passing again (W-062).
+            f"<td>01:00</td>{BEARING}<td>13:00</td>{BEARING}{EMPTY_SLOT}<td>x</td>",
         ],
-        ids=["nothing-after-the-slots", "one-cell-too-many", "merged-block-not-last"],
+        ids=[
+            "nothing-after-the-slots",
+            "one-cell-too-many",
+            "merged-block-not-last",
+            "merged-in-a-four-cell-tail",
+            "single-plain-cell-after-slots",
+        ],
     )
     def test_drops_a_day_whose_trailing_block_is_not_the_width_read_from_the_end(
         self, monkeypatch, caplog, tds
