@@ -28,7 +28,7 @@ from run365days.weather.models import (
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "weather"
 COMMITTED_SUN_MOON = (
-    Path(__file__).parents[1] / "data" / "raw" / "weather" / ("sun_moon_rise_set_history.json")
+    Path(__file__).parents[1] / "data" / "raw" / "weather" / "sun_moon_rise_set_history.json"
 )
 
 # The six sun/moon columns the legacy pipeline joined into the daily extract.

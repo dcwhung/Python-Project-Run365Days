@@ -101,6 +101,11 @@ _MINUTES_PER_HOUR = 60
 _DAY_LENGTH_RE = re.compile(r"(?<!\d)(?P<value>\d{1,2}:\d{2}:\d{2})(?!\d)")
 _ILLUMINATION_RE = re.compile(r"(?P<value>\d+(?:\.\d+)?)\s*%")
 
+_FIRST_MONTH = 1
+"""January, the first month :func:`fetch_year` requests."""
+_LAST_MONTH = 12
+"""December, the last month :func:`fetch_year` requests."""
+
 _MISSING_TIME = ""
 """What a sun column answers when its cell states no time. The four sun fields
 are a plain ``str`` on :class:`SunMoon`, so this is the same empty-text default
@@ -420,7 +425,7 @@ def fetch_year(year: str) -> list[SunMoon]:
             with no sunrise (W-063).
     """
     records: list[SunMoon] = []
-    for month in range(1, len(calendar.month_name)):
+    for month in range(_FIRST_MONTH, _LAST_MONTH + 1):
         records.extend(fetch_month(year, f"{month:02d}"))
     if not records:
         raise WeatherPageStructureError(
