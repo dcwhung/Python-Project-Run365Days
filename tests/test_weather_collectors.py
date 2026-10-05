@@ -820,6 +820,30 @@ def january_by_date() -> dict[str, SunMoon]:
     return {record.date: record for record in sun_moon.fetch_month("2021", "01")}
 
 
+# One cell of a moon row, written the way the fixture pages write them.
+BEARING = "<td>&uarr; (65&deg;)</td>"
+EMPTY_SLOT = '<td colspan="2">-</td>'
+TRAILING_BLOCK = (
+    "<td>01:50</td><td>(63.0&deg;)</td><td>384,000 km</td><td>97.2%</td>"  # transit .. illum
+)
+
+
+def moon_page(rows: dict[str, str]) -> str:
+    """A moon page whose day rows are given as ``{day header: <td>... html}``.
+
+    Built inline rather than added to ``timeanddate_moon_202101.html`` so that
+    fixture keeps standing for the page as served, and each malformed row sits
+    beside the test that says what is wrong with it.
+    """
+    body = "".join(f"<tr><th>{day}</th>{tds}</tr>" for day, tds in rows.items())
+    return f'<table id="tb-7dmn"><tr><th>Jan 2021</th><th>Moonrise</th></tr>{body}</table>'
+
+
+def moon_month_from(monkeypatch, rows: dict[str, str]) -> dict[str, dict]:
+    install_fake_monthly_get(monkeypatch, {(sun_moon._MOON_URL, "01"): moon_page(rows)})
+    return sun_moon._moon_month("2021", "01")
+
+
 class TestSunMoonFetchMonth:
     """The port of ``legacy/03_GetSunMoonRiseSetHistory.py`` (AU-037)."""
 
@@ -866,6 +890,59 @@ class TestSunMoonFetchMonth:
 
         assert "2021-01-30" not in {r.date for r in collected}
         assert "2021-01-30" in caplog.text
+
+    @pytest.mark.parametrize(
+        "tds",
+        [
+            # W-062's repro: three filled slots and nothing after them. Read from
+            # the end, the "meridian passing" was the 13:00 moonset.
+            f"<td>01:00</td>{BEARING}<td>13:00</td>{BEARING}<td>23:50</td>{BEARING}",
+            # A page that grew a column between the slots and the trailing
+            # block: read from the end, every trailing field shifts by one.
+            f"<td>01:00</td>{BEARING}<td>13:00</td>{BEARING}{EMPTY_SLOT}<td>x</td>"
+            + TRAILING_BLOCK,
+            # A merged trailing cell that is not the last cell of the row.
+            f"<td>01:00</td>{BEARING}<td>13:00</td>{BEARING}{EMPTY_SLOT}"
+            '<td colspan="4">-</td><td>x</td>',
+        ],
+        ids=["nothing-after-the-slots", "one-cell-too-many", "merged-block-not-last"],
+    )
+    def test_drops_a_day_whose_trailing_block_is_not_the_width_read_from_the_end(
+        self, monkeypatch, caplog, tds
+    ):
+        with caplog.at_level(logging.WARNING, logger=SUN_MOON_LOGGER):
+            days = moon_month_from(monkeypatch, {"3": tds})
+
+        assert "2021-01-03" not in days
+        assert "2021-01-03" in caplog.text
+
+    def test_reads_the_normal_and_the_merged_trailing_block_beside_a_malformed_row(
+        self, monkeypatch
+    ):
+        days = moon_month_from(
+            monkeypatch,
+            {
+                "1": f"<td>19:51</td>{BEARING}<td>08:44</td>{BEARING}{EMPTY_SLOT}" + TRAILING_BLOCK,
+                "3": f"<td>01:00</td>{BEARING}<td>13:00</td>{BEARING}<td>23:50</td>{BEARING}",
+                "28": f"<td>17:40</td>{BEARING}<td>06:36</td>{BEARING}{EMPTY_SLOT}"
+                '<td colspan="4">-</td>',
+            },
+        )
+
+        assert days == {
+            "2021-01-01": {
+                "moonrise": "19:51",
+                "moonset": "08:44",
+                "moon_transit": "01:50",
+                "moon_illumination_pct": 97.2,
+            },
+            "2021-01-28": {
+                "moonrise": "17:40",
+                "moonset": "06:36",
+                "moon_transit": None,
+                "moon_illumination_pct": 100.0,
+            },
+        }
 
     def test_drops_a_row_too_short_to_read_by_position(self, monkeypatch, caplog):
         install_fake_monthly_get(monkeypatch, sun_moon_routes())

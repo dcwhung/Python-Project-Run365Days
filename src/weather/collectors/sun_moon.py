@@ -208,7 +208,7 @@ def _sun_day(tds: list[Tag], date_str: str) -> dict:
     }
 
 
-def _moon_events(tds: list[Tag], date_str: str) -> tuple[str | None, str | None] | None:
+def _moon_events(tds: list[Tag], date_str: str) -> tuple[str | None, str | None, int] | None:
     """Walk the rise/set/rise slots at the front of a moon row.
 
     Args:
@@ -216,9 +216,10 @@ def _moon_events(tds: list[Tag], date_str: str) -> tuple[str | None, str | None]
         date_str: The day being read, for the log message.
 
     Returns:
-        ``(moonrise, moonset)``, either of which is ``None`` on a day the event
-        does not happen -- or ``None`` for the pair when the row ends before the
-        walk does, which means the layout is not the one read here and the
+        ``(moonrise, moonset, end)``, where either time is ``None`` on a day the
+        event does not happen and *end* is the index of the first cell after
+        the slots -- or ``None`` for the whole tuple when the row ends before
+        the walk does, which means the layout is not the one read here and the
         cells after it cannot be trusted either.
 
     A second moonrise overwrites the first, which is what the legacy script did
@@ -246,21 +247,47 @@ def _moon_events(tds: list[Tag], date_str: str) -> tuple[str | None, str | None]
         else:
             moonrise = _time(cell, date_str, "moonrise")
         index += _MOON_FILLED_SLOT_CELLS
-    return moonrise, moonset
+    return moonrise, moonset, index
+
+
+def _trailing_block_fits(tds: list[Tag], end: int) -> bool:
+    """Say whether the cells after the slot walk are the block read from the end.
+
+    The trailing fields are read by negative index, which only lands on them
+    when the walk stopped exactly that many cells short of the end -- or one
+    short, on the merged full-moon cell. Any other remainder means the slots and
+    the trailing block overlap or have something between them, and a read from
+    the end would take a moonset or a stray column for the meridian passing
+    (W-062).
+    """
+    remaining = len(tds) - end
+    if remaining == _MOON_TRAILING_CELLS:
+        return True
+    return remaining == 1 and colspan(tds[-1]) == _MOON_MERGED_TRAILING_COLSPAN
 
 
 def _moon_day(tds: list[Tag], date_str: str) -> dict | None:
     """Read the four moon columns off one row of the monthly moon table.
 
     Returns:
-        The columns, or ``None`` when the row's slot walk ran off the end -- the
-        caller then drops that day rather than publishing it with the moon half
-        quietly blank.
+        The columns, or ``None`` when the slot walk ran off the end or did not
+        stop where the trailing block begins -- the caller then drops that day
+        rather than publishing it with the moon half quietly blank or read from
+        the wrong cells.
     """
     events = _moon_events(tds, date_str)
     if events is None:
         return None
-    moonrise, moonset = events
+    moonrise, moonset, end = events
+    if not _trailing_block_fits(tds, end):
+        logger.warning(
+            "Skipping %s: the moon row has %d cells after its rise/set slots, not the %d "
+            "(or one merged cell) its trailing block is read from",
+            date_str,
+            len(tds) - end,
+            _MOON_TRAILING_CELLS,
+        )
+        return None
 
     if colspan(tds[_MOON_COL_ILLUMINATION]) == _MOON_MERGED_TRAILING_COLSPAN:
         return {
