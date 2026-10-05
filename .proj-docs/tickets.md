@@ -8,6 +8,7 @@
 **2026-09-17 後續 ⑤（DevOps lane）**：CUI-0052 由 ⏸️ 轉 ✅ done —— 兩個 supply-chain audit 搬去新 workflow `.github/workflows/audit.yml`，冇任何 job `needs` 佢哋，另加每日 `schedule:`
 **2026-09-17 後續 ⑥（同一條 lane）**：開咗 **CUI-0053**（部署後嘅 Vercel API smoke test，由 `docs/roadmap.md` §Next 開出），同一條 lane 即刻實現埋並轉 ✅ done，搬入 `completed/`；`pending/` 由此清空（**0** 張）
 **2026-10-05 ②**：**AU-037** ✅ done —— `src/weather/collectors/sun_moon.py`（timeanddate.com，移植自 `legacy/03_GetSunMoonRiseSetHistory.py`，以 `stoic-ritchie` 嘅 `2d886f4` 為藍本按 `develop` 重寫）＋ `SunMoon` raw-row pair（加 `moon_transit`）＋ CLI `sun-moon` source。committed 檔案每一行都可以原封不動 round-trip。**Export 冇改**（用戶揀）：佢仍然由 HKO daily extract 嘅 joined 副本讀 sunrise/sunset，兩份資料喺好多日差 1 分鐘
+**2026-10-05 ③**：AU-037 review（81/100 ⚠️ warn）嘅 7 條 finding（W-062…W-064、S-133…S-136）全部 ✅ done，一個 finding 一個 commit；另開 **S-137**（pending，所有 collector 都冇 `raise_for_status`），見最後一節
 **2026-10-05**：開咗 **CUI-0054**（每日 `npm audit` 由 2026-09-30 起紅）。`brace-expansion` 用 `npm audit fix` 修咗；`braces`（GHSA-vfj7-8cjw-p6xm）上游冇 fix，用戶揀咗有期限嘅 allowlist（`scripts/npm_audit_gate.py`）。同一條 lane 實現埋並轉 ✅ done，直接放入 `completed/`
 
 > 由 `/audit`（AU-NNN）同 `/review`（C/W/S-NNN）產生嘅 ticket 集中登記處。
@@ -1593,3 +1594,47 @@ ruff check + format 全綠、`run365-schema --check` up to date、`npm audit` �
 5. **QA 嘅數我全部重現到**：census 52 / 45 / 0 / 7 同 `0001…0052` 連續無跳號無撞號、
    codegen 後 `wc -l` = 75、`pages.yml:107` / `:177` / `deployment.md:137` 三處措辭對比、
    四條 field 全壞只出 1 個 error + `data: null` —— 冇一個要修正。
+
+---
+
+## AU-037 review（2026-10-05）—— ⚠️ warn 81/100
+
+**來源**：AU-037 review 2026-10-05，81/100（commit `1c43e29`，`src/weather/collectors/sun_moon.py` 等）。
+**修復 branch**：`claude/nifty-sagan-avcfve`（同一條 branch，冇另開），一個 finding 一個 commit，TDD：每條先寫紅測試，確認係 assertion fail 而唔係 collection error，再修。
+**用戶決定**：export（`src/export/records.py`）唔郁。
+**Gate（喺 `fedae6d` 量）**：pytest 682 passed（`1c43e29` 量到 663）、`ruff check` / `ruff format --check` 全綠。
+
+### 🟡 Warning（3 條）
+
+| ID | 內容 | 狀態 |
+|---|---|---|
+| **W-062** | `_moon_events` / `_moon_day` 行完 slot 之後冇睇剩低幾多格。Repro：moon row `01:00 \| b \| 13:00 \| b \| 23:50 \| b`（三個 slot 填滿、尾四格冇咗）會出 `moon_transit='13:00'`（其實係 moonset） | ✅ done（`bb12908`）—— `_moon_events` 回埋 walk 停喺邊個 index；新 `_trailing_block_fits()` 要求剩低格數等於 `_MOON_TRAILING_CELLS`，或者剩一格而佢 `colspan == _MOON_MERGED_TRAILING_COLSPAN`；否則 log 日期並 drop 嗰日。測試用 inline page 三個 param（尾段冇格／多一格／merged cell 唔喺最尾）＋ 一條正常 row 同 full-moon merged row 照讀 |
+| **W-063** | 成年冇一個 table 讀得到（例如每個月 403 + 冇 table 嘅 HTML）會寫一個空檔蓋過 committed history，而且 exit 0 | ✅ done（`c20ccf6`）—— `_table` parse 之前 `response.raise_for_status()`（`HTTPError` 係 `RequestException`，本來已喺 `_COLLECTION_FAILURES`）；`fetch_year` 收集到零筆就 raise `WeatherPageStructureError`。三條測試：error status raise、成年冇 table raise、經 `collect_weather.run("sun-moon", …)` 預先存在嘅檔案**冇被蓋**而回傳 1。後者係兩個 guard 嘅 end-to-end 測試：單拆任何一個 guard 佢都綠（另一個頂住），兩個一齊拆先紅 —— 見下面 mutant 表 |
+| **W-064** | `_TIME_RE`：`10:47:58` 讀成 `47:58`、收 `25:99`、`7:05 p.m.` 讀成 `07:05` | ✅ done（`a7a0446`）—— lookbehind 改 `(?<![\d:])`、12 小時 guard 改 `(?!\s*[ap]\.?m)`、match 後用 `_HOURS_PER_DAY` / `_MINUTES_PER_HOUR` 驗範圍，越界同冇 match 行同一條 warning path。⚠️ **mutant 揭出 brief 個 repro 唔夠**：`10:47:58` 條尾 `47:58` 本身越界，range check 會順手擋走，所以拆 lookbehind 呢條測試照綠。另加 fixture 自己嘅 daylength `11:05:55`（條尾 `05:55` 係合法時間）先真係守住 lookbehind |
+
+### 🟢 Suggestion（4 條 + 1 條新開）
+
+| ID | 內容 | 狀態 |
+|---|---|---|
+| **S-133** | `_day_rows`：`<th>Note</th>` 會出日期 `2021-01-Note` | ✅ done（`7b86a9b`）—— header 要係 ASCII 數字而且 `1 ≤ day ≤ calendar.monthrange(year, month)[1]`，否則 log 並 skip。測試 param：`Note` / `0` / `32` / `1a` |
+| **S-134** | `_illumination_text(None)` 寫 `_MOON_EVENT_ABSENT`（`"/"`），但 committed 檔案 `Illumination` 從來冇 `"/"` | ✅ done（`fad4725`）—— `_MOON_EVENT_ABSENT` docstring 寫明 `Illumination` 借用呢個 marker 表示冇讀數；測試改名 `test_round_trips_a_synthetic_day_with_every_moon_field_absent`；另加 `TestTheCommittedSunMoonFile::test_no_day_writes_the_absent_marker_for_its_illumination` 釘住 docstring 個聲稱（pin，唔係 red —— 修文件冇行為改動） |
+| **S-135** | `docs/CHANGELOG.md` `[Unreleased]` 冇講 `run365-weather` 預設（`--source all`）而家多咗 sun-moon | ✅ done（`4d1b2ef`）—— §Changed 一條：每個月多兩個 request、每次改寫 `sun_moon_rise_set_history.json`，連埋 W-063 嘅失敗行為；冇裸數 |
+| **S-136** | `COMMITTED_SUN_MOON` 多餘括號；`fetch_year` 用 `range(1, len(calendar.month_name))` | ✅ done（`fedae6d`）—— 去括號；改用 `_FIRST_MONTH` / `_LAST_MONTH`（有 docstring） |
+| **S-137** | **系統性**：`src/weather/collectors/` 入面除咗 `sun_moon`（W-063）之外，冇一個 collector 叫 `raise_for_status()`。`hko_daily.fetch_year` 年度 payload 遇到 403 會 `json.loads` 一頁 HTML ⇒ `JSONDecodeError`，佢唔喺 `_COLLECTION_FAILURES`（佢係 `ValueError`），所以唔係「呢個 source 失敗」而係成個 `run()` 爆；per-month fallback 就會將 403 當成「冇資料嘅月份」log 走。`hourly` / `warnings` 一樣會將 error page 當成普通 page parse | ⏳ pending —— W-063 刻意冇擴展到其他 collector（範圍外）。修法方向：每個 `requests.get` 後 `raise_for_status()`，並逐個 collector 補 error-status 測試（`tests/test_weather_collectors.py` 個 `FakeResponse` 已經有 `status_code` / `raise_for_status`） |
+
+### Mutant 驗證（CLAUDE.md §6 方法，喺 `fedae6d` 量）
+
+In-process plugin：`pytest_configure` 入面用 `setattr` 換入 mutant（重寫函數 source 再 `exec`，或者換 `_TIME_RE`），**assert mutant 真係生效**（bytecode / 行為檢查）先跑，`python -B`；跑 `test_weather_collectors.py` + `test_cli_collect_weather.py` + `test_weather_models.py`。冇 mutant 時全綠。
+
+| Mutant | 紅嘅測試 |
+|---|---|
+| W-062 剩餘格數檢查 → 永遠 `True` | `test_drops_a_day_whose_trailing_block_is_not_the_width_read_from_the_end` 三個 param + `test_reads_the_normal_and_the_merged_trailing_block_beside_a_malformed_row` |
+| W-062 merged 分支 → `False` | full-moon 相關五條（含新嘅 normal + merged 測試） |
+| W-063 拆 `raise_for_status()` | `test_an_error_status_is_raised_rather_than_read_as_an_empty_month` |
+| W-063 拆零筆 raise | `test_a_year_with_no_readable_table_raises_rather_than_returning_nothing` |
+| W-063 兩個一齊拆 | 上面兩條 + `TestSunMoonOutage::test_a_refused_year_leaves_the_committed_history_in_place` |
+| W-064 拆 hour/minute 範圍檢查 | `test_a_cell_that_is_not_a_24_hour_time_is_a_logged_gap[25:99]` |
+| W-064 lookbehind 還原 `(?<!\d)` | `…_logged_gap[11:05:55]`（`[10:47:58]` 照綠，見 W-064 row） |
+| W-064 12 小時 guard 還原 `[ap]m` | `…_logged_gap[7:05 p.m.]` |
+| S-133 拆 header 檢查 | `test_skips_a_row_whose_header_is_not_a_day_of_the_month` 四個 param |
+
