@@ -2,6 +2,9 @@
 
 import json
 import logging
+from http import HTTPStatus
+
+import requests
 
 from run365days.common.numeric import to_float
 from run365days.weather.collectors._parsing import WeatherPageStructureError, fetch_text
@@ -23,14 +26,54 @@ _TOTAL_RAINFALL_COL = 8
 _MEAN_WIND_COL = 11
 
 
+def _fetch_month_text(year: str, month: str) -> str | None:
+    """Fetch one month's per-month extract, or ``None`` if HKO answers 404.
+
+    The per-month endpoint is only asked for months the yearly file left
+    empty, which in practice are the most recent ones. What HKO answers for a
+    month it has not published yet has not been measured (W-066). If it is a
+    404, raising here would fail the whole source every time the current year
+    is collected, so a 404 is read defensively as "no extract for this month"
+    and the month is skipped like any other gap. Every other error status
+    (a refusal, a rate limit, a server fault) and an ``HTTPError`` that carries
+    no response are re-raised unchanged: they say the endpoint is unavailable,
+    not that this one month is missing (S-137).
+
+    Args:
+        year: Four-digit year as a string.
+        month: Two-digit month as a string.
+
+    Returns:
+        The response body, or ``None`` when the endpoint answered 404.
+
+    Raises:
+        requests.RequestException: Any transport failure or any error status
+            other than 404.
+    """
+    try:
+        return fetch_text(f"{_BASE_URL}{year}{month}.xml")
+    except requests.HTTPError as exc:
+        if exc.response is None or exc.response.status_code != HTTPStatus.NOT_FOUND:
+            raise
+        logger.warning(
+            "Skipping %s-%s: per-month HKO extract is absent (HTTP %s)",
+            year,
+            month,
+            exc.response.status_code,
+        )
+        return None
+
+
 def fetch_year(year: str) -> list[DailyWeather]:
     """Fetch the HKO daily extract for a whole year.
 
     Months missing from the yearly endpoint are fetched one by one from the
-    per-month endpoint. A month whose per-month payload carries no usable data
-    is logged and skipped; a transport failure or an error status is raised,
-    because an endpoint that cannot be reached or refuses the request says
-    nothing about that one month.
+    per-month endpoint. A month whose per-month payload carries no usable data,
+    or whose per-month request is answered 404, is logged and skipped (see
+    ``_fetch_month_text``); a transport failure or any other error status is
+    raised, because an endpoint that cannot be reached or refuses the request
+    says nothing about that one month. A 404 on the yearly request is raised
+    too: without the yearly file there is no year to read.
 
     Args:
         year: Four-digit year as a string, e.g. ``"2021"``.
@@ -65,11 +108,14 @@ def fetch_year(year: str) -> list[DailyWeather]:
         if not day_data:
             # Fallback to per-month endpoint
             try:
-                content2 = fetch_text(f"{_BASE_URL}{year}{month}.xml")
+                content2 = _fetch_month_text(year, month)
+                if content2 is None:
+                    continue
                 res2 = json.loads(content2)
                 day_data = res2["stn"]["data"][0]["dayData"]
-            # Only a payload that arrived and turned out unusable is a data gap.
-            # Transport errors and error statuses stay uncaught: swallowing them
+            # Only a payload that arrived and turned out unusable (or a per-month
+            # 404, handled above) is a data gap. Transport errors and every
+            # other error status stay uncaught: swallowing them
             # would turn one unreachable or refusing host into twelve silently
             # empty months (AU-013, S-137).
             except (json.JSONDecodeError, KeyError, IndexError) as exc:
