@@ -312,6 +312,21 @@ class TestHkoDailyFetchYear:
         with pytest.raises(requests.HTTPError):
             hko_daily.fetch_year("2021")
 
+    def test_a_yearly_payload_that_is_not_json_is_a_page_structure_error(self, monkeypatch):
+        # S-137: served with a 200, so the status check lets it through, and
+        # json.loads used to raise JSONDecodeError -- a ValueError that
+        # collect_weather does not catch, so it crashed the whole run and every
+        # source after this one went uncollected.
+        routes = hko_routes()
+        routes[HKO_YEAR_URL] = "<html><body>Scheduled maintenance</body></html>"
+        install_fake_get(monkeypatch, routes)
+
+        with pytest.raises(WeatherPageStructureError, match="2021") as raised:
+            hko_daily.fetch_year("2021")
+
+        assert "JSON" in str(raised.value)
+        assert isinstance(raised.value.__cause__, json.JSONDecodeError)
+
     def test_an_error_status_on_the_per_month_endpoint_is_not_a_missing_month(self, monkeypatch):
         # S-137: a refused per-month request is an outage, not a month the
         # extract has no data for, so it must not be logged and skipped.

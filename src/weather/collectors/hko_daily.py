@@ -4,7 +4,7 @@ import json
 import logging
 
 from run365days.common.numeric import to_float
-from run365days.weather.collectors._parsing import fetch_text
+from run365days.weather.collectors._parsing import WeatherPageStructureError, fetch_text
 from run365days.weather.models import DailyWeather
 
 logger = logging.getLogger(__name__)
@@ -41,10 +41,22 @@ def fetch_year(year: str) -> list[DailyWeather]:
     Raises:
         requests.RequestException: The HKO endpoint could not be reached, or
             answered with an error status (``requests.HTTPError``).
+        WeatherPageStructureError: The yearly payload arrived but is not JSON,
+            so the endpoint no longer serves the format this reads.
     """
     records: list[DailyWeather] = []
-    content = fetch_text(f"{_BASE_URL}{year}.xml")
-    res = json.loads(content)
+    url = f"{_BASE_URL}{year}.xml"
+    content = fetch_text(url)
+    # Unlike a per-month payload below, the yearly one has no fallback: without
+    # it there is no year to read. JSONDecodeError is a ValueError, which
+    # collect_weather does not catch, so letting it out crashed the whole run
+    # and cost every source queued after this one (S-137).
+    try:
+        res = json.loads(content)
+    except json.JSONDecodeError as exc:
+        raise WeatherPageStructureError(
+            f"HKO daily extract for {year} is not JSON ({url}): {exc}"
+        ) from exc
 
     for month_data in res["stn"]["data"]:
         month = str(month_data["month"]).zfill(2)
