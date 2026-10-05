@@ -25,6 +25,13 @@ are named `release/vX` and tags `vX.Y.Z`.
   and `package.json` is untouched (CUI-0054).
 
 ### Changed
+- `run365-weather` with no `--source`, and `--source all`, now collects the
+  sun and moon history as well: two more requests to timeanddate.com per
+  month of `--year`, and `data/raw/weather/sun_moon_rise_set_history.json` is
+  rewritten on every such run. A year in which timeanddate answers with an
+  error status, or in which no table is readable, now fails that source and
+  leaves the existing file in place instead of writing an empty one over it
+  (AU-037, W-063).
 - The npm audit gate is no longer `npm audit` alone. From 2026-09-30,
   GHSA-vfj7-8cjw-p6xm against `braces` turned the daily audit red with no
   fixed version to move to: its affected range includes the latest release,
