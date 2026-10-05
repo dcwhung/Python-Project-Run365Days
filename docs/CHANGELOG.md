@@ -43,6 +43,19 @@ are named `release/vX` and tags `vX.Y.Z`.
   fails as before, and accepted advisories still show as warning annotations
   on a green run (CUI-0054).
 
+### Fixed
+- `run365-weather` no longer reads a refusing host's error page as weather.
+  Every collector now checks the HTTP status before parsing, so a 403 or 429
+  fails that source and leaves its existing file in place. Before this, an
+  error page from freemeteo read as a run of days with no observations and
+  `--source hourly` wrote an empty file over the hourly history while
+  reporting success; from HKO, the daily extract crashed the whole run
+  (`--source all` then never reached the sources after it), a refused
+  per-month request was logged as a month with no data, and the warnings
+  page was reported as a layout change. A daily extract that arrives but is
+  not JSON, and an hourly range in which no day is readable, now fail that
+  source the same way (S-137).
+
 ## [3.3.0] - 2026-09-17 - `develop`
 
 Six tickets and twenty-one review items, in three batches. One change is

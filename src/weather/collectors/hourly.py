@@ -1,12 +1,14 @@
 """Fetch hourly weather history from freemeteo.hk."""
 
 import pandas as pd
-import requests
 from bs4 import BeautifulSoup
 
-from run365days.common.config import HTTP_REQUEST_TIMEOUT
 from run365days.common.numeric import to_float
-from run365days.weather.collectors._parsing import child_string
+from run365days.weather.collectors._parsing import (
+    WeatherPageStructureError,
+    child_string,
+    fetch_text,
+)
 from run365days.weather.models import HourlyWeather
 
 _DESCRIPTION_MAP = {
@@ -107,10 +109,13 @@ def fetch_day(date_str: str) -> list[HourlyWeather]:
         Hourly records in time order, or an empty list if the page has no
         history table. A row whose weather cell is unreadable still yields a
         record, with the description reading "Unknown".
+
+    Raises:
+        requests.RequestException: freemeteo could not be reached, or answered
+            with an error status (``requests.HTTPError``) -- whose page has no
+            history table either, so it must not read as a day without data.
     """
-    html = requests.get(
-        _URL, params={**_PARAMS_BASE, "date": date_str}, timeout=HTTP_REQUEST_TIMEOUT
-    ).text
+    html = fetch_text(_URL, params={**_PARAMS_BASE, "date": date_str})
     soup = BeautifulSoup(html, "html.parser")
     tables = soup.find_all("table", {"class": "daily-history"})
     if not tables:
@@ -154,9 +159,23 @@ def fetch_range(start_date: str, end_date: str) -> list[HourlyWeather]:
         end_date: Last day, ``YYYY-MM-DD``.
 
     Returns:
-        All hourly records in date and time order.
+        All hourly records in date and time order. A day whose page carries no
+        history table contributes nothing, as long as some other day does.
+
+    Raises:
+        requests.RequestException: A page could not be reached, or answered
+            with an error status.
+        WeatherPageStructureError: Not one day of the range was readable. The
+            caller writes what this returns over the existing hourly history,
+            so a range of table-less pages is a page that changed shape, not a
+            stretch with no weather -- the rule sun_moon follows (W-063, S-137).
     """
     all_records: list[HourlyWeather] = []
     for d in pd.date_range(start_date, end_date):
         all_records.extend(fetch_day(d.strftime("%Y-%m-%d")))
+    if not all_records:
+        raise WeatherPageStructureError(
+            f"no hourly observation between {start_date} and {end_date} was readable: "
+            "no page in the range carried the daily-history table"
+        )
     return all_records

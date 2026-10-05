@@ -10,6 +10,7 @@
 **2026-10-05 ②**：**AU-037** ✅ done —— `src/weather/collectors/sun_moon.py`（timeanddate.com，移植自 `legacy/03_GetSunMoonRiseSetHistory.py`，以 `stoic-ritchie` 嘅 `2d886f4` 為藍本按 `develop` 重寫）＋ `SunMoon` raw-row pair（加 `moon_transit`）＋ CLI `sun-moon` source。committed 檔案每一行都可以原封不動 round-trip。**Export 冇改**（用戶揀）：佢仍然由 HKO daily extract 嘅 joined 副本讀 sunrise/sunset，兩份資料喺好多日差 1 分鐘
 **2026-10-05 ③**：AU-037 review（81/100 ⚠️ warn）嘅 7 條 finding（W-062…W-064、S-133…S-136）全部 ✅ done，一個 finding 一個 commit；另開 **S-137**（pending，所有 collector 都冇 `raise_for_status`），見最後一節
 **2026-10-05 ④**：AU-037 re-review（90/100 ✅ pass）嘅跟進：W-065、S-138、S-141、S-142 ✅ done，一個 finding 一個 commit；S-139、S-140 記做 ⏳ pending。見 `## AU-037 review` 一節下嘅 `### Re-review（90/100 pass）`
+**2026-10-05 ⑤**：**S-137** ✅ done —— 所有 weather collector 經新 `_parsing.fetch_text` 做 request，一律 `raise_for_status()`；`hko_daily` 年度 payload 唔係 JSON 改 raise `WeatherPageStructureError`；`hourly.fetch_range` 成段零筆改 raise。一個 item 一個 commit（`d95b30f` / `910d0b6` / `85c255e`），3 個 in-process mutant 全部被捉。S-139 按用戶決定唔做
 **2026-10-05**：開咗 **CUI-0054**（每日 `npm audit` 由 2026-09-30 起紅）。`brace-expansion` 用 `npm audit fix` 修咗；`braces`（GHSA-vfj7-8cjw-p6xm）上游冇 fix，用戶揀咗有期限嘅 allowlist（`scripts/npm_audit_gate.py`）。同一條 lane 實現埋並轉 ✅ done，直接放入 `completed/`
 
 > 由 `/audit`（AU-NNN）同 `/review`（C/W/S-NNN）產生嘅 ticket 集中登記處。
@@ -1621,7 +1622,17 @@ ruff check + format 全綠、`run365-schema --check` up to date、`npm audit` �
 | **S-134** | `_illumination_text(None)` 寫 `_MOON_EVENT_ABSENT`（`"/"`），但 committed 檔案 `Illumination` 從來冇 `"/"` | ✅ done（`fad4725`）—— `_MOON_EVENT_ABSENT` docstring 寫明 `Illumination` 借用呢個 marker 表示冇讀數；測試改名 `test_round_trips_a_synthetic_day_with_every_moon_field_absent`；另加 `TestTheCommittedSunMoonFile::test_no_day_writes_the_absent_marker_for_its_illumination` 釘住 docstring 個聲稱（pin，唔係 red —— 修文件冇行為改動） |
 | **S-135** | `docs/CHANGELOG.md` `[Unreleased]` 冇講 `run365-weather` 預設（`--source all`）而家多咗 sun-moon | ✅ done（`4d1b2ef`）—— §Changed 一條：每個月多兩個 request、每次改寫 `sun_moon_rise_set_history.json`，連埋 W-063 嘅失敗行為；冇裸數 |
 | **S-136** | `COMMITTED_SUN_MOON` 多餘括號；`fetch_year` 用 `range(1, len(calendar.month_name))` | ✅ done（`fedae6d`）—— 去括號；改用 `_FIRST_MONTH` / `_LAST_MONTH`（有 docstring） |
-| **S-137** | **系統性**：`src/weather/collectors/` 入面除咗 `sun_moon`（W-063）之外，冇一個 collector 叫 `raise_for_status()`。`hko_daily.fetch_year` 年度 payload 遇到 403 會 `json.loads` 一頁 HTML ⇒ `JSONDecodeError`，佢唔喺 `_COLLECTION_FAILURES`（佢係 `ValueError`），所以唔係「呢個 source 失敗」而係成個 `run()` 爆；per-month fallback 就會將 403 當成「冇資料嘅月份」log 走。`hourly` / `warnings` 一樣會將 error page 當成普通 page parse | ⏳ pending —— W-063 刻意冇擴展到其他 collector（範圍外）。修法方向：每個 `requests.get` 後 `raise_for_status()`，並逐個 collector 補 error-status 測試（`tests/test_weather_collectors.py` 個 `FakeResponse` 已經有 `status_code` / `raise_for_status`） |
+| **S-137** | **系統性**：`src/weather/collectors/` 入面除咗 `sun_moon`（W-063）之外，冇一個 collector 叫 `raise_for_status()`。`hko_daily.fetch_year` 年度 payload 遇到 403 會 `json.loads` 一頁 HTML ⇒ `JSONDecodeError`，佢唔喺 `_COLLECTION_FAILURES`（佢係 `ValueError`），所以唔係「呢個 source 失敗」而係成個 `run()` 爆；per-month fallback 就會將 403 當成「冇資料嘅月份」log 走。`hourly` / `warnings` 一樣會將 error page 當成普通 page parse | ✅ done（`d95b30f` / `910d0b6` / `85c255e`）—— **實測 repro**（假 `requests.get` 回 403 + HTML error page）：`hourly` 靜靜雞回零筆，`run("hourly")` 用空檔**蓋咗**舊 history 而 failures 係 0；`hko_daily` 年度 `JSONDecodeError` 令 `run()` 成個爆。(1) `d95b30f`：新 `_parsing.fetch_text(url, params)` 統一 `requests.get(..., timeout=HTTP_REQUEST_TIMEOUT)` + `raise_for_status()`，`hko_daily`（年度 + per-month）、`hourly.fetch_day`、`warnings.fetch_day` / `_load_signal_metadata`、`sun_moon._table` 全部經佢；測試 fake 改為直接 patch `requests.get`（各 collector 已唔再 import `requests`），timeout identity assertion 照過。(2) `910d0b6`：年度 payload 200 但唔係 JSON ⇒ `WeatherPageStructureError`（`from` 原本嘅 `JSONDecodeError`）；per-month 200 非 JSON 照舊 log + skip，per-month error status 而家 raise（測試喺 (1) 加，因為係 routing 帶出嚟）。(3) `85c255e`：`hourly.fetch_range` 成段零筆 ⇒ `WeatherPageStructureError`（同 W-063 一條規則），範圍內單日冇 table 照收；加兩條 `collect_weather.run` end-to-end：空 hourly range 唔蓋檔而 failures == 1、hko-daily 403 唔再令 `run("all")` 爆而 sun-moon 照跑（呢條喺 (1) 已綠；將 `src/` 還原去 `ae1d631` 實跑確認紅：`JSONDecodeError` 逃出 `run`）。Mutant 表見下 |
+
+#### S-137 mutant 驗證（CLAUDE.md §6 方法，喺 `85c255e` 量）
+
+In-process plugin：`pytest_configure` 讀函數 source、做文字 mutation、`exec` 入 module 本身嘅 `__dict__`（`fetch_text` 要逐個 collector rebind，因為佢哋 import 咗個名），再用獨立 oracle **assert mutant 真係生效**（直接叫 mutant 函數睇行為），`python -B`；跑 `test_weather_collectors.py` + `test_cli_collect_weather.py`。冇 mutant 時全綠。
+
+| Mutant | 紅嘅測試 |
+|---|---|
+| `fetch_text` 拆 `raise_for_status()` | 五條新 error-status 測試（hko 年度、hko per-month、hourly、warnings legend、warnings day）+ W-063 嘅 `test_an_error_status_is_raised_rather_than_read_as_an_empty_month`。`run("all")` crash 測試照綠：error page 會落去 (2) 嘅非 JSON guard，所以兩層各自守住 |
+| `hko_daily` 還原 bare `json.loads` | `test_a_yearly_payload_that_is_not_json_is_a_page_structure_error` |
+| `hourly.fetch_range` 拆零筆 raise | `test_a_range_with_no_readable_day_raises_rather_than_returning_nothing` + `TestRefusedOrEmptySource::test_an_hourly_range_with_no_readable_day_leaves_the_history_in_place` |
 
 ### Mutant 驗證（CLAUDE.md §6 方法，喺 `fedae6d` 量）
 
