@@ -3,11 +3,9 @@
 from datetime import datetime
 
 import pandas as pd
-import requests
 from bs4 import BeautifulSoup
 
-from run365days.common.config import HTTP_REQUEST_TIMEOUT
-from run365days.weather.collectors._parsing import child_attr, section_after
+from run365days.weather.collectors._parsing import child_attr, fetch_text, section_after
 from run365days.weather.models import WeatherWarning
 
 _SIGNALS_URL = "https://www.hko.gov.hk/en/wxinfo/climat/warndb/warndba.shtml"
@@ -35,8 +33,13 @@ _TIMESTAMP_FORMAT = "%d/%b/%Y %H:%M"
 
 
 def _load_signal_metadata() -> dict[str, dict]:
-    """Return {signal_name: {Idx, Type}} from the HKO warnings reference page."""
-    bs = BeautifulSoup(requests.get(_SIGNALS_URL, timeout=HTTP_REQUEST_TIMEOUT).text, "html.parser")
+    """Return {signal_name: {Idx, Type}} from the HKO warnings reference page.
+
+    Raises:
+        requests.RequestException: The page could not be reached, or answered
+            with an error status (``requests.HTTPError``).
+    """
+    bs = BeautifulSoup(fetch_text(_SIGNALS_URL), "html.parser")
     result = {}
     for table in bs.find_all(class_="self_row2_table"):
         tds = table.find_all("td")
@@ -62,15 +65,18 @@ def fetch_day(date_str: str, signal_meta: dict[str, dict]) -> list[WeatherWarnin
         warning was in force yields an empty list.
 
     Raises:
+        requests.RequestException: The page could not be reached, or answered
+            with an error status (``requests.HTTPError``). Checked before the
+            heading, because an error page lacks it too and would otherwise be
+            reported as a layout change (S-137).
         WeatherPageStructureError: The page does not carry the warning-table
             heading, so there is no way to tell the day's warnings from the
             other tables on the page.
     """
-    html = requests.get(
+    html = fetch_text(
         _HISTORY_URL,
         params={"start_ym": datetime.strptime(date_str, "%Y-%m-%d").strftime("%Y%m%d")},
-        timeout=HTTP_REQUEST_TIMEOUT,
-    ).text
+    )
 
     bs = BeautifulSoup(section_after(html, _WARNING_TABLE_MARKER), "html.parser")
 
@@ -126,6 +132,8 @@ def fetch_range(start_date: str, end_date: str) -> list[WeatherWarning]:
         All warnings in date order; days without warnings contribute nothing.
 
     Raises:
+        requests.RequestException: A page could not be reached, or answered
+            with an error status.
         WeatherPageStructureError: A day's page changed shape; see
             :func:`fetch_day`.
     """

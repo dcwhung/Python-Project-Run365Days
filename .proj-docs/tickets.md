@@ -10,6 +10,10 @@
 **2026-10-05 ②**：**AU-037** ✅ done —— `src/weather/collectors/sun_moon.py`（timeanddate.com，移植自 `legacy/03_GetSunMoonRiseSetHistory.py`，以 `stoic-ritchie` 嘅 `2d886f4` 為藍本按 `develop` 重寫）＋ `SunMoon` raw-row pair（加 `moon_transit`）＋ CLI `sun-moon` source。committed 檔案每一行都可以原封不動 round-trip。**Export 冇改**（用戶揀）：佢仍然由 HKO daily extract 嘅 joined 副本讀 sunrise/sunset，兩份資料喺好多日差 1 分鐘
 **2026-10-05 ③**：AU-037 review（81/100 ⚠️ warn）嘅 7 條 finding（W-062…W-064、S-133…S-136）全部 ✅ done，一個 finding 一個 commit；另開 **S-137**（pending，所有 collector 都冇 `raise_for_status`），見最後一節
 **2026-10-05 ④**：AU-037 re-review（90/100 ✅ pass）嘅跟進：W-065、S-138、S-141、S-142 ✅ done，一個 finding 一個 commit；S-139、S-140 記做 ⏳ pending。見 `## AU-037 review` 一節下嘅 `### Re-review（90/100 pass）`
+**2026-10-05 ⑤**：**S-137** ✅ done —— 所有 weather collector 經新 `_parsing.fetch_text` 做 request，一律 `raise_for_status()`；`hko_daily` 年度 payload 唔係 JSON 改 raise `WeatherPageStructureError`；`hourly.fetch_range` 成段零筆改 raise。一個 item 一個 commit（`d95b30f` / `910d0b6` / `85c255e`），3 個 in-process mutant 全部被捉。S-139 按用戶決定**唔喺今次範圍**，佢嗰行仍然係 ⏳ pending（唔係 won't-fix；措辭由 S-147 更正）
+**2026-10-05 ⑥**：S-137 review（91/100 ✅ pass，0 Critical）嘅 finding 登記入冊，見最後一節 `## S-137 review`。**W-066** ✅ done（`f67c074`）—— `hko_daily` per-month 404 當缺月 log + skip，其他 error status 照 raise；HKO 對未出 extract 月份實際答乜**未量過**，所以係防禦性處理。S-147、S-148 ✅ done；S-143…S-146、S-149 ⏳ pending
+**2026-10-05 ⑦**：**S-149**（`ddc85f9`）、**S-150**（`d46a9a0`）、**S-151**（`e78cd2a`）✅ done —— `hko_daily.fetch_year` 年度 payload 係 JSON 但冇 `stn.data` list 改 raise `WeatherPageStructureError`；成年零筆改 raise（同 `hourly` / `sun_moon` 同一條規則）；Raises docstring 補 per-month 404 例外。W-066 review 嘅 S-150…S-153 登記入冊（S-153 同日改字 ✅，S-152 ⏳ pending）；2 個 in-process mutant 都被捉。見 `## S-137 review` 一節
+**2026-10-06**：開咗 **CUI-0055**（每日 `npm audit` 喺 `master` 再紅：兩條新公佈嘅 advisory）。`source-map-js` GHSA-68fv-2mgg-jv7q 用 `npm update` 升 1.2.2（`c1eeb02`）；`@graphql-tools/utils` GHSA-7mx3-vvmw-hjmv 11.x 冇 fix 而 codegen 寫死 `^11.2.0`，用戶揀 npm `overrides` 強制 `^12.0.3`（`b0c4751`），`tests/test_npm_overrides.py` 釘住 override 存在 ⇔ 仲有 dependent 要 11.x。同一條 lane 完成，直接放入 `completed/`
 **2026-10-05**：開咗 **CUI-0054**（每日 `npm audit` 由 2026-09-30 起紅）。`brace-expansion` 用 `npm audit fix` 修咗；`braces`（GHSA-vfj7-8cjw-p6xm）上游冇 fix，用戶揀咗有期限嘅 allowlist（`scripts/npm_audit_gate.py`）。同一條 lane 實現埋並轉 ✅ done，直接放入 `completed/`
 
 > 由 `/audit`（AU-NNN）同 `/review`（C/W/S-NNN）產生嘅 ticket 集中登記處。
@@ -19,11 +23,11 @@
 
 ## 📋 CUI ticket census（權威總覽）
 
-**核實日期**：2026-10-05 ｜ **總數**：54 張（CUI-0001 … CUI-0054）
+**核實日期**：2026-10-06 ｜ **總數**：55 張（CUI-0001 … CUI-0055）
 
-> 量度方法（2026-10-05 喺 CUI-0054 lane、以 `8554b3f` 為基礎重量，同下面 Bucket 表係**同一次**點算）：
-> `find .tickets -name 'CUI-*.md' | wc -l` → **54**；
-> `ls .tickets/<bucket>/0001-0200/CUI-*.md | wc -l` → pending **0** / in-progress **0** / completed **54**。
+> 量度方法（2026-10-06 喺 CUI-0055 lane、以 `b0c4751` 為基礎重量，同下面 Bucket 表係**同一次**點算）：
+> `find .tickets -name 'CUI-*.md' | wc -l` → **55**；
+> `ls .tickets/<bucket>/0001-0200/CUI-*.md | wc -l` → pending **0** / in-progress **0** / completed **55**。
 >
 > ⚠️ 呢個 block 之前留住 `6576e56` 嗰陣嘅讀數（**42**；pending 13 / 0 / completed 29），同三行之下嘅
 > Bucket 表（52；45 / 0 / 7）並存，兩套數仲掛住**同一個核實日期**，而本 section 自稱「權威快照」——
@@ -38,10 +42,10 @@
 
 | Bucket | 數量 | 檔案位置 |
 |---|---:|---|
-| ✅ completed | **54** | `.tickets/completed/0001-0200/` |
+| ✅ completed | **55** | `.tickets/completed/0001-0200/` |
 | 🔄 in-progress | **0** | `.tickets/in-progress/0001-0200/`（空） |
-| ⏳ pending | **0** | `.tickets/pending/0001-0200/`（空：CUI-0052、CUI-0053 已搬入 `completed/`，CUI-0054 開票同日完成，直接放入 `completed/`） |
-| **總計** | **54** | |
+| ⏳ pending | **0** | `.tickets/pending/0001-0200/`（空：CUI-0052、CUI-0053 已搬入 `completed/`，CUI-0054、CUI-0055 開票同日完成，直接放入 `completed/`） |
+| **總計** | **55** | |
 
 > ⚠️ **2026-09-17 後續（CUI-0049 / CUI-0044）**：兩張票狀態已轉 ✅ done，但**票檔冇搬**（依指示原地留喺
 > `pending/`）。所以上面「Bucket 數」仍然係**按檔案位置**數，completed **45** / pending **6** 未變 ——
@@ -81,11 +85,11 @@
 
 ### 編號完整性核實
 
-逐一列舉 `.tickets/` 下全部 `CUI-*.md` 檔名並同 `0001…0054` 對比
-（2026-10-05 喺 CUI-0054 lane 用 `find .tickets -name 'CUI-*.md'` 點算，同上面 Bucket 表係同一次點算）：
+逐一列舉 `.tickets/` 下全部 `CUI-*.md` 檔名並同 `0001…0055` 對比
+（2026-10-06 喺 CUI-0055 lane 用 `find .tickets -name 'CUI-*.md'` 點算，同上面 Bucket 表係同一次點算）：
 
-- **編號連續**：✅ 是 —— `0001` 到 `0054` 一個不缺
-- **無跳號**：✅ 是 —— 應有 54 張，實有 54 張
+- **編號連續**：✅ 是 —— `0001` 到 `0055` 一個不缺
+- **無跳號**：✅ 是 —— 應有 55 張，實有 55 張
 - **無撞號**：✅ 是 —— 每個編號只有一個檔案，冇一個編號出現兩次
 
 > ⚠️ **開新票就要一齊改呢段。** 上面三句結論喺開票之後**照舊成立**，會漂嘅淨係範圍同張數 ——
@@ -150,6 +154,7 @@
 | **CUI-0052** | 🟢 Low | 兩個 supply-chain audit gate（`pip-audit` / `npm audit`）坐喺 `deploy` 上游（`build.needs = [lint-test, frontend]`、`deploy.needs = build`），而本 repo 每次 push `develop` 就 deploy ⇒ 一條同本 repo 完全無關嘅上游 advisory 可以停晒所有部署，包括 hotfix。兩份文件都認咗係刻意 trade，**唔當缺陷**；問題係要唔要解耦（標準做法：另開 `schedule:` audit workflow，**唔係** `continue-on-error`）。由 S-122 開出 | ✅ done | `completed/` |
 | **CUI-0053** | 🟡 Medium | Vercel 唔經 GitHub Actions 部署，所以部署完之後**冇任何自動檢查**：function 起唔起到、bundle 入面個 DB 有冇行，全部靠人手睇 Vercel Logs（`docs/deployment.md` 記住六次，兩次正正係呢種）。⚠️ 兩個陷阱：(a) `/api/health` **分得開** fallback（fallback 答 500 唔係 200），但**分唔開空 DB** —— 實測 populated 同 empty DB 都係 65536 bytes ⇒ 一定要夾一條真 query 驗行數；(b) `deployment_status` / `schedule` 兩個 trigger 都**只認 default branch** 上面嗰份 workflow file，而本 repo default branch 係 `master` 唔係部署源頭 `develop` ⇒ 寫成嗰樣會靜英英一次都唔行。由 `docs/roadmap.md` §Next 開出 | ✅ done | `completed/` |
 | **CUI-0054** | 🟡 Medium | 每日 `npm audit` 由 2026-09-30 起紅：`brace-expansion`（`npm audit fix` 修咗）同 `braces` GHSA-vfj7-8cjw-p6xm（受影響範圍包埋最新版，上游冇 fix，淨係經 `@graphql-codegen/cli` 入嚟）。用戶揀咗有期限嘅 allowlist：`scripts/npm_audit_gate.py` ＋ `frontend/npm-audit-allowlist.json`，過期、stale、有 non-breaking fix、路徑改變都會紅 | ✅ done | `completed/` |
+| **CUI-0055** | 🟡 Medium | 每日 `npm audit` 喺 2026-10-06 再紅：`source-map-js` GHSA-68fv-2mgg-jv7q（`npm update` 升 1.2.2）同 `@graphql-tools/utils` GHSA-7mx3-vvmw-hjmv（11.x 冇 fix、codegen 全線寫死 `^11.2.0`）。用戶揀 npm `overrides` 強制 `^12.0.3`；codegen 輸出 byte-identical；`tests/test_npm_overrides.py` 釘住 override 存在 ⇔ 仲有 dependent 要 11.x | ✅ done | `completed/` |
 
 ### ⚠️ 核實過程發現
 
@@ -1621,7 +1626,17 @@ ruff check + format 全綠、`run365-schema --check` up to date、`npm audit` �
 | **S-134** | `_illumination_text(None)` 寫 `_MOON_EVENT_ABSENT`（`"/"`），但 committed 檔案 `Illumination` 從來冇 `"/"` | ✅ done（`fad4725`）—— `_MOON_EVENT_ABSENT` docstring 寫明 `Illumination` 借用呢個 marker 表示冇讀數；測試改名 `test_round_trips_a_synthetic_day_with_every_moon_field_absent`；另加 `TestTheCommittedSunMoonFile::test_no_day_writes_the_absent_marker_for_its_illumination` 釘住 docstring 個聲稱（pin，唔係 red —— 修文件冇行為改動） |
 | **S-135** | `docs/CHANGELOG.md` `[Unreleased]` 冇講 `run365-weather` 預設（`--source all`）而家多咗 sun-moon | ✅ done（`4d1b2ef`）—— §Changed 一條：每個月多兩個 request、每次改寫 `sun_moon_rise_set_history.json`，連埋 W-063 嘅失敗行為；冇裸數 |
 | **S-136** | `COMMITTED_SUN_MOON` 多餘括號；`fetch_year` 用 `range(1, len(calendar.month_name))` | ✅ done（`fedae6d`）—— 去括號；改用 `_FIRST_MONTH` / `_LAST_MONTH`（有 docstring） |
-| **S-137** | **系統性**：`src/weather/collectors/` 入面除咗 `sun_moon`（W-063）之外，冇一個 collector 叫 `raise_for_status()`。`hko_daily.fetch_year` 年度 payload 遇到 403 會 `json.loads` 一頁 HTML ⇒ `JSONDecodeError`，佢唔喺 `_COLLECTION_FAILURES`（佢係 `ValueError`），所以唔係「呢個 source 失敗」而係成個 `run()` 爆；per-month fallback 就會將 403 當成「冇資料嘅月份」log 走。`hourly` / `warnings` 一樣會將 error page 當成普通 page parse | ⏳ pending —— W-063 刻意冇擴展到其他 collector（範圍外）。修法方向：每個 `requests.get` 後 `raise_for_status()`，並逐個 collector 補 error-status 測試（`tests/test_weather_collectors.py` 個 `FakeResponse` 已經有 `status_code` / `raise_for_status`） |
+| **S-137** | **系統性**：`src/weather/collectors/` 入面除咗 `sun_moon`（W-063）之外，冇一個 collector 叫 `raise_for_status()`。`hko_daily.fetch_year` 年度 payload 遇到 403 會 `json.loads` 一頁 HTML ⇒ `JSONDecodeError`，佢唔喺 `_COLLECTION_FAILURES`（佢係 `ValueError`），所以唔係「呢個 source 失敗」而係成個 `run()` 爆；per-month fallback 就會將 403 當成「冇資料嘅月份」log 走。`hourly` / `warnings` 一樣會將 error page 當成普通 page parse | ✅ done（`d95b30f` / `910d0b6` / `85c255e`）—— **實測 repro**（假 `requests.get` 回 403 + HTML error page）：`hourly` 靜靜雞回零筆，`run("hourly")` 用空檔**蓋咗**舊 history 而 failures 係 0；`hko_daily` 年度 `JSONDecodeError` 令 `run()` 成個爆。(1) `d95b30f`：新 `_parsing.fetch_text(url, params)` 統一 `requests.get(..., timeout=HTTP_REQUEST_TIMEOUT)` + `raise_for_status()`，`hko_daily`（年度 + per-month）、`hourly.fetch_day`、`warnings.fetch_day` / `_load_signal_metadata`、`sun_moon._table` 全部經佢；測試 fake 改為直接 patch `requests.get`（各 collector 已唔再 import `requests`），timeout identity assertion 照過。(2) `910d0b6`：年度 payload 200 但唔係 JSON ⇒ `WeatherPageStructureError`（`from` 原本嘅 `JSONDecodeError`）；per-month 200 非 JSON 照舊 log + skip，per-month error status 而家 raise（測試喺 (1) 加，因為係 routing 帶出嚟）。(3) `85c255e`：`hourly.fetch_range` 成段零筆 ⇒ `WeatherPageStructureError`（同 W-063 一條規則），範圍內單日冇 table 照收；加兩條 `collect_weather.run` end-to-end：空 hourly range 唔蓋檔而 failures == 1、hko-daily 403 唔再令 `run("all")` 爆而 sun-moon 照跑（呢條喺 (1) 已綠；將 `src/` 還原去 `ae1d631` 實跑確認紅：`JSONDecodeError` 逃出 `run`）。Mutant 表見下 |
+
+#### S-137 mutant 驗證（CLAUDE.md §6 方法，喺 `85c255e` 量）
+
+In-process plugin：`pytest_configure` 讀函數 source、做文字 mutation、`exec` 入 module 本身嘅 `__dict__`（`fetch_text` 要逐個 collector rebind，因為佢哋 import 咗個名），再用獨立 oracle **assert mutant 真係生效**（直接叫 mutant 函數睇行為），`python -B`；跑 `test_weather_collectors.py` + `test_cli_collect_weather.py`。冇 mutant 時全綠。
+
+| Mutant | 紅嘅測試 |
+|---|---|
+| `fetch_text` 拆 `raise_for_status()` | 五條新 error-status 測試（hko 年度、hko per-month、hourly、warnings legend、warnings day）+ W-063 嘅 `test_an_error_status_is_raised_rather_than_read_as_an_empty_month`。`run("all")` crash 測試照綠：error page 會落去 (2) 嘅非 JSON guard，所以兩層各自守住 |
+| `hko_daily` 還原 bare `json.loads` | `test_a_yearly_payload_that_is_not_json_is_a_page_structure_error` |
+| `hourly.fetch_range` 拆零筆 raise | `test_a_range_with_no_readable_day_raises_rather_than_returning_nothing` + `TestRefusedOrEmptySource::test_an_hourly_range_with_no_readable_day_leaves_the_history_in_place` |
 
 ### Mutant 驗證（CLAUDE.md §6 方法，喺 `fedae6d` 量）
 
@@ -1666,3 +1681,56 @@ In-process plugin：`pytest_configure` 讀 `sun_moon.py` source、做文字 muta
 | **淨係**還原 `_moon_day` 嘅 `tds[-1]` 分支 | ⚠️ 全綠 —— **equivalent mutant**：`kind == "merged"` 嘅定義就係「剩一格（即 `tds[-1]`）而 colspan 等於 merged 寬度」，而 `"cells"` 要求全部 `colspan == 1`，所以去到分支嗰陣兩個條件永遠同值。冇測試可以分得開，係設計（一處判定）嘅預期結果 |
 | `(?![\d:])` 還原 `(?!:)` | `test_a_cell_that_is_not_a_24_hour_time_is_a_logged_gap[07:051]`、`[12:345]` |
 | 拆 `isascii()` | `test_skips_a_row_whose_header_is_not_a_day_of_the_month[\xb2]`（`ValueError`） |
+
+---
+
+## S-137 review（2026-10-05）—— ✅ pass 91/100
+
+**來源**：PR #31（S-137，merge 做 `667bde7`）嘅 code review，91/100 ✅ pass，0 Critical；finding 原本只記喺
+`.claude/session-logs/2026-10-05_13-44.md`，喺呢度補登記。S-143 / S-144 嘅 **ID** 最早見於
+`.claude/session-logs/2026-10-05_13-13.md`，但嗰份 log 只記低 ID 同「只係改註釋同 docstring 嘅字」，**冇**下表兩行嘅具體描述——
+具體描述係補登記嗰陣（`a0d9b5d`）寫入，唔係出自該 log（S-153 更正）；S-149 係同一份 13-44 log 記低但未開 ID 嘅問題。
+S-150…S-153 係 W-066（PR #33）review 開嘅 ID，原本只記喺 `.claude/session-logs/2026-10-05_14-10.md`，2026-10-05 ⑦ 補登記。
+**修復 branch**：`claude/nifty-sagan-avcfve`（由 `a0282b8` 起），TDD。
+**Gate（喺 `f67c074` 量）**：pytest 701 passed、`ruff check` / `ruff format --check` 全綠。
+**Gate（喺 `e78cd2a` 量，S-149 / S-150 / S-151 之後）**：pytest 712 passed、`ruff check` / `ruff format --check` 全綠。
+
+| ID | 內容 | 狀態 |
+|---|---|---|
+| **W-066** | S-137 之後，`hko_daily.fetch_year` 嘅 per-month fallback（只用喺年度檔 `dayData` 空嘅月份，即最近未出嘅月份）遇到任何 error status 都 raise，包括 404。如果 HKO 對未出 extract 嘅月份答 404，收集當年嘅 hko-daily 每次都會成個 source 失敗（唔蝕資料，但永遠收唔到） | ✅ done（`f67c074`）—— 新 `_fetch_month_text`：捉 `requests.HTTPError`，`response.status_code == HTTPStatus.NOT_FOUND` ⇒ log warning（年-月 + status）並 skip 該月，同「冇可用資料」嘅缺口一樣；其他 status（403、429、5xx…）同冇 `response` 嘅 `HTTPError` 原樣 re-raise（S-137 原意：拒絕／故障係 fault 唔係缺口）。年度 request 冇改，年度 404 照 raise。⚠️ **HKO 對未出 extract 月份嘅真實回應未量過**（sandbox network policy 擋咗 `www.weather.gov.hk`），所以呢個係防禦性處理；如果將來量到 HKO 答嘅唔係 404，要返嚟睇。Mutant 表見下 |
+| **S-143** | `tests/test_weather_collectors.py` 一條 W-065 測試嘅註釋講嘅係修前嘅失敗後果（將 moonset 讀成 transit），而唔係而家嘅後果（發佈一個假 full moon） | ⏳ pending —— 淨係改字 |
+| **S-144** | `sun_moon.py` `_trailing_block_kind` docstring 話 caller「never looks at `tds[-1]`」，但 `"cells"` 分支係由 `tds[-1]` 讀 illumination | ⏳ pending —— 淨係改字 |
+| **S-145** | 日期範圍倒轉（start > end）：`hourly` 錯報成頁面結構錯誤；`warnings` 用空檔蓋走歷史而 exit 0（S-137 之前已存在） | ⏳ pending —— 建議喺 CLI `main()` 驗 start ≤ end |
+| **S-146** | `FakeResponse` 喺 `tests/test_weather_collectors.py` 同 `tests/test_cli_collect_weather.py` 各定義一次 | ⏳ pending —— 抽去共用 |
+| **S-147** | 本檔頂部 `2026-10-05 ⑤` 一行寫「S-139 按用戶決定唔做」，讀落似 won't-fix，但 S-139 嗰行係 ⏳ pending | ✅ done（W-066 docs commit）—— 改為「唔喺今次範圍，佢嗰行仍然係 ⏳ pending」 |
+| **S-148** | session log 13-44 有一個冇錨點嘅測試數 | ✅ done（`f2bbd81`） |
+| **S-149** | `hko_daily` 年度 payload 係合法 JSON 但冇 `stn` / `data` ⇒ `KeyError`，唔喺 `_COLLECTION_FAILURES`，令成個 `run()` crash（同 S-137 同一類） | ✅ done（`ddc85f9`）—— 修前實測（`24c0f48`，經 `collect_weather.run("hko-daily", ...)`，預先有一個 5 行嘅輸出檔）：`{"other": 1}` ⇒ crash `KeyError: 'stn'`；`{"stn": {}}` ⇒ crash `KeyError: 'data'`。新 `_yearly_months`：冇 `stn` / `stn.data`（`KeyError`）或者 payload / `stn` 唔係 object（`TypeError`）⇒ `WeatherPageStructureError`（帶年份同 URL，`from exc`）；`stn.data` 唔係 list ⇒ 同樣 raise（冇 cause）。Per-month 嘅 `KeyError` / `IndexError` 照舊 log + skip |
+| **S-150** | `hko_daily` 冇「成年零筆就 raise」嘅保護（`hourly`、`sun_moon` 都有）。W-066 之後 per-month 404 係合法缺口，所以一年可以乜都收唔到；每個 404 少一個月都會用更少行數蓋走歷史而 exit 0 | ✅ done（`d46a9a0`）—— 修前實測（`24c0f48`，同上）：年度檔 12 個月 `dayData` 全空、每個 per-month request 答 404 ⇒ failures=0，輸出檔被蓋成 0 行。修後 `fetch_year` 零筆 ⇒ `WeatherPageStructureError`。⚠️ 只擋「成年零筆」；「有啲月 404 ⇒ 行數變少而 exit 0」仍然係 W-066 嘅設計取捨（缺月照 skip） |
+| **S-151** | `fetch_year` docstring 嘅 Raises 段仍然寫 `requests.RequestException` 涵蓋「an error status」，冇提 W-066 嘅 per-month 404 例外 | ✅ done（`e78cd2a`） |
+| **S-152** | `hko_daily.fetch_year` per-month `except` 上面嗰段註釋，W-066 改完之後換行唔均（有一行特別短） | ⏳ pending —— 純外觀 |
+| **S-153** | 本節來源說明話 S-143 / S-144 嘅描述出自 `2026-10-05_13-13.md`，但嗰份 log 只記低 ID | ✅ done（2026-10-05 ⑦ docs commit）—— 改寫來源說明 |
+
+#### W-066 mutant 驗證（CLAUDE.md §6 方法，喺 `f67c074` 量）
+
+In-process plugin：`pytest_configure` 用 `setattr` 將 `hko_daily._fetch_month_text` 換做 mutant，**assert `hko_daily._fetch_month_text is mutant`** 先跑，`python -B`；跑 `test_weather_collectors.py -k HkoDaily`。冇 mutant 時全綠。
+
+| Mutant | 紅嘅測試 |
+|---|---|
+| (a) 任何 `HTTPError` 都當缺口（吞晒所有 status） | `test_an_error_status_on_the_per_month_endpoint_is_not_a_missing_month[403]`、`[500]` + `test_a_per_month_http_error_without_a_response_is_not_a_missing_month` |
+| (b) 拆 404 分支（全部 re-raise，即修前行為） | `test_a_per_month_404_skips_that_month_and_keeps_the_rest` |
+| (c) 拆 `response is None` guard | `test_a_per_month_http_error_without_a_response_is_not_a_missing_month`（`AttributeError` 唔係 `HTTPError`） |
+
+`test_a_yearly_404_still_raises` 釘嘅係冇改過嘅年度路徑，冇對應 mutant。
+
+#### S-149 / S-150 mutant 驗證（CLAUDE.md §6 方法，喺 `e78cd2a` 量）
+
+In-process plugin（`-p`），`python -B`，`-p no:cacheprovider`；跑 `test_weather_collectors.py` + `test_cli_collect_weather.py`。冇 mutant 時全綠。
+S-149 mutant：`pytest_configure` 將 `hko_daily._yearly_months` `setattr` 做 bare `res["stn"]["data"]`，每條測試 setup 時 assert 佢仍然 `is` 個 mutant。
+S-150 mutant：由 `fetch_year` 源碼剷走 `if not records: raise …` 再 compile 落 `hko_daily.fetch_year`，assert 剷走咗，而且每條測試 setup 時 assert `tests.test_cli_collect_weather.REAL_HKO_FETCH_YEAR is hko_daily.fetch_year`（CLI 測試 import 時捉嘅係 mutant，唔係原版）。
+
+| Mutant | 紅嘅測試 |
+|---|---|
+| S-149：還原 bare `res["stn"]["data"]` | `test_a_yearly_payload_of_the_wrong_shape_is_a_structure_error` 嘅 `[no-stn]`、`[no-stn-data]`、`[stn-not-an-object]`、`[top-level-not-an-object]`、`[stn-data-a-string]`、`[stn-data-null]` + CLI `test_a_hko_daily_extract_of_the_wrong_shape_leaves_the_history_in_place` |
+| S-150：剷走零筆 raise | `test_a_year_with_no_readable_month_is_a_structure_error` + CLI `test_a_hko_daily_year_with_no_readable_month_leaves_the_history_in_place` |
+
+⚠️ S-149 mutant 下 `[stn-data-an-object]`（`{"stn": {"data": {}}}`）**照綠**：iterate 一個空 dict ⇒ 零筆 ⇒ 由 S-150 嘅零筆 raise 接住，訊息同樣有年份同 URL。佢喺 S-149 嘅 Red 階段（S-150 未落）係紅嘅（`DID NOT RAISE`），所以係兩重保護重疊，唔係測試冇力。

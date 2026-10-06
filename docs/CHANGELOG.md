@@ -19,6 +19,16 @@ are named `release/vX` and tags `vX.Y.Z`.
   (AU-037).
 
 ### Security
+- `source-map-js` moves to 1.2.2 for GHSA-68fv-2mgg-jv7q (event-loop denial
+  of service through indexed source-map section offsets). Lockfile only
+  (CUI-0055).
+- `@graphql-tools/utils` is overridden to `^12.0.3` for GHSA-7mx3-vvmw-hjmv
+  (prototype pollution in `mergeDeep`). No 11.x release carries the fix and
+  every `@graphql-codegen` package still declares `^11.2.0`, so
+  `frontend/package.json` gains an npm `overrides` entry; codegen output is
+  unchanged. `tests/test_npm_overrides.py` fails once no dependent declares
+  11.x any more, so the override is removed when codegen moves to 12
+  (CUI-0055).
 - `npm audit fix` takes `brace-expansion` past three denial-of-service
   advisories (GHSA-q2hr-2g5m-vwhr, GHSA-qhr7-859c-m2p7, GHSA-6j4f-fj2g-mc7p).
   Lockfile only: every change is a patch release of a development dependency,
@@ -42,6 +52,36 @@ are named `release/vX` and tags `vX.Y.Z`.
   fix, and reached by exactly the packages it lists. Anything not on the list
   fails as before, and accepted advisories still show as warning annotations
   on a green run (CUI-0054).
+
+### Fixed
+- `run365-weather` no longer reads a refusing host's error page as weather.
+  Every collector now checks the HTTP status before parsing, so a 403 or 429
+  fails that source and leaves its existing file in place. Before this, an
+  error page from freemeteo read as a run of days with no observations and
+  `--source hourly` wrote an empty file over the hourly history while
+  reporting success; from HKO, the daily extract crashed the whole run
+  (`--source all` then never reached the sources after it), a refused
+  per-month request was logged as a month with no data, and the warnings
+  page was reported as a layout change. A daily extract that arrives but is
+  not JSON, and an hourly range in which no day is readable, now fail that
+  source the same way (S-137).
+- `run365-weather --source hko-daily` no longer fails the whole year when
+  HKO answers 404 for one month's own extract. That request is only made for
+  months the yearly file leaves empty, which are the most recent ones, so if
+  HKO answers 404 for a month it has not published yet, collecting the
+  current year failed every time. A per-month 404 is now logged and the
+  month skipped; any other error status, and a 404 on the yearly file, still
+  fail the source. HKO's actual answer for an unpublished month has not been
+  measured, so this is a defensive reading of 404 (W-066).
+- `run365-weather --source hko-daily` no longer crashes the whole run when
+  the yearly extract is valid JSON but lacks the `stn.data` list it reads.
+  That now fails the source and leaves the existing file in place, like a
+  yearly extract that is not JSON at all (S-149).
+- `run365-weather --source hko-daily` no longer writes an empty file over the
+  daily history when not one day of the year is readable, for example when
+  the yearly file leaves every month empty and each month's own extract
+  answers 404. That now fails the source, the rule the hourly and sun/moon
+  collectors already follow (S-150).
 
 ## [3.3.0] - 2026-09-17 - `develop`
 
