@@ -13,6 +13,7 @@
 **2026-10-05 ⑤**：**S-137** ✅ done —— 所有 weather collector 經新 `_parsing.fetch_text` 做 request，一律 `raise_for_status()`；`hko_daily` 年度 payload 唔係 JSON 改 raise `WeatherPageStructureError`；`hourly.fetch_range` 成段零筆改 raise。一個 item 一個 commit（`d95b30f` / `910d0b6` / `85c255e`），3 個 in-process mutant 全部被捉。S-139 按用戶決定**唔喺今次範圍**，佢嗰行仍然係 ⏳ pending（唔係 won't-fix；措辭由 S-147 更正）
 **2026-10-05 ⑥**：S-137 review（91/100 ✅ pass，0 Critical）嘅 finding 登記入冊，見最後一節 `## S-137 review`。**W-066** ✅ done（`f67c074`）—— `hko_daily` per-month 404 當缺月 log + skip，其他 error status 照 raise；HKO 對未出 extract 月份實際答乜**未量過**，所以係防禦性處理。S-147、S-148 ✅ done；S-143…S-146、S-149 ⏳ pending
 **2026-10-05 ⑦**：**S-149**（`ddc85f9`）、**S-150**（`d46a9a0`）、**S-151**（`e78cd2a`）✅ done —— `hko_daily.fetch_year` 年度 payload 係 JSON 但冇 `stn.data` list 改 raise `WeatherPageStructureError`；成年零筆改 raise（同 `hourly` / `sun_moon` 同一條規則）；Raises docstring 補 per-month 404 例外。W-066 review 嘅 S-150…S-153 登記入冊（S-153 同日改字 ✅，S-152 ⏳ pending）；2 個 in-process mutant 都被捉。見 `## S-137 review` 一節
+**2026-10-06**：開咗 **CUI-0055**（每日 `npm audit` 喺 `master` 再紅：兩條新公佈嘅 advisory）。`source-map-js` GHSA-68fv-2mgg-jv7q 用 `npm update` 升 1.2.2（`c1eeb02`）；`@graphql-tools/utils` GHSA-7mx3-vvmw-hjmv 11.x 冇 fix 而 codegen 寫死 `^11.2.0`，用戶揀 npm `overrides` 強制 `^12.0.3`（`b0c4751`），`tests/test_npm_overrides.py` 釘住 override 存在 ⇔ 仲有 dependent 要 11.x。同一條 lane 完成，直接放入 `completed/`
 **2026-10-05**：開咗 **CUI-0054**（每日 `npm audit` 由 2026-09-30 起紅）。`brace-expansion` 用 `npm audit fix` 修咗；`braces`（GHSA-vfj7-8cjw-p6xm）上游冇 fix，用戶揀咗有期限嘅 allowlist（`scripts/npm_audit_gate.py`）。同一條 lane 實現埋並轉 ✅ done，直接放入 `completed/`
 
 > 由 `/audit`（AU-NNN）同 `/review`（C/W/S-NNN）產生嘅 ticket 集中登記處。
@@ -22,11 +23,11 @@
 
 ## 📋 CUI ticket census（權威總覽）
 
-**核實日期**：2026-10-05 ｜ **總數**：54 張（CUI-0001 … CUI-0054）
+**核實日期**：2026-10-06 ｜ **總數**：55 張（CUI-0001 … CUI-0055）
 
-> 量度方法（2026-10-05 喺 CUI-0054 lane、以 `8554b3f` 為基礎重量，同下面 Bucket 表係**同一次**點算）：
-> `find .tickets -name 'CUI-*.md' | wc -l` → **54**；
-> `ls .tickets/<bucket>/0001-0200/CUI-*.md | wc -l` → pending **0** / in-progress **0** / completed **54**。
+> 量度方法（2026-10-06 喺 CUI-0055 lane、以 `b0c4751` 為基礎重量，同下面 Bucket 表係**同一次**點算）：
+> `find .tickets -name 'CUI-*.md' | wc -l` → **55**；
+> `ls .tickets/<bucket>/0001-0200/CUI-*.md | wc -l` → pending **0** / in-progress **0** / completed **55**。
 >
 > ⚠️ 呢個 block 之前留住 `6576e56` 嗰陣嘅讀數（**42**；pending 13 / 0 / completed 29），同三行之下嘅
 > Bucket 表（52；45 / 0 / 7）並存，兩套數仲掛住**同一個核實日期**，而本 section 自稱「權威快照」——
@@ -41,10 +42,10 @@
 
 | Bucket | 數量 | 檔案位置 |
 |---|---:|---|
-| ✅ completed | **54** | `.tickets/completed/0001-0200/` |
+| ✅ completed | **55** | `.tickets/completed/0001-0200/` |
 | 🔄 in-progress | **0** | `.tickets/in-progress/0001-0200/`（空） |
-| ⏳ pending | **0** | `.tickets/pending/0001-0200/`（空：CUI-0052、CUI-0053 已搬入 `completed/`，CUI-0054 開票同日完成，直接放入 `completed/`） |
-| **總計** | **54** | |
+| ⏳ pending | **0** | `.tickets/pending/0001-0200/`（空：CUI-0052、CUI-0053 已搬入 `completed/`，CUI-0054、CUI-0055 開票同日完成，直接放入 `completed/`） |
+| **總計** | **55** | |
 
 > ⚠️ **2026-09-17 後續（CUI-0049 / CUI-0044）**：兩張票狀態已轉 ✅ done，但**票檔冇搬**（依指示原地留喺
 > `pending/`）。所以上面「Bucket 數」仍然係**按檔案位置**數，completed **45** / pending **6** 未變 ——
@@ -84,11 +85,11 @@
 
 ### 編號完整性核實
 
-逐一列舉 `.tickets/` 下全部 `CUI-*.md` 檔名並同 `0001…0054` 對比
-（2026-10-05 喺 CUI-0054 lane 用 `find .tickets -name 'CUI-*.md'` 點算，同上面 Bucket 表係同一次點算）：
+逐一列舉 `.tickets/` 下全部 `CUI-*.md` 檔名並同 `0001…0055` 對比
+（2026-10-06 喺 CUI-0055 lane 用 `find .tickets -name 'CUI-*.md'` 點算，同上面 Bucket 表係同一次點算）：
 
-- **編號連續**：✅ 是 —— `0001` 到 `0054` 一個不缺
-- **無跳號**：✅ 是 —— 應有 54 張，實有 54 張
+- **編號連續**：✅ 是 —— `0001` 到 `0055` 一個不缺
+- **無跳號**：✅ 是 —— 應有 55 張，實有 55 張
 - **無撞號**：✅ 是 —— 每個編號只有一個檔案，冇一個編號出現兩次
 
 > ⚠️ **開新票就要一齊改呢段。** 上面三句結論喺開票之後**照舊成立**，會漂嘅淨係範圍同張數 ——
@@ -153,6 +154,7 @@
 | **CUI-0052** | 🟢 Low | 兩個 supply-chain audit gate（`pip-audit` / `npm audit`）坐喺 `deploy` 上游（`build.needs = [lint-test, frontend]`、`deploy.needs = build`），而本 repo 每次 push `develop` 就 deploy ⇒ 一條同本 repo 完全無關嘅上游 advisory 可以停晒所有部署，包括 hotfix。兩份文件都認咗係刻意 trade，**唔當缺陷**；問題係要唔要解耦（標準做法：另開 `schedule:` audit workflow，**唔係** `continue-on-error`）。由 S-122 開出 | ✅ done | `completed/` |
 | **CUI-0053** | 🟡 Medium | Vercel 唔經 GitHub Actions 部署，所以部署完之後**冇任何自動檢查**：function 起唔起到、bundle 入面個 DB 有冇行，全部靠人手睇 Vercel Logs（`docs/deployment.md` 記住六次，兩次正正係呢種）。⚠️ 兩個陷阱：(a) `/api/health` **分得開** fallback（fallback 答 500 唔係 200），但**分唔開空 DB** —— 實測 populated 同 empty DB 都係 65536 bytes ⇒ 一定要夾一條真 query 驗行數；(b) `deployment_status` / `schedule` 兩個 trigger 都**只認 default branch** 上面嗰份 workflow file，而本 repo default branch 係 `master` 唔係部署源頭 `develop` ⇒ 寫成嗰樣會靜英英一次都唔行。由 `docs/roadmap.md` §Next 開出 | ✅ done | `completed/` |
 | **CUI-0054** | 🟡 Medium | 每日 `npm audit` 由 2026-09-30 起紅：`brace-expansion`（`npm audit fix` 修咗）同 `braces` GHSA-vfj7-8cjw-p6xm（受影響範圍包埋最新版，上游冇 fix，淨係經 `@graphql-codegen/cli` 入嚟）。用戶揀咗有期限嘅 allowlist：`scripts/npm_audit_gate.py` ＋ `frontend/npm-audit-allowlist.json`，過期、stale、有 non-breaking fix、路徑改變都會紅 | ✅ done | `completed/` |
+| **CUI-0055** | 🟡 Medium | 每日 `npm audit` 喺 2026-10-06 再紅：`source-map-js` GHSA-68fv-2mgg-jv7q（`npm update` 升 1.2.2）同 `@graphql-tools/utils` GHSA-7mx3-vvmw-hjmv（11.x 冇 fix、codegen 全線寫死 `^11.2.0`）。用戶揀 npm `overrides` 強制 `^12.0.3`；codegen 輸出 byte-identical；`tests/test_npm_overrides.py` 釘住 override 存在 ⇔ 仲有 dependent 要 11.x | ✅ done | `completed/` |
 
 ### ⚠️ 核實過程發現
 

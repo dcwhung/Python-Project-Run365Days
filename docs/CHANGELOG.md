@@ -19,6 +19,16 @@ are named `release/vX` and tags `vX.Y.Z`.
   (AU-037).
 
 ### Security
+- `source-map-js` moves to 1.2.2 for GHSA-68fv-2mgg-jv7q (event-loop denial
+  of service through indexed source-map section offsets). Lockfile only
+  (CUI-0055).
+- `@graphql-tools/utils` is overridden to `^12.0.3` for GHSA-7mx3-vvmw-hjmv
+  (prototype pollution in `mergeDeep`). No 11.x release carries the fix and
+  every `@graphql-codegen` package still declares `^11.2.0`, so
+  `frontend/package.json` gains an npm `overrides` entry; codegen output is
+  unchanged. `tests/test_npm_overrides.py` fails once no dependent declares
+  11.x any more, so the override is removed when codegen moves to 12
+  (CUI-0055).
 - `npm audit fix` takes `brace-expansion` past three denial-of-service
   advisories (GHSA-q2hr-2g5m-vwhr, GHSA-qhr7-859c-m2p7, GHSA-6j4f-fj2g-mc7p).
   Lockfile only: every change is a patch release of a development dependency,
